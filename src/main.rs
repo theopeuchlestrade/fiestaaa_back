@@ -1,6 +1,8 @@
-use actix_web::{web, App, HttpServer, middleware::Logger};
-use actix_web::http::header::{AUTHORIZATION, CONTENT_TYPE};
 use actix_cors::Cors;
+use actix_web::http::header::{AUTHORIZATION, CONTENT_TYPE};
+use actix_web::{middleware::Logger, web, App, HttpServer};
+use utoipa::OpenApi;
+use utoipa_swagger_ui::SwaggerUi;
 
 mod config;
 mod state;
@@ -8,6 +10,7 @@ mod db;
 mod models;
 mod auth;
 mod routes;
+mod docs;
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
@@ -34,9 +37,9 @@ async fn main() -> std::io::Result<()> {
             .wrap(Logger::default())
             .wrap(cors)
             .configure(routes::configure)
+            .service(SwaggerUi::new("/docs/{_:.*}").url("/docs/openapi.json", docs::ApiDoc::openapi()))
     })
     .bind(format!("{}:{}", cfg.host, cfg.port))?
     .run()
     .await
 }
-
