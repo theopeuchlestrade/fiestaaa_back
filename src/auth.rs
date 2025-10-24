@@ -5,7 +5,7 @@ use sqlx::{Pool, Postgres, Row};
 use actix_web::{HttpRequest, HttpResponse};
 use actix_web::http::header::AUTHORIZATION;
 
-use crate::models::Claims;
+use crate::models::{Claims, ErrorResponse};
 
 pub fn now_ts() -> u64 {
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -48,19 +48,26 @@ pub fn decode_jwt(token: &str, secret: &str) -> Result<Claims, HttpResponse> {
                 ErrorKind::InvalidToken => "invalid_token",
                 _ => "token_error",
             };
-            Err(HttpResponse::Unauthorized().json(serde_json::json!({ "error": code })))
+            Err(HttpResponse::Unauthorized().json(ErrorResponse { error: code.into(), details: None }))
         }
     }
 }
 
 pub fn extract_claims_from_auth(req: &HttpRequest, secret: &str) -> Result<Claims, HttpResponse> {
     let header = req.headers().get(AUTHORIZATION).and_then(|v| v.to_str().ok());
-    let Some(header_val) = header else { return Err(HttpResponse::Unauthorized().json(serde_json::json!({"error":"missing_authorization_header"}))) };
+    let Some(header_val) = header else {
+        return Err(HttpResponse::Unauthorized().json(ErrorResponse {
+            error: "missing_authorization_header".into(),
+            details: None,
+        }))
+    };
     let prefix = "Bearer ";
     if !header_val.starts_with(prefix) {
-        return Err(HttpResponse::Unauthorized().json(serde_json::json!({"error":"invalid_authorization_scheme"})));
+        return Err(HttpResponse::Unauthorized().json(ErrorResponse {
+            error: "invalid_authorization_scheme".into(),
+            details: None,
+        }));
     }
     let token = &header_val[prefix.len()..];
     decode_jwt(token, secret)
 }
-

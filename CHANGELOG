@@ -1,0 +1,9 @@
+# Changelog
+
+## [Unreleased]
+
+### Added
+- Actix Web foundation (logger, CORS) with root `/` route and `/health` probe.
+- Config loading and PostgreSQL connection via SQLx, including automatic migrations and shared pool through `AppState`.
+- Full authentication journey: register and login (`/auth/register`, `/auth/login`), Argon2 hashing, JWT issuance, and protected `/me` endpoint.
+- Automatic OpenAPI generation using Utoipa with Swagger UI served at `/docs` (JSON available on `/docs/openapi.json`).
