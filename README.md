@@ -11,7 +11,7 @@ Environment
   `DATABASE_URL=postgres://postgres:postgres@db:5432/fiestaaa` for the API container.
 
 Run
-- ``docker compose up --build
+- `docker compose up --build`
 - API: http://127.0.0.1:8080
 - Ctrl+C to stop; `docker compose down` to clean up.
 
