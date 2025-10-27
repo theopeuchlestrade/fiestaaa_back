@@ -1,4 +1,4 @@
-use actix_web::{get, web, HttpResponse, Responder};
+use actix_web::{HttpResponse, Responder, get, web};
 
 use crate::{models::HealthResponse, state::AppState};
 
@@ -20,7 +20,10 @@ pub async fn health(state: web::Data<AppState>) -> impl Responder {
         .unwrap_or(false);
 
     if db_ok {
-        HttpResponse::Ok().json(HealthResponse { status: "ok".into(), db: None })
+        HttpResponse::Ok().json(HealthResponse {
+            status: "ok".into(),
+            db: None,
+        })
     } else {
         HttpResponse::ServiceUnavailable().json(HealthResponse {
             status: "degraded".into(),
