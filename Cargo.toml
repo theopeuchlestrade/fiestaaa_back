@@ -17,3 +17,6 @@ rand_core = "0.6"
 actix-cors = "0.7"
 utoipa = { version = "4", features = ["actix_extras"] }
 utoipa-swagger-ui = { version = "6", features = ["actix-web"] }
+
+[dev-dependencies]
+once_cell = "1"

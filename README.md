@@ -9,6 +9,7 @@ Prerequisites
 Environment
 - Copy `.env.example` to `.env` and adjust as needed. The compose file sets
   `DATABASE_URL=postgres://postgres:postgres@db:5432/fiestaaa` for the API container.
+- Optionally define `ADMIN_EMAILS` (comma-separated, lower/upper case ignored) to restrict admin endpoints like `/items` to specific accounts.
 
 Run
 - `docker compose up --build`
@@ -21,3 +22,19 @@ Notes
 - If you prefer local cargo run, start only DB: `docker compose up -d db`, and keep
   `DATABASE_URL=postgres://postgres:postgres@localhost:5432/fiestaaa` in `.env`.
 
+Tests
+- Provide a Postgres instance and set `TEST_DATABASE_URL` (or reuse `DATABASE_URL`), then run `cargo test`.
+- For local coverage, leverage LLVM instrumentation:
+  ```bash
+  rustup component add llvm-tools-preview
+  rm -rf coverage && mkdir -p coverage
+  export LLVM_PROFILE_FILE="coverage/fiestaaa-%p-%m.profraw"
+  export RUSTFLAGS="-Cinstrument-coverage -Clink-dead-code"
+  export RUSTDOCFLAGS="-Cinstrument-coverage -Clink-dead-code"
+  cargo test
+  llvm-profdata merge -sparse coverage/fiestaaa-*.profraw -o coverage/fiestaaa.profdata
+  llvm-cov report --use-color --ignore-filename-regex='/.cargo/registry' \
+    --instr-profile=coverage/fiestaaa.profdata \
+    $(find target/debug/deps -maxdepth 1 -type f \( -name 'fiestaaa_back-*' -o -name 'items-*' \))
+  ```
+  The `cargo test` run generates `.profraw` files; `llvm-profdata`/`llvm-cov` summarize coverage locally without impacting CI.

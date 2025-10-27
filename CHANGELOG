@@ -8,3 +8,7 @@
 - Full authentication journey: register and login (`/auth/register`, `/auth/login`), Argon2 hashing, JWT issuance, and protected `/me` endpoint.
 - Automatic OpenAPI generation using Utoipa with Swagger UI served at `/docs` (JSON available on `/docs/openapi.json`).
 - Database migration `0002_add_event_tables.sql` introducing events, inventory management, invitations, and payment provider linkage.
+- CRUD complet pour `/items` (liste publique, opérations admin sécurisées par JWT & configuration `ADMIN_EMAILS`).
+- Suite de tests d'intégration (`cargo test`) couvrant la protection admin et le cycle CRUD des items.
+- Tests d'intégration `/auth` validant enregistrement, hachage et scénarios de connexion.
+- Documentation pour générer la couverture localement via `cargo test` + LLVM (sans intégration CI).

@@ -1,12 +1,10 @@
-use actix_web::{post, web, HttpResponse, Responder};
 use actix_web::http::header::CONTENT_TYPE;
+use actix_web::{HttpResponse, Responder, post, web};
 use sqlx::Error;
 
 use crate::{
     auth::{encode_jwt, hash_password, now_ts, verify_user_db},
-    models::{
-        Claims, ErrorResponse, LoginPayload, RegisterPayload, StatusResponse, TokenResponse,
-    },
+    models::{Claims, ErrorResponse, LoginPayload, RegisterPayload, StatusResponse, TokenResponse},
     state::AppState,
 };
 
@@ -23,7 +21,10 @@ use crate::{
     )
 )]
 #[post("/auth/register")]
-pub async fn register(state: web::Data<AppState>, payload: web::Json<RegisterPayload>) -> impl Responder {
+pub async fn register(
+    state: web::Data<AppState>,
+    payload: web::Json<RegisterPayload>,
+) -> impl Responder {
     let email = payload.email.trim().to_lowercase();
     let password = payload.password.trim();
 
@@ -40,7 +41,7 @@ pub async fn register(state: web::Data<AppState>, payload: web::Json<RegisterPay
             return HttpResponse::InternalServerError().json(ErrorResponse {
                 error: "hash_failed".into(),
                 details: None,
-            })
+            });
         }
     };
 
@@ -51,13 +52,21 @@ pub async fn register(state: web::Data<AppState>, payload: web::Json<RegisterPay
         .await;
 
     match res {
-        Ok(_) => HttpResponse::Created().json(StatusResponse { status: "ok".into() }),
+        Ok(_) => HttpResponse::Created().json(StatusResponse {
+            status: "ok".into(),
+        }),
         Err(e) => match e {
             Error::Database(db_err) if db_err.code().as_deref() == Some("23505") => {
-                HttpResponse::Conflict().json(ErrorResponse { error: "email_taken".into(), details: None })
+                HttpResponse::Conflict().json(ErrorResponse {
+                    error: "email_taken".into(),
+                    details: None,
+                })
             }
-            _ => HttpResponse::InternalServerError().json(ErrorResponse { error: "db_error".into(), details: None }),
-        }
+            _ => HttpResponse::InternalServerError().json(ErrorResponse {
+                error: "db_error".into(),
+                details: None,
+            }),
+        },
     }
 }
 
@@ -76,19 +85,33 @@ pub async fn register(state: web::Data<AppState>, payload: web::Json<RegisterPay
 pub async fn login(state: web::Data<AppState>, payload: web::Json<LoginPayload>) -> impl Responder {
     let ok = match verify_user_db(&state.db, &payload.email, &payload.password).await {
         Ok(v) => v,
-        Err(_) => return HttpResponse::InternalServerError().json(ErrorResponse { error: "db_error".into(), details: None }),
+        Err(_) => {
+            return HttpResponse::InternalServerError().json(ErrorResponse {
+                error: "db_error".into(),
+                details: None,
+            });
+        }
     };
     if !ok {
-        return HttpResponse::Unauthorized().json(ErrorResponse { error: "invalid_credentials".into(), details: None });
+        return HttpResponse::Unauthorized().json(ErrorResponse {
+            error: "invalid_credentials".into(),
+            details: None,
+        });
     }
 
     let exp = (now_ts() + 24 * 3600) as usize;
-    let claims = Claims { sub: payload.email.to_owned(), exp };
+    let claims = Claims {
+        sub: payload.email.to_owned(),
+        exp,
+    };
 
     match encode_jwt(&claims, &state.jwt_secret) {
         Ok(token) => HttpResponse::Ok()
             .insert_header((CONTENT_TYPE, "application/json"))
             .json(TokenResponse { token }),
-        Err(_) => HttpResponse::InternalServerError().json(ErrorResponse { error: "token_creation_failed".into(), details: None }),
+        Err(_) => HttpResponse::InternalServerError().json(ErrorResponse {
+            error: "token_creation_failed".into(),
+            details: None,
+        }),
     }
 }
