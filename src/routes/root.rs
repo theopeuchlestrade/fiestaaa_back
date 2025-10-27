@@ -1,4 +1,4 @@
-use actix_web::{get, web, HttpRequest, HttpResponse, Responder};
+use actix_web::{HttpRequest, HttpResponse, Responder, get, web};
 
 use crate::{auth::extract_claims_from_auth, models::MeResponse, state::AppState};
 
@@ -27,7 +27,10 @@ pub async fn hello() -> impl Responder {
 #[get("/me")]
 pub async fn me(state: web::Data<AppState>, req: HttpRequest) -> impl Responder {
     match extract_claims_from_auth(&req, &state.jwt_secret) {
-        Ok(claims) => HttpResponse::Ok().json(MeResponse { email: claims.sub, exp: claims.exp }),
+        Ok(claims) => HttpResponse::Ok().json(MeResponse {
+            email: claims.sub,
+            exp: claims.exp,
+        }),
         Err(resp) => resp,
     }
 }

@@ -14,4 +14,3 @@ pub async fn connect_and_migrate(database_url: &str) -> Pool<Postgres> {
 
     pool
 }
-
