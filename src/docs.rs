@@ -1,8 +1,8 @@
 use utoipa::OpenApi;
 
 use crate::models::{
-    ErrorResponse, HealthResponse, Item, ItemPatchPayload, ItemPayload, LoginPayload, MeResponse,
-    RegisterPayload, StatusResponse, TokenResponse,
+    ErrorResponse, Event, EventPatchPayload, EventPayload, HealthResponse, Item, ItemPatchPayload, 
+    ItemPayload, LoginPayload, MeResponse, RegisterPayload, StatusResponse, TokenResponse,
 };
 
 #[derive(OpenApi)]
@@ -17,7 +17,12 @@ use crate::models::{
         crate::routes::items::create_item,
         crate::routes::items::replace_item,
         crate::routes::items::update_item,
-        crate::routes::items::delete_item
+        crate::routes::items::delete_item,
+        crate::routes::events::list_events,
+        crate::routes::events::create_event,
+        crate::routes::events::replace_event,
+        crate::routes::events::update_event,
+        crate::routes::events::delete_event
     ),
     components(
         schemas(
@@ -30,14 +35,18 @@ use crate::models::{
             HealthResponse,
             Item,
             ItemPayload,
-            ItemPatchPayload
+            ItemPatchPayload,
+            Event,
+            EventPayload,
+            EventPatchPayload
         )
     ),
     tags(
         (name = "root", description = "Endpoints généraux"),
         (name = "auth", description = "Authentification"),
         (name = "health", description = "Surveillance de l'API"),
-        (name = "items", description = "Catalogue des items référencés")
+        (name = "items", description = "Catalogue des items référencés"),
+        (name = "events", description = "Gestion des événements")
     )
 )]
 pub struct ApiDoc;
