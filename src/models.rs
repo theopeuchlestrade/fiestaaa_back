@@ -69,3 +69,37 @@ pub struct ItemPatchPayload {
     pub name_item: Option<String>,
     pub max_quantity: Option<i32>,
 }
+
+#[derive(Debug, Serialize, Deserialize, ToSchema, FromRow)]
+pub struct Event {
+    pub event_id: i64,
+    pub name_event: String,
+    pub description: String,
+    pub date_event: chrono::NaiveDate,
+    pub start_time: chrono::NaiveTime,
+    pub address: String,
+    pub payment_provider_id: Option<i32>,
+    pub payment_identifier: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct EventPayload {
+    pub name_event: String,
+    pub description: String,
+    pub date_event: chrono::NaiveDate,
+    pub start_time: chrono::NaiveTime,
+    pub address: String,
+    pub payment_provider_id: Option<i32>,
+    pub payment_identifier: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct EventPatchPayload {
+    pub name_event: Option<String>,
+    pub description: Option<String>,
+    pub date_event: Option<chrono::NaiveDate>,
+    pub start_time: Option<chrono::NaiveTime>,
+    pub address: Option<String>,
+    pub payment_provider_id: Option<i32>,
+    pub payment_identifier: Option<String>,
+}
