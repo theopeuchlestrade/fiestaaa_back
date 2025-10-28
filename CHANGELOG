@@ -12,3 +12,6 @@
 - Suite de tests d'intégration (`cargo test`) couvrant la protection admin et le cycle CRUD des items.
 - Tests d'intégration `/auth` validant enregistrement, hachage et scénarios de connexion.
 - Documentation pour générer la couverture localement via `cargo test` + LLVM (sans intégration CI).
+- Complete CRUD for `/events` with payment provider integration and validation.
+- Integration tests for `/events` validating complete event management, including payment validations.
+- Documentation for generating local coverage via `docker compose run --rm api cargo test`.
