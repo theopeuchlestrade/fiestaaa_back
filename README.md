@@ -23,7 +23,8 @@ Notes
   `DATABASE_URL=postgres://postgres:postgres@localhost:5432/fiestaaa` in `.env`.
 
 Tests
-- Provide a Postgres instance and set `TEST_DATABASE_URL` (or reuse `DATABASE_URL`), then run `cargo test`.
+- Run tests with Docker (recommended): `docker compose run --rm api cargo test`
+- Alternatively, provide a Postgres instance and set `TEST_DATABASE_URL` (or reuse `DATABASE_URL`), then run `cargo test`.
 - For local coverage, leverage LLVM instrumentation:
   ```bash
   rustup component add llvm-tools-preview
