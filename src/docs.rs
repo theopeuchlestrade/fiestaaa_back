@@ -2,7 +2,8 @@ use utoipa::OpenApi;
 
 use crate::models::{
     ErrorResponse, Event, EventPatchPayload, EventPayload, HealthResponse, Item, ItemPatchPayload, 
-    ItemPayload, LoginPayload, MeResponse, RegisterPayload, StatusResponse, TokenResponse,
+    ItemPayload, LoginPayload, MeResponse, PaymentProvider, PaymentProviderPatchPayload, PaymentProviderPayload,
+    RegisterPayload, StatusResponse, TokenResponse,
 };
 
 #[derive(OpenApi)]
@@ -22,7 +23,12 @@ use crate::models::{
         crate::routes::events::create_event,
         crate::routes::events::replace_event,
         crate::routes::events::update_event,
-        crate::routes::events::delete_event
+        crate::routes::events::delete_event,
+        crate::routes::payment_providers::list_payment_providers,
+        crate::routes::payment_providers::create_payment_provider,
+        crate::routes::payment_providers::replace_payment_provider,
+        crate::routes::payment_providers::update_payment_provider,
+        crate::routes::payment_providers::delete_payment_provider
     ),
     components(
         schemas(
@@ -38,7 +44,10 @@ use crate::models::{
             ItemPatchPayload,
             Event,
             EventPayload,
-            EventPatchPayload
+            EventPatchPayload,
+            PaymentProvider,
+            PaymentProviderPayload,
+            PaymentProviderPatchPayload
         )
     ),
     tags(
@@ -46,7 +55,8 @@ use crate::models::{
         (name = "auth", description = "Authentification"),
         (name = "health", description = "Surveillance de l'API"),
         (name = "items", description = "Catalogue des items référencés"),
-        (name = "events", description = "Gestion des événements")
+        (name = "events", description = "Gestion des événements"),
+        (name = "payment-providers", description = "Configuration des fournisseurs de paiement (admin)")
     )
 )]
 pub struct ApiDoc;
