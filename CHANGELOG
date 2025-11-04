@@ -14,4 +14,6 @@
 - Documentation pour générer la couverture localement via `cargo test` + LLVM (sans intégration CI).
 - Complete CRUD for `/events` with payment provider integration and validation.
 - Integration tests for `/events` validating complete event management, including payment validations.
-- Documentation for generating local coverage via `docker compose run --rm api cargo test`.
+- Complete CRUD for `/payment_providers` including endpoints and models for managing payment providers.
+- Added integration tests for CRUD operations of payment providers in `tests/payment_providers.rs`.
+- Verified error handling for payment provider updates.
