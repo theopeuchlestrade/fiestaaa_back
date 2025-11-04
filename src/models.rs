@@ -103,3 +103,25 @@ pub struct EventPatchPayload {
     pub payment_provider_id: Option<i32>,
     pub payment_identifier: Option<String>,
 }
+
+#[derive(Debug, Serialize, Deserialize, ToSchema, FromRow)]
+pub struct PaymentProvider {
+    pub provider_id: i32,
+    pub provider_name: String,
+    pub url_template: String,
+    pub is_active: bool,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct PaymentProviderPayload {
+    pub provider_name: String,
+    pub url_template: String,
+    pub is_active: Option<bool>,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct PaymentProviderPatchPayload {
+    pub provider_name: Option<String>,
+    pub url_template: Option<String>,
+    pub is_active: Option<bool>,
+}
