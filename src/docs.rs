@@ -1,9 +1,11 @@
 use utoipa::OpenApi;
 
 use crate::models::{
-    ErrorResponse, Event, EventPatchPayload, EventPayload, HealthResponse, Item, ItemPatchPayload, 
-    ItemPayload, LoginPayload, MeResponse, PaymentProvider, PaymentProviderPatchPayload, PaymentProviderPayload,
-    RegisterPayload, StatusResponse, TokenResponse,
+    ErrorResponse, Event, EventItemAttachPayload, EventItemReservationPayload, EventItemView,
+    EventPatchPayload, EventPayload, HealthResponse, Invitation, InvitationPatchPayload,
+    InvitationPayload, Item, ItemPatchPayload, ItemPayload, LoginPayload, MeResponse,
+    PaymentProvider, PaymentProviderPatchPayload, PaymentProviderPayload, RegisterPayload,
+    StatusResponse, TokenResponse,
 };
 
 #[derive(OpenApi)]
@@ -24,6 +26,14 @@ use crate::models::{
         crate::routes::events::replace_event,
         crate::routes::events::update_event,
         crate::routes::events::delete_event,
+        crate::routes::events::list_event_items,
+        crate::routes::events::attach_event_item,
+        crate::routes::events::reserve_event_item,
+        crate::routes::invitations::list_event_invitations,
+        crate::routes::invitations::create_invitation,
+        crate::routes::invitations::delete_invitation,
+        crate::routes::invitations::list_my_invitations,
+        crate::routes::invitations::respond_invitation,
         crate::routes::payment_providers::list_payment_providers,
         crate::routes::payment_providers::create_payment_provider,
         crate::routes::payment_providers::replace_payment_provider,
@@ -45,6 +55,12 @@ use crate::models::{
             Event,
             EventPayload,
             EventPatchPayload,
+            EventItemView,
+            EventItemAttachPayload,
+            EventItemReservationPayload,
+            Invitation,
+            InvitationPayload,
+            InvitationPatchPayload,
             PaymentProvider,
             PaymentProviderPayload,
             PaymentProviderPatchPayload
@@ -56,6 +72,7 @@ use crate::models::{
         (name = "health", description = "Surveillance de l'API"),
         (name = "items", description = "Catalogue des items référencés"),
         (name = "events", description = "Gestion des événements"),
+        (name = "invitations", description = "Gestion des invitations aux événements"),
         (name = "payment-providers", description = "Configuration des fournisseurs de paiement (admin)")
     )
 )]
