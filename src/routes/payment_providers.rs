@@ -1,9 +1,12 @@
-use actix_web::{delete, get, patch, post, put, web, HttpRequest, HttpResponse, Responder};
+use actix_web::{HttpRequest, HttpResponse, Responder, delete, get, patch, post, put, web};
 use sqlx::Error;
 
 use crate::{
     auth::extract_claims_from_auth,
-    models::{ErrorResponse, PaymentProvider, PaymentProviderPatchPayload, PaymentProviderPayload, StatusResponse},
+    models::{
+        ErrorResponse, PaymentProvider, PaymentProviderPatchPayload, PaymentProviderPayload,
+        StatusResponse,
+    },
     state::AppState,
 };
 
@@ -205,8 +208,14 @@ pub async fn update_payment_provider(
     }
 
     let payload = payload.into_inner();
-    if payload.provider_name.as_ref().is_some_and(|v| v.trim().is_empty())
-        || payload.url_template.as_ref().is_some_and(|v| v.trim().is_empty())
+    if payload
+        .provider_name
+        .as_ref()
+        .is_some_and(|v| v.trim().is_empty())
+        || payload
+            .url_template
+            .as_ref()
+            .is_some_and(|v| v.trim().is_empty())
     {
         return HttpResponse::BadRequest().json(ErrorResponse {
             error: "invalid_payload".into(),

@@ -80,6 +80,7 @@ pub struct Event {
     pub address: String,
     pub payment_provider_id: Option<i32>,
     pub payment_identifier: Option<String>,
+    pub owner_email: String,
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
@@ -102,6 +103,48 @@ pub struct EventPatchPayload {
     pub address: Option<String>,
     pub payment_provider_id: Option<i32>,
     pub payment_identifier: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema, FromRow)]
+pub struct EventItemView {
+    pub event_id: i64,
+    pub item_id: i64,
+    pub type_id: i64,
+    pub type_name: String,
+    pub name_item: String,
+    pub max_quantity: i32,
+    pub reserved_quantity: i32,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct EventItemAttachPayload {
+    pub item_id: i64,
+    pub max_quantity: i32,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct EventItemReservationPayload {
+    pub quantity: i32,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema, FromRow)]
+pub struct Invitation {
+    pub event_id: i64,
+    pub email: String,
+    pub status: String,
+    pub date_invi: chrono::DateTime<chrono::Utc>,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct InvitationPayload {
+    pub event_id: i64,
+    pub email: String,
+    pub status: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct InvitationPatchPayload {
+    pub status: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema, FromRow)]
