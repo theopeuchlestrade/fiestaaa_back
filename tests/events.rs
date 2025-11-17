@@ -2,12 +2,14 @@ mod common;
 
 use std::error::Error;
 
-use actix_web::{test, App, http::StatusCode};
+use actix_web::{App, http::StatusCode, test};
 use chrono::{NaiveDate, NaiveTime};
 use common::{DB_LOCK, build_state, obtain_pool, reset_tables};
 use fiestaaa_back::{
-    auth::{encode_jwt, now_ts},
-    models::{Claims, Event, EventPatchPayload, EventPayload},
+    auth::{encode_jwt, hash_password, now_ts},
+    models::{
+        Claims, Event, EventItemReservationPayload, EventItemView, EventPatchPayload, EventPayload,
+    },
     routes,
 };
 use sqlx::PgPool;
@@ -25,6 +27,39 @@ async fn seed_payment_provider(pool: &PgPool, name: &str) -> sqlx::Result<i32> {
         "INSERT INTO payment_providers (provider_name, url_template) VALUES ($1, 'https://example.com/{identifier}') RETURNING provider_id"
     )
     .bind(name)
+    .fetch_one(pool)
+    .await
+}
+
+async fn seed_item(
+    pool: &PgPool,
+    type_name: &str,
+    item_name: &str,
+    max_quantity: i32,
+) -> sqlx::Result<i64> {
+    let type_id =
+        sqlx::query_scalar::<_, i64>("INSERT INTO item_types (type) VALUES ($1) RETURNING type_id")
+            .bind(type_name)
+            .fetch_one(pool)
+            .await?;
+
+    sqlx::query_scalar::<_, i64>(
+        "INSERT INTO items (type_id, name_item, max_quantity) VALUES ($1, $2, $3) RETURNING item_id",
+    )
+    .bind(type_id)
+    .bind(item_name)
+    .bind(max_quantity)
+    .fetch_one(pool)
+    .await
+}
+
+async fn seed_user(pool: &PgPool, email: &str) -> sqlx::Result<i64> {
+    let hash = hash_password("password").expect("hash");
+    sqlx::query_scalar::<_, i64>(
+        "INSERT INTO users (email, password_hash) VALUES ($1, $2) RETURNING id",
+    )
+    .bind(email)
+    .bind(hash)
     .fetch_one(pool)
     .await
 }
@@ -89,7 +124,7 @@ async fn create_event_requires_authentication() -> Result<(), Box<dyn Error>> {
 }
 
 #[tokio::test]
-async fn create_event_rejects_non_admin() -> Result<(), Box<dyn Error>> {
+async fn create_event_allows_authenticated_user() -> Result<(), Box<dyn Error>> {
     let Some(pool) = obtain_pool().await else {
         eprintln!("Skipping events tests: DATABASE_URL or TEST_DATABASE_URL not set");
         return Ok(());
@@ -121,7 +156,7 @@ async fn create_event_rejects_non_admin() -> Result<(), Box<dyn Error>> {
     )
     .await;
 
-    assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+    assert_eq!(resp.status(), StatusCode::CREATED);
     Ok(())
 }
 
@@ -164,6 +199,7 @@ async fn events_crud_flow() -> Result<(), Box<dyn Error>> {
     let created: Event = test::read_body_json(resp).await;
     assert_eq!(created.name_event, "Summer Party");
     assert_eq!(created.payment_provider_id, Some(provider_id));
+    assert_eq!(created.owner_email, admin_email);
 
     // List events
     let resp = test::call_service(
@@ -174,6 +210,7 @@ async fn events_crud_flow() -> Result<(), Box<dyn Error>> {
     assert_eq!(resp.status(), StatusCode::OK);
     let listed: Vec<Event> = test::read_body_json(resp).await;
     assert_eq!(listed.len(), 1);
+    assert_eq!(listed[0].owner_email, admin_email);
 
     // Update event (PUT)
     let resp = test::call_service(
@@ -197,6 +234,7 @@ async fn events_crud_flow() -> Result<(), Box<dyn Error>> {
     let replaced: Event = test::read_body_json(resp).await;
     assert_eq!(replaced.name_event, "Mega Summer Party");
     assert_eq!(replaced.address, "456 Party Avenue");
+    assert_eq!(replaced.owner_email, admin_email);
 
     // Partial update (PATCH)
     let resp = test::call_service(
@@ -220,6 +258,7 @@ async fn events_crud_flow() -> Result<(), Box<dyn Error>> {
     let patched: Event = test::read_body_json(resp).await;
     assert_eq!(patched.name_event, "Super Mega Summer Party");
     assert_eq!(patched.start_time.format("%H:%M").to_string(), "22:00");
+    assert_eq!(patched.owner_email, admin_email);
 
     // Delete event
     let resp = test::call_service(
@@ -236,6 +275,178 @@ async fn events_crud_flow() -> Result<(), Box<dyn Error>> {
         .fetch_one(&pool)
         .await?;
     assert_eq!(remaining.0, 0);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn event_items_reservation_flow() -> Result<(), Box<dyn Error>> {
+    let Some(pool) = obtain_pool().await else {
+        eprintln!("Skipping events tests: DATABASE_URL or TEST_DATABASE_URL not set");
+        return Ok(());
+    };
+    let _guard = DB_LOCK.lock().await;
+    reset_tables(
+        &pool,
+        &[
+            "events",
+            "payment_providers",
+            "item_types",
+            "items",
+            "events_items",
+            "user_items",
+            "users",
+        ],
+    )
+    .await?;
+
+    let secret = "secret";
+    let admin_email = "admin@example.com";
+    let state = build_state(pool.clone(), secret, &[admin_email]);
+    let mut app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
+    let admin_token_value = admin_token(secret, admin_email).expect("token");
+
+    // Create event
+    let resp = test::call_service(
+        &mut app,
+        test::TestRequest::post()
+            .uri("/events")
+            .insert_header((
+                "Authorization",
+                format!("Bearer {}", admin_token_value.clone()),
+            ))
+            .set_json(&EventPayload {
+                name_event: "Tasting Night".to_string(),
+                description: "Bring your best drinks".to_string(),
+                date_event: NaiveDate::from_ymd_opt(2024, 8, 1).unwrap(),
+                start_time: NaiveTime::from_hms_opt(18, 30, 0).unwrap(),
+                address: "Club House".to_string(),
+                payment_provider_id: None,
+                payment_identifier: None,
+            })
+            .to_request(),
+    )
+    .await;
+    assert_eq!(resp.status(), StatusCode::CREATED);
+    let event: Event = test::read_body_json(resp).await;
+
+    // Seed catalog item
+    let item_id = seed_item(&pool, "Boisson", "Punch", 5).await?;
+
+    // Listing automatically seeds catalog items for the event
+    let resp = test::call_service(
+        &mut app,
+        test::TestRequest::get()
+            .uri(&format!("/events/{}/items", event.event_id))
+            .to_request(),
+    )
+    .await;
+    assert_eq!(resp.status(), StatusCode::OK);
+    let listed: Vec<EventItemView> = test::read_body_json(resp).await;
+    assert!(listed.iter().any(|item| item.item_id == item_id));
+
+    // Seed two users
+    let user_one = "alice@example.com";
+    let user_two = "bob@example.com";
+    seed_user(&pool, user_one).await?;
+    seed_user(&pool, user_two).await?;
+
+    let user_one_token = admin_token(secret, user_one).expect("token");
+    let user_two_token = admin_token(secret, user_two).expect("token");
+
+    // User one reserves 2 units
+    let resp = test::call_service(
+        &mut app,
+        test::TestRequest::post()
+            .uri(&format!(
+                "/events/{}/items/{}/reserve",
+                event.event_id, item_id
+            ))
+            .insert_header((
+                "Authorization",
+                format!("Bearer {}", user_one_token.clone()),
+            ))
+            .set_json(&EventItemReservationPayload { quantity: 2 })
+            .to_request(),
+    )
+    .await;
+    assert_eq!(resp.status(), StatusCode::OK);
+    let reserved: EventItemView = test::read_body_json(resp).await;
+    assert_eq!(reserved.reserved_quantity, 2);
+
+    // User two reserves 2 units (total = 4)
+    let resp = test::call_service(
+        &mut app,
+        test::TestRequest::post()
+            .uri(&format!(
+                "/events/{}/items/{}/reserve",
+                event.event_id, item_id
+            ))
+            .insert_header((
+                "Authorization",
+                format!("Bearer {}", user_two_token.clone()),
+            ))
+            .set_json(&EventItemReservationPayload { quantity: 2 })
+            .to_request(),
+    )
+    .await;
+    assert_eq!(resp.status(), StatusCode::OK);
+    let reserved: EventItemView = test::read_body_json(resp).await;
+    assert_eq!(reserved.reserved_quantity, 4);
+
+    // User two attempts to exceed max quantity
+    let resp = test::call_service(
+        &mut app,
+        test::TestRequest::post()
+            .uri(&format!(
+                "/events/{}/items/{}/reserve",
+                event.event_id, item_id
+            ))
+            .insert_header((
+                "Authorization",
+                format!("Bearer {}", user_two_token.clone()),
+            ))
+            .set_json(&EventItemReservationPayload { quantity: 5 })
+            .to_request(),
+    )
+    .await;
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+
+    // User one adjusts contribution to 1 unit (total should become 3)
+    let resp = test::call_service(
+        &mut app,
+        test::TestRequest::post()
+            .uri(&format!(
+                "/events/{}/items/{}/reserve",
+                event.event_id, item_id
+            ))
+            .insert_header((
+                "Authorization",
+                format!("Bearer {}", user_one_token.clone()),
+            ))
+            .set_json(&EventItemReservationPayload { quantity: 1 })
+            .to_request(),
+    )
+    .await;
+    assert_eq!(resp.status(), StatusCode::OK);
+    let reserved: EventItemView = test::read_body_json(resp).await;
+    assert_eq!(reserved.reserved_quantity, 3);
+
+    // Listing reflects final quantity
+    let resp = test::call_service(
+        &mut app,
+        test::TestRequest::get()
+            .uri(&format!("/events/{}/items", event.event_id))
+            .to_request(),
+    )
+    .await;
+    assert_eq!(resp.status(), StatusCode::OK);
+    let listed: Vec<EventItemView> = test::read_body_json(resp).await;
+    let punch = listed
+        .iter()
+        .find(|item| item.item_id == item_id)
+        .expect("event item exists");
+    assert_eq!(punch.reserved_quantity, 3);
 
     Ok(())
 }

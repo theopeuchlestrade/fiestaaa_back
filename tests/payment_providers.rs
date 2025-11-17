@@ -2,7 +2,7 @@ mod common;
 
 use std::error::Error;
 
-use actix_web::{test, App, http::StatusCode};
+use actix_web::{App, http::StatusCode, test};
 use common::{DB_LOCK, build_state, obtain_pool, reset_tables};
 use fiestaaa_back::{
     auth::{encode_jwt, now_ts},
@@ -33,7 +33,9 @@ async fn list_payment_providers_initially_empty() -> Result<(), Box<dyn Error>> 
 
     let resp = test::call_service(
         &mut app,
-        test::TestRequest::get().uri("/payment-providers").to_request(),
+        test::TestRequest::get()
+            .uri("/payment-providers")
+            .to_request(),
     )
     .await;
 
@@ -143,7 +145,9 @@ async fn payment_providers_crud_flow() -> Result<(), Box<dyn Error>> {
     // List payment providers
     let resp = test::call_service(
         &mut app,
-        test::TestRequest::get().uri("/payment-providers").to_request(),
+        test::TestRequest::get()
+            .uri("/payment-providers")
+            .to_request(),
     )
     .await;
     assert_eq!(resp.status(), StatusCode::OK);

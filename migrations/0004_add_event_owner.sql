@@ -1,0 +1,2 @@
+ALTER TABLE events
+    ADD COLUMN IF NOT EXISTS owner_email TEXT NOT NULL DEFAULT '';
