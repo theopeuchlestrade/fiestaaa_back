@@ -109,9 +109,10 @@ pub async fn list_event_invitations(
     }
 
     match sqlx::query_as::<_, Invitation>(
-        "SELECT i.event_id, u.email, i.status, i.date_invi
+        "SELECT i.event_id, u.email, i.status, i.date_invi, e.name_event AS event_name
          FROM invitations i
          JOIN users u ON u.id = i.user_id
+         JOIN events e ON e.event_id = i.event_id
          WHERE i.event_id = $1
          ORDER BY i.date_invi DESC",
     )
@@ -159,7 +160,8 @@ pub async fn create_invitation(
     let res = sqlx::query_as::<_, Invitation>(
         "INSERT INTO invitations (event_id, user_id, status)
          VALUES ($1, $2, 'Waiting')
-         RETURNING event_id, $3 AS email, status, date_invi",
+         RETURNING event_id, $3 AS email, status, date_invi,
+                   (SELECT name_event FROM events WHERE event_id = $1) AS event_name",
     )
     .bind(*event_id)
     .bind(user_id)
@@ -244,9 +246,10 @@ pub async fn list_my_invitations(state: web::Data<AppState>, req: HttpRequest) -
     };
 
     match sqlx::query_as::<_, Invitation>(
-        "SELECT i.event_id, u.email, i.status, i.date_invi
+        "SELECT i.event_id, u.email, i.status, i.date_invi, e.name_event AS event_name
          FROM invitations i
          JOIN users u ON u.id = i.user_id
+         JOIN events e ON e.event_id = i.event_id
          WHERE lower(u.email) = lower($1)
          ORDER BY i.date_invi DESC",
     )
@@ -301,41 +304,15 @@ pub async fn respond_invitation(
         Err(resp) => return resp,
     };
 
-    if status == "Declined" {
-        let res = sqlx::query(
-            "DELETE FROM invitations WHERE event_id = $1 AND user_id = $2 AND status = 'Waiting'",
-        )
-        .bind(*event_id)
-        .bind(user_id)
-        .execute(&state.db)
-        .await;
-
-        return match res {
-            Ok(result) if result.rows_affected() == 0 => {
-                HttpResponse::NotFound().json(ErrorResponse {
-                    error: "invitation_not_found".into(),
-                    details: None,
-                })
-            }
-            Ok(_) => HttpResponse::Ok().json(Invitation {
-                event_id: *event_id,
-                email,
-                status: "Declined".into(),
-                date_invi: chrono::Utc::now(),
-            }),
-            Err(_) => HttpResponse::InternalServerError().json(ErrorResponse {
-                error: "db_error".into(),
-                details: None,
-            }),
-        };
-    }
-
+    let target_status = status;
     let res = sqlx::query_as::<_, Invitation>(
         "UPDATE invitations
-         SET status = 'Accepted'
-         WHERE event_id = $1 AND user_id = $2
-         RETURNING event_id, $3 AS email, status, date_invi",
+         SET status = $1
+         WHERE event_id = $2 AND user_id = $3
+         RETURNING event_id, $4 AS email, status, date_invi,
+                   (SELECT name_event FROM events WHERE event_id = $2) AS event_name",
     )
+    .bind(&target_status)
     .bind(*event_id)
     .bind(user_id)
     .bind(email)
