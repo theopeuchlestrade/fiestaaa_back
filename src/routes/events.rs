@@ -60,16 +60,40 @@ async fn ensure_event_owner(
     tag = "events",
     responses(
         (status = 200, description = "Liste des événements", body = [Event]),
+        (status = 401, description = "Authentification requise", body = ErrorResponse),
         (status = 500, description = "Erreur base de données", body = ErrorResponse)
     )
 )]
 #[get("/events")]
-pub async fn list_events(state: web::Data<AppState>) -> impl Responder {
+pub async fn list_events(state: web::Data<AppState>, req: HttpRequest) -> impl Responder {
+    let email = match claims_email(&req, state.get_ref()) {
+        Ok(e) => e,
+        Err(resp) => return resp,
+    };
+
     let res = sqlx::query_as::<_, Event>(
-        "SELECT event_id, name_event, description, date_event, start_time, address, 
-         payment_provider_id, payment_identifier, owner_email
-         FROM events ORDER BY date_event, start_time",
+        "SELECT e.event_id,
+                e.name_event,
+                e.description,
+                e.date_event,
+                e.start_time,
+                e.address,
+                e.payment_provider_id,
+                e.payment_identifier,
+                e.owner_email
+         FROM events e
+         WHERE lower(e.owner_email) = lower($1)
+            OR EXISTS (
+                SELECT 1
+                FROM invitations i
+                JOIN users u ON u.id = i.user_id
+                WHERE i.event_id = e.event_id
+                  AND lower(u.email) = lower($1)
+                  AND i.status <> 'Declined'
+            )
+         ORDER BY e.date_event, e.start_time",
     )
+    .bind(&email)
     .fetch_all(&state.db)
     .await;
 

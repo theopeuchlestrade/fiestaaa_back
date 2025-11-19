@@ -133,6 +133,7 @@ pub struct Invitation {
     pub email: String,
     pub status: String,
     pub date_invi: chrono::DateTime<chrono::Utc>,
+    pub event_name: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
