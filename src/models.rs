@@ -167,6 +167,7 @@ pub struct PaymentProvider {
     pub provider_id: i32,
     pub provider_name: String,
     pub url_template: String,
+    pub validation_regex: String,
     pub is_active: bool,
 }
 
@@ -174,6 +175,7 @@ pub struct PaymentProvider {
 pub struct PaymentProviderPayload {
     pub provider_name: String,
     pub url_template: String,
+    pub validation_regex: Option<String>,
     pub is_active: Option<bool>,
 }
 
@@ -181,5 +183,6 @@ pub struct PaymentProviderPayload {
 pub struct PaymentProviderPatchPayload {
     pub provider_name: Option<String>,
     pub url_template: Option<String>,
+    pub validation_regex: Option<String>,
     pub is_active: Option<bool>,
 }

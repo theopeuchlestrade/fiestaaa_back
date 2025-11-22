@@ -1,11 +1,13 @@
 use actix_web::{HttpRequest, HttpResponse, Responder, delete, get, patch, post, put, web};
-use sqlx::{Error, PgPool, Postgres, Row, Transaction};
+use regex::Regex;
+use sqlx::{Error, PgPool, Row};
 
 use crate::{
     auth::extract_claims_from_auth,
     models::{
         ErrorResponse, Event, EventCustomItemPayload, EventItemAttachPayload,
-        EventItemReservationPayload, EventItemView, EventPatchPayload, EventPayload, StatusResponse,
+        EventItemReservationPayload, EventItemView, EventPatchPayload, EventPayload,
+        StatusResponse,
     },
     state::AppState,
 };
@@ -179,6 +181,17 @@ pub async fn create_event(
         });
     }
 
+    let (payment_provider_id, payment_identifier) = match normalize_payment_info(
+        &state.db,
+        payload.payment_provider_id,
+        payload.payment_identifier,
+    )
+    .await
+    {
+        Ok(values) => values,
+        Err(resp) => return resp,
+    };
+
     let res = sqlx::query_as::<_, Event>(
         "INSERT INTO events (name_event, description, date_event, start_time, address, payment_provider_id, payment_identifier, payment_requested_amount, owner_email)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
@@ -189,8 +202,8 @@ pub async fn create_event(
     .bind(payload.date_event)
     .bind(payload.start_time)
     .bind(payload.address.trim())
-    .bind(payload.payment_provider_id)
-    .bind(payload.payment_identifier)
+    .bind(payment_provider_id)
+    .bind(payment_identifier)
     .bind(payload.payment_requested_amount)
     .bind(owner_email)
     .fetch_one(&state.db)
@@ -251,6 +264,17 @@ pub async fn replace_event(
         });
     }
 
+    let (payment_provider_id, payment_identifier) = match normalize_payment_info(
+        &state.db,
+        payload.payment_provider_id,
+        payload.payment_identifier,
+    )
+    .await
+    {
+        Ok(values) => values,
+        Err(resp) => return resp,
+    };
+
     let res = sqlx::query_as::<_, Event>(
         "UPDATE events
          SET name_event = $1, description = $2, date_event = $3, start_time = $4, 
@@ -264,8 +288,8 @@ pub async fn replace_event(
     .bind(payload.date_event)
     .bind(payload.start_time)
     .bind(payload.address.trim())
-    .bind(payload.payment_provider_id)
-    .bind(payload.payment_identifier)
+    .bind(payment_provider_id)
+    .bind(payment_identifier)
     .bind(payload.payment_requested_amount)
     .bind(*event_id)
     .fetch_optional(&state.db)
@@ -339,6 +363,20 @@ pub async fn update_event(
         });
     }
 
+    let (current_provider_id, current_identifier) =
+        match fetch_event_payment_info(&state.db, *event_id).await {
+            Ok(info) => info,
+            Err(resp) => return resp,
+        };
+
+    let merged_provider = payload.payment_provider_id.or(current_provider_id);
+    let merged_identifier = payload.payment_identifier.clone().or(current_identifier);
+    let (payment_provider_id, payment_identifier) =
+        match normalize_payment_info(&state.db, merged_provider, merged_identifier).await {
+            Ok(values) => values,
+            Err(resp) => return resp,
+        };
+
     let res = sqlx::query_as::<_, Event>(
         "UPDATE events
          SET name_event = COALESCE($1, name_event),
@@ -357,8 +395,8 @@ pub async fn update_event(
     .bind(payload.date_event)
     .bind(payload.start_time)
     .bind(payload.address.as_ref().map(|v| v.trim()).filter(|v| !v.is_empty()))
-    .bind(payload.payment_provider_id)
-    .bind(payload.payment_identifier)
+    .bind(payment_provider_id)
+    .bind(payment_identifier)
     .bind(payload.payment_requested_amount)
     .bind(*event_id)
     .fetch_optional(&state.db)
@@ -1010,6 +1048,68 @@ pub async fn delete_event_item(
     })
 }
 
+fn clean_payment_value(value: Option<String>) -> Option<String> {
+    value.and_then(|v| {
+        let trimmed = v.trim();
+        if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed.to_string())
+        }
+    })
+}
+
+async fn fetch_provider_validation(
+    db: &PgPool,
+    provider_id: i32,
+) -> Result<(String, Regex), HttpResponse> {
+    let provider = sqlx::query_as::<_, (String, String)>(
+        "SELECT provider_name, validation_regex FROM payment_providers WHERE provider_id = $1",
+    )
+    .bind(provider_id)
+    .fetch_optional(db)
+    .await
+    .map_err(|_| server_error())?;
+
+    match provider {
+        Some((name, pattern)) => {
+            let regex = Regex::new(&pattern).map_err(|_| server_error())?;
+            Ok((name, regex))
+        }
+        None => Err(HttpResponse::BadRequest().json(ErrorResponse {
+            error: "unknown_payment_provider".into(),
+            details: None,
+        })),
+    }
+}
+
+async fn normalize_payment_info(
+    db: &PgPool,
+    provider_id: Option<i32>,
+    payment_link: Option<String>,
+) -> Result<(Option<i32>, Option<String>), HttpResponse> {
+    match (provider_id, clean_payment_value(payment_link)) {
+        (None, None) => Ok((None, None)),
+        (Some(id), Some(link)) => {
+            let (name, regex) = fetch_provider_validation(db, id).await?;
+            if !regex.is_match(&link) {
+                return Err(HttpResponse::BadRequest().json(ErrorResponse {
+                    error: "invalid_payment_link".into(),
+                    details: Some(format!(
+                        "Le lien ne correspond pas au format attendu pour {name}"
+                    )),
+                }));
+            }
+            Ok((Some(id), Some(link)))
+        }
+        (Some(id), None) => Ok((Some(id), None)),
+        (None, Some(_)) => Err(HttpResponse::BadRequest().json(ErrorResponse {
+            error: "invalid_payload".into(),
+            details: Some("Choisissez d'abord un provider pour associer un lien".into()),
+        })),
+    }
+}
+
 async fn ensure_event_exists(db: &PgPool, event_id: i64) -> Result<(), HttpResponse> {
     let exists =
         sqlx::query_scalar::<_, bool>("SELECT EXISTS(SELECT 1 FROM events WHERE event_id = $1)")
@@ -1025,6 +1125,27 @@ async fn ensure_event_exists(db: &PgPool, event_id: i64) -> Result<(), HttpRespo
             error: "event_not_found".into(),
             details: None,
         }))
+    }
+}
+
+async fn fetch_event_payment_info(
+    db: &PgPool,
+    event_id: i64,
+) -> Result<(Option<i32>, Option<String>), HttpResponse> {
+    let row = sqlx::query_as::<_, (Option<i32>, Option<String>)>(
+        "SELECT payment_provider_id, payment_identifier FROM events WHERE event_id = $1",
+    )
+    .bind(event_id)
+    .fetch_optional(db)
+    .await
+    .map_err(|_| server_error())?;
+
+    match row {
+        Some(info) => Ok(info),
+        None => Err(HttpResponse::NotFound().json(ErrorResponse {
+            error: "event_not_found".into(),
+            details: None,
+        })),
     }
 }
 

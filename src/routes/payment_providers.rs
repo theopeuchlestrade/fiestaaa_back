@@ -1,4 +1,5 @@
 use actix_web::{HttpRequest, HttpResponse, Responder, delete, get, patch, post, put, web};
+use regex::Regex;
 use sqlx::Error;
 
 use crate::{
@@ -9,6 +10,8 @@ use crate::{
     },
     state::AppState,
 };
+
+const DEFAULT_PAYMENT_URL_REGEX: &str = r"^https?://.+$";
 
 fn ensure_admin(req: &HttpRequest, state: &AppState) -> Result<(), HttpResponse> {
     let claims = extract_claims_from_auth(req, &state.jwt_secret)?;
@@ -38,7 +41,7 @@ fn ensure_admin(req: &HttpRequest, state: &AppState) -> Result<(), HttpResponse>
 #[get("/payment-providers")]
 pub async fn list_payment_providers(state: web::Data<AppState>) -> impl Responder {
     let res = sqlx::query_as::<_, PaymentProvider>(
-        "SELECT provider_id, provider_name, url_template, is_active 
+        "SELECT provider_id, provider_name, url_template, validation_regex, is_active 
          FROM payment_providers 
          ORDER BY provider_name",
     )
@@ -128,24 +131,38 @@ async fn create_or_replace_provider(
         });
     }
 
+    let validation_pattern = payload
+        .validation_regex
+        .as_deref()
+        .unwrap_or(DEFAULT_PAYMENT_URL_REGEX)
+        .trim();
+    if validation_pattern.is_empty() || Regex::new(validation_pattern).is_err() {
+        return HttpResponse::BadRequest().json(ErrorResponse {
+            error: "invalid_payload".into(),
+            details: Some("validation_regex doit être un regex valide".into()),
+        });
+    }
+
     let query = match provider_id {
         Some(id) => sqlx::query_as::<_, PaymentProvider>(
             "UPDATE payment_providers
-             SET provider_name = $1, url_template = $2, is_active = $3
-             WHERE provider_id = $4
-             RETURNING provider_id, provider_name, url_template, is_active",
+             SET provider_name = $1, url_template = $2, validation_regex = $3, is_active = $4
+             WHERE provider_id = $5
+             RETURNING provider_id, provider_name, url_template, validation_regex, is_active",
         )
         .bind(payload.provider_name.trim())
         .bind(payload.url_template.trim())
+        .bind(validation_pattern)
         .bind(payload.is_active.unwrap_or(true))
         .bind(id),
         None => sqlx::query_as::<_, PaymentProvider>(
-            "INSERT INTO payment_providers (provider_name, url_template, is_active)
-             VALUES ($1, $2, $3)
-             RETURNING provider_id, provider_name, url_template, is_active",
+            "INSERT INTO payment_providers (provider_name, url_template, validation_regex, is_active)
+             VALUES ($1, $2, $3, $4)
+             RETURNING provider_id, provider_name, url_template, validation_regex, is_active",
         )
         .bind(payload.provider_name.trim())
         .bind(payload.url_template.trim())
+        .bind(validation_pattern)
         .bind(payload.is_active.unwrap_or(true)),
     };
 
@@ -234,13 +251,28 @@ pub async fn update_payment_provider(
         });
     }
 
+    let validation_pattern = payload
+        .validation_regex
+        .as_deref()
+        .map(str::trim)
+        .filter(|v| !v.is_empty());
+    if let Some(pattern) = validation_pattern {
+        if Regex::new(pattern).is_err() {
+            return HttpResponse::BadRequest().json(ErrorResponse {
+                error: "invalid_payload".into(),
+                details: Some("validation_regex doit être un regex valide".into()),
+            });
+        }
+    }
+
     let res = sqlx::query_as::<_, PaymentProvider>(
         "UPDATE payment_providers
          SET provider_name = COALESCE($1, provider_name),
              url_template = COALESCE($2, url_template),
-             is_active = COALESCE($3, is_active)
-         WHERE provider_id = $4
-         RETURNING provider_id, provider_name, url_template, is_active",
+             validation_regex = COALESCE($3, validation_regex),
+             is_active = COALESCE($4, is_active)
+         WHERE provider_id = $5
+         RETURNING provider_id, provider_name, url_template, validation_regex, is_active",
     )
     .bind(
         payload
@@ -256,6 +288,7 @@ pub async fn update_payment_provider(
             .map(|v| v.trim())
             .filter(|v| !v.is_empty()),
     )
+    .bind(validation_pattern)
     .bind(payload.is_active)
     .bind(*provider_id)
     .fetch_optional(&state.db)
