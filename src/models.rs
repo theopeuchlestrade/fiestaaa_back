@@ -80,6 +80,7 @@ pub struct Event {
     pub address: String,
     pub payment_provider_id: Option<i32>,
     pub payment_identifier: Option<String>,
+    pub payment_requested_amount: Option<f64>,
     pub owner_email: String,
 }
 
@@ -92,6 +93,7 @@ pub struct EventPayload {
     pub address: String,
     pub payment_provider_id: Option<i32>,
     pub payment_identifier: Option<String>,
+    pub payment_requested_amount: Option<f64>,
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
@@ -103,6 +105,7 @@ pub struct EventPatchPayload {
     pub address: Option<String>,
     pub payment_provider_id: Option<i32>,
     pub payment_identifier: Option<String>,
+    pub payment_requested_amount: Option<f64>,
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema, FromRow)]
@@ -138,7 +141,6 @@ pub struct Invitation {
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct InvitationPayload {
-    pub event_id: i64,
     pub email: String,
     pub status: Option<String>,
 }
