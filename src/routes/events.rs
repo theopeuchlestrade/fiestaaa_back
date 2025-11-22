@@ -80,6 +80,7 @@ pub async fn list_events(state: web::Data<AppState>, req: HttpRequest) -> impl R
                 e.address,
                 e.payment_provider_id,
                 e.payment_identifier,
+                e.payment_requested_amount,
                 e.owner_email
          FROM events e
          WHERE lower(e.owner_email) = lower($1)
@@ -142,9 +143,9 @@ pub async fn create_event(
     }
 
     let res = sqlx::query_as::<_, Event>(
-        "INSERT INTO events (name_event, description, date_event, start_time, address, payment_provider_id, payment_identifier, owner_email)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-         RETURNING event_id, name_event, description, date_event, start_time, address, payment_provider_id, payment_identifier, owner_email",
+        "INSERT INTO events (name_event, description, date_event, start_time, address, payment_provider_id, payment_identifier, payment_requested_amount, owner_email)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+         RETURNING event_id, name_event, description, date_event, start_time, address, payment_provider_id, payment_identifier, payment_requested_amount, owner_email",
     )
     .bind(payload.name_event.trim())
     .bind(payload.description.trim())
@@ -153,6 +154,7 @@ pub async fn create_event(
     .bind(payload.address.trim())
     .bind(payload.payment_provider_id)
     .bind(payload.payment_identifier)
+    .bind(payload.payment_requested_amount)
     .bind(owner_email)
     .fetch_one(&state.db)
     .await;
@@ -215,9 +217,10 @@ pub async fn replace_event(
     let res = sqlx::query_as::<_, Event>(
         "UPDATE events
          SET name_event = $1, description = $2, date_event = $3, start_time = $4, 
-             address = $5, payment_provider_id = $6, payment_identifier = $7
-         WHERE event_id = $8
-         RETURNING event_id, name_event, description, date_event, start_time, address, payment_provider_id, payment_identifier, owner_email",
+             address = $5, payment_provider_id = $6, payment_identifier = $7,
+             payment_requested_amount = $8
+         WHERE event_id = $9
+         RETURNING event_id, name_event, description, date_event, start_time, address, payment_provider_id, payment_identifier, payment_requested_amount, owner_email",
     )
     .bind(payload.name_event.trim())
     .bind(payload.description.trim())
@@ -226,6 +229,7 @@ pub async fn replace_event(
     .bind(payload.address.trim())
     .bind(payload.payment_provider_id)
     .bind(payload.payment_identifier)
+    .bind(payload.payment_requested_amount)
     .bind(*event_id)
     .fetch_optional(&state.db)
     .await;
@@ -306,9 +310,10 @@ pub async fn update_event(
              start_time = COALESCE($4, start_time),
              address = COALESCE($5, address),
              payment_provider_id = COALESCE($6, payment_provider_id),
-             payment_identifier = COALESCE($7, payment_identifier)
-         WHERE event_id = $8
-         RETURNING event_id, name_event, description, date_event, start_time, address, payment_provider_id, payment_identifier, owner_email",
+             payment_identifier = COALESCE($7, payment_identifier),
+             payment_requested_amount = COALESCE($8, payment_requested_amount)
+         WHERE event_id = $9
+         RETURNING event_id, name_event, description, date_event, start_time, address, payment_provider_id, payment_identifier, payment_requested_amount, owner_email",
     )
     .bind(payload.name_event.as_ref().map(|v| v.trim()).filter(|v| !v.is_empty()))
     .bind(payload.description.as_ref().map(|v| v.trim()).filter(|v| !v.is_empty()))
@@ -317,6 +322,7 @@ pub async fn update_event(
     .bind(payload.address.as_ref().map(|v| v.trim()).filter(|v| !v.is_empty()))
     .bind(payload.payment_provider_id)
     .bind(payload.payment_identifier)
+    .bind(payload.payment_requested_amount)
     .bind(*event_id)
     .fetch_optional(&state.db)
     .await;
