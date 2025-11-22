@@ -54,6 +54,7 @@ pub struct Item {
     pub type_id: i64,
     pub name_item: String,
     pub max_quantity: i32,
+    pub unit_label: String,
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
@@ -61,6 +62,7 @@ pub struct ItemPayload {
     pub type_id: i64,
     pub name_item: String,
     pub max_quantity: i32,
+    pub unit_label: String,
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
@@ -68,6 +70,7 @@ pub struct ItemPatchPayload {
     pub type_id: Option<i64>,
     pub name_item: Option<String>,
     pub max_quantity: Option<i32>,
+    pub unit_label: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema, FromRow)]
@@ -117,6 +120,8 @@ pub struct EventItemView {
     pub name_item: String,
     pub max_quantity: i32,
     pub reserved_quantity: i32,
+    pub unit_label: String,
+    pub created_by_email: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
@@ -128,6 +133,13 @@ pub struct EventItemAttachPayload {
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct EventItemReservationPayload {
     pub quantity: i32,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct EventCustomItemPayload {
+    pub name_item: String,
+    pub max_quantity: i32,
+    pub unit_label: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema, FromRow)]

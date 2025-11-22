@@ -1,8 +1,9 @@
 use utoipa::OpenApi;
 
 use crate::models::{
-    ErrorResponse, Event, EventItemAttachPayload, EventItemReservationPayload, EventItemView,
-    EventPatchPayload, EventPayload, HealthResponse, Invitation, InvitationPatchPayload,
+    ErrorResponse, Event, EventCustomItemPayload, EventItemAttachPayload,
+    EventItemReservationPayload, EventItemView, EventPatchPayload, EventPayload, HealthResponse,
+    Invitation, InvitationPatchPayload,
     InvitationPayload, Item, ItemPatchPayload, ItemPayload, LoginPayload, MeResponse,
     PaymentProvider, PaymentProviderPatchPayload, PaymentProviderPayload, RegisterPayload,
     StatusResponse, TokenResponse,
@@ -29,6 +30,8 @@ use crate::models::{
         crate::routes::events::list_event_items,
         crate::routes::events::attach_event_item,
         crate::routes::events::reserve_event_item,
+        crate::routes::events::delete_event_item,
+        crate::routes::events::create_custom_event_item,
         crate::routes::invitations::list_event_invitations,
         crate::routes::invitations::create_invitation,
         crate::routes::invitations::delete_invitation,
@@ -58,6 +61,7 @@ use crate::models::{
             EventItemView,
             EventItemAttachPayload,
             EventItemReservationPayload,
+            EventCustomItemPayload,
             Invitation,
             InvitationPayload,
             InvitationPatchPayload,
