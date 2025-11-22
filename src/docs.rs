@@ -3,10 +3,9 @@ use utoipa::OpenApi;
 use crate::models::{
     ErrorResponse, Event, EventCustomItemPayload, EventItemAttachPayload,
     EventItemReservationPayload, EventItemView, EventPatchPayload, EventPayload, HealthResponse,
-    Invitation, InvitationPatchPayload,
-    InvitationPayload, Item, ItemPatchPayload, ItemPayload, LoginPayload, MeResponse,
-    PaymentProvider, PaymentProviderPatchPayload, PaymentProviderPayload, RegisterPayload,
-    StatusResponse, TokenResponse,
+    Invitation, InvitationPatchPayload, InvitationPayload, Item, ItemPatchPayload, ItemPayload,
+    LoginPayload, MeResponse, PaymentProvider, PaymentProviderPatchPayload, PaymentProviderPayload,
+    RegisterPayload, StatusResponse, TokenResponse,
 };
 
 #[derive(OpenApi)]
