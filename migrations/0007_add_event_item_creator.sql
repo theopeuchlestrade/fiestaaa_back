@@ -1,0 +1,2 @@
+ALTER TABLE events_items
+    ADD COLUMN IF NOT EXISTS created_by BIGINT REFERENCES users(id) ON DELETE SET NULL;

@@ -1,11 +1,11 @@
 use actix_web::{HttpRequest, HttpResponse, Responder, delete, get, patch, post, put, web};
-use sqlx::{Error, PgPool, Row};
+use sqlx::{Error, PgPool, Postgres, Row, Transaction};
 
 use crate::{
     auth::extract_claims_from_auth,
     models::{
-        ErrorResponse, Event, EventItemAttachPayload, EventItemReservationPayload, EventItemView,
-        EventPatchPayload, EventPayload, StatusResponse,
+        ErrorResponse, Event, EventCustomItemPayload, EventItemAttachPayload,
+        EventItemReservationPayload, EventItemView, EventPatchPayload, EventPayload, StatusResponse,
     },
     state::AppState,
 };
@@ -50,6 +50,43 @@ async fn ensure_event_owner(
         Err(HttpResponse::Forbidden().json(ErrorResponse {
             error: "forbidden".into(),
             details: Some("only the creator can perform this action".into()),
+        }))
+    }
+}
+
+async fn ensure_event_member(
+    req: &HttpRequest,
+    state: &AppState,
+    event_id: i64,
+) -> Result<(), HttpResponse> {
+    let requester = claims_email(req, state)?;
+    let owner = fetch_event_owner_email(&state.db, event_id).await?;
+    if owner.eq_ignore_ascii_case(&requester) || owner.is_empty() {
+        return Ok(());
+    }
+
+    let is_member = sqlx::query_scalar::<_, bool>(
+        "SELECT EXISTS(
+            SELECT 1
+            FROM invitations i
+            JOIN users u ON u.id = i.user_id
+            WHERE i.event_id = $1
+              AND lower(u.email) = lower($2)
+              AND i.status <> 'Declined'
+        )",
+    )
+    .bind(event_id)
+    .bind(&requester)
+    .fetch_one(&state.db)
+    .await
+    .map_err(|_| server_error())?;
+
+    if is_member {
+        Ok(())
+    } else {
+        Err(HttpResponse::Forbidden().json(ErrorResponse {
+            error: "forbidden".into(),
+            details: Some("membership required".into()),
         }))
     }
 }
@@ -412,10 +449,6 @@ pub async fn list_event_items(
         return resp;
     }
 
-    if let Err(resp) = ensure_event_has_all_items(&state.db, *event_id).await {
-        return resp;
-    }
-
     let result = sqlx::query_as::<_, EventItemView>(
         "SELECT ei.event_id,
                 ei.item_id,
@@ -423,10 +456,13 @@ pub async fn list_event_items(
                 it.type AS type_name,
                 i.name_item,
                 ei.max_quantity,
-                ei.quantity AS reserved_quantity
+                ei.quantity AS reserved_quantity,
+                i.unit_label,
+                cu.email AS created_by_email
          FROM events_items ei
          JOIN items i ON i.item_id = ei.item_id
          JOIN item_types it ON it.type_id = i.type_id
+         LEFT JOIN users cu ON cu.id = ei.created_by
          WHERE ei.event_id = $1
          ORDER BY it.type, i.name_item",
     )
@@ -467,6 +503,11 @@ pub async fn attach_event_item(
         return resp;
     }
 
+    let creator_email = match claims_email(&req, state.get_ref()) {
+        Ok(email) => email,
+        Err(resp) => return resp,
+    };
+
     let payload = payload.into_inner();
     if payload.max_quantity <= 0 {
         return HttpResponse::BadRequest().json(ErrorResponse {
@@ -482,9 +523,14 @@ pub async fn attach_event_item(
         return resp;
     }
 
+    let creator_id = match fetch_user_id(&state.db, &creator_email).await {
+        Ok(id) => id,
+        Err(resp) => return resp,
+    };
+
     let res = sqlx::query(
-        "INSERT INTO events_items (event_id, item_id, max_quantity, quantity)
-         VALUES ($1, $2, $3, 0)
+        "INSERT INTO events_items (event_id, item_id, max_quantity, quantity, created_by)
+         VALUES ($1, $2, $3, 0, $4)
          ON CONFLICT (event_id, item_id)
          DO UPDATE SET max_quantity = EXCLUDED.max_quantity
          RETURNING event_id, item_id",
@@ -492,6 +538,7 @@ pub async fn attach_event_item(
     .bind(*event_id)
     .bind(payload.item_id)
     .bind(payload.max_quantity)
+    .bind(creator_id)
     .fetch_one(&state.db)
     .await;
 
@@ -511,6 +558,191 @@ pub async fn attach_event_item(
             })
         }
         Err(_) => server_error(),
+    }
+}
+
+#[utoipa::path(
+    post,
+    path = "/events/{event_id}/items/custom",
+    tag = "events",
+    request_body = EventCustomItemPayload,
+    responses(
+        (status = 200, description = "Item personnalisé ajouté ou mis à jour", body = EventItemView),
+        (status = 400, description = "Payload invalide", body = ErrorResponse),
+        (status = 403, description = "Non autorisé", body = ErrorResponse),
+        (status = 404, description = "Événement introuvable", body = ErrorResponse),
+        (status = 500, description = "Erreur base de données", body = ErrorResponse)
+    ),
+    params(
+        ("event_id" = i64, Path, description = "Identifiant de l'événement")
+    )
+)]
+#[post("/events/{event_id}/items/custom")]
+pub async fn create_custom_event_item(
+    state: web::Data<AppState>,
+    req: HttpRequest,
+    event_id: web::Path<i64>,
+    payload: web::Json<EventCustomItemPayload>,
+) -> impl Responder {
+    if let Err(resp) = ensure_event_member(&req, state.get_ref(), *event_id).await {
+        return resp;
+    }
+
+    let creator_email = match claims_email(&req, state.get_ref()) {
+        Ok(email) => email,
+        Err(resp) => return resp,
+    };
+
+    let creator_id = match fetch_user_id(&state.db, &creator_email).await {
+        Ok(id) => id,
+        Err(resp) => return resp,
+    };
+
+    let payload = payload.into_inner();
+    let name_trimmed = payload.name_item.trim().to_string();
+    if name_trimmed.is_empty() || payload.max_quantity <= 0 {
+        return HttpResponse::BadRequest().json(ErrorResponse {
+            error: "invalid_payload".into(),
+            details: Some("Nom non vide et quantité > 0 requis".into()),
+        });
+    }
+
+    let unit_label = payload
+        .unit_label
+        .map(|v| v.trim().to_string())
+        .filter(|v| !v.is_empty())
+        .unwrap_or_else(|| "pièce".to_string());
+
+    if let Err(resp) = ensure_event_exists(&state.db, *event_id).await {
+        return resp;
+    }
+
+    let mut tx = match state.db.begin().await {
+        Ok(tx) => tx,
+        Err(_) => return server_error(),
+    };
+
+    let normalized_name = name_trimmed.to_lowercase();
+
+    let existing_event_item = sqlx::query_scalar::<_, i64>(
+        "SELECT ei.item_id
+         FROM events_items ei
+         JOIN items i ON i.item_id = ei.item_id
+         WHERE ei.event_id = $1
+           AND lower(i.name_item) = $2
+         FOR UPDATE",
+    )
+    .bind(*event_id)
+    .bind(&normalized_name)
+    .fetch_optional(&mut *tx)
+    .await
+    .map_err(|_| server_error());
+
+    let existing_event_item = match existing_event_item {
+        Ok(value) => value,
+        Err(resp) => {
+            let _ = tx.rollback().await;
+            return resp;
+        }
+    };
+
+    let item_id = if let Some(item_id) = existing_event_item {
+        item_id
+    } else {
+        match sqlx::query_scalar::<_, i64>(
+            "SELECT item_id FROM items WHERE lower(name_item) = $1 LIMIT 1",
+        )
+        .bind(&normalized_name)
+        .fetch_optional(&mut *tx)
+        .await
+        {
+            Ok(Some(id)) => id,
+            Ok(None) => {
+                let default_type_id = match sqlx::query_scalar::<_, i64>(
+                    "SELECT type_id FROM item_types WHERE type = 'Autres' LIMIT 1",
+                )
+                .fetch_optional(&mut *tx)
+                .await
+                {
+                    Ok(Some(id)) => id,
+                    Ok(None) => {
+                        match sqlx::query_scalar::<_, i64>(
+                            "INSERT INTO item_types (type)
+                             VALUES ('Autres')
+                             ON CONFLICT (type) DO UPDATE SET type = EXCLUDED.type
+                             RETURNING type_id",
+                        )
+                        .fetch_one(&mut *tx)
+                        .await
+                        {
+                            Ok(id) => id,
+                            Err(_) => {
+                                let _ = tx.rollback().await;
+                                return server_error();
+                            }
+                        }
+                    }
+                    Err(_) => {
+                        let _ = tx.rollback().await;
+                        return server_error();
+                    }
+                };
+
+                match sqlx::query_scalar::<_, i64>(
+                    "INSERT INTO items (type_id, name_item, max_quantity, unit_label)
+                     VALUES ($1, $2, $3, $4)
+                     RETURNING item_id",
+                )
+                .bind(default_type_id)
+                .bind(name_trimmed.as_str())
+                .bind(payload.max_quantity)
+                .bind(unit_label.as_str())
+                .fetch_one(&mut *tx)
+                .await
+                {
+                    Ok(id) => id,
+                    Err(_) => {
+                        let _ = tx.rollback().await;
+                        return server_error();
+                    }
+                }
+            }
+            Err(_) => {
+                let _ = tx.rollback().await;
+                return server_error();
+            }
+        }
+    };
+
+    let insert_res = sqlx::query(
+        "INSERT INTO events_items (event_id, item_id, max_quantity, quantity, created_by)
+         VALUES ($1, $2, $3, 0, $4)
+         ON CONFLICT (event_id, item_id)
+         DO UPDATE SET max_quantity = events_items.max_quantity + EXCLUDED.max_quantity
+         RETURNING event_id, item_id",
+    )
+    .bind(*event_id)
+    .bind(item_id)
+    .bind(payload.max_quantity)
+    .bind(creator_id)
+    .fetch_one(&mut *tx)
+    .await;
+
+    let (ev_id, item_id) = match insert_res {
+        Ok(row) => (row.get::<i64, _>("event_id"), row.get::<i64, _>("item_id")),
+        Err(_) => {
+            let _ = tx.rollback().await;
+            return server_error();
+        }
+    };
+
+    if let Err(_) = tx.commit().await {
+        return server_error();
+    }
+
+    match fetch_event_item_view(&state.db, ev_id, item_id).await {
+        Ok(view) => HttpResponse::Ok().json(view),
+        Err(resp) => resp,
     }
 }
 
@@ -559,9 +791,6 @@ pub async fn reserve_event_item(
     let (event_id, item_id) = path.into_inner();
 
     if let Err(resp) = ensure_event_exists(&state.db, event_id).await {
-        return resp;
-    }
-    if let Err(resp) = ensure_event_has_all_items(&state.db, event_id).await {
         return resp;
     }
     let mut tx = match state.db.begin().await {
@@ -669,6 +898,118 @@ pub async fn reserve_event_item(
     }
 }
 
+#[utoipa::path(
+    delete,
+    path = "/events/{event_id}/items/{item_id}",
+    tag = "events",
+    responses(
+        (status = 200, description = "Item supprimé", body = StatusResponse),
+        (status = 400, description = "Suppression impossible", body = ErrorResponse),
+        (status = 403, description = "Non autorisé", body = ErrorResponse),
+        (status = 404, description = "Item introuvable", body = ErrorResponse),
+        (status = 500, description = "Erreur base de données", body = ErrorResponse)
+    ),
+    params(
+        ("event_id" = i64, Path, description = "Identifiant de l'événement"),
+        ("item_id" = i64, Path, description = "Identifiant de l'item")
+    )
+)]
+#[delete("/events/{event_id}/items/{item_id}")]
+pub async fn delete_event_item(
+    state: web::Data<AppState>,
+    req: HttpRequest,
+    path: web::Path<(i64, i64)>,
+) -> impl Responder {
+    let claims = match extract_claims_from_auth(&req, &state.jwt_secret) {
+        Ok(c) => c,
+        Err(resp) => return resp,
+    };
+
+    let user_id = match fetch_user_id(&state.db, &claims.sub).await {
+        Ok(id) => id,
+        Err(resp) => return resp,
+    };
+
+    let (event_id, item_id) = path.into_inner();
+
+    if let Err(resp) = ensure_event_exists(&state.db, event_id).await {
+        return resp;
+    }
+
+    let owner_email = match fetch_event_owner_email(&state.db, event_id).await {
+        Ok(owner) => owner,
+        Err(resp) => return resp,
+    };
+
+    let mut tx = match state.db.begin().await {
+        Ok(tx) => tx,
+        Err(_) => return server_error(),
+    };
+
+    let record = match sqlx::query(
+        "SELECT created_by FROM events_items WHERE event_id = $1 AND item_id = $2 FOR UPDATE",
+    )
+    .bind(event_id)
+    .bind(item_id)
+    .fetch_optional(&mut *tx)
+    .await
+    {
+        Ok(Some(row)) => row,
+        Ok(None) => {
+            let _ = tx.rollback().await;
+            return HttpResponse::NotFound().json(ErrorResponse {
+                error: "event_item_not_found".into(),
+                details: None,
+            });
+        }
+        Err(_) => {
+            let _ = tx.rollback().await;
+            return server_error();
+        }
+    };
+
+    let created_by: Option<i64> = record.get("created_by");
+
+    let is_owner = owner_email.eq_ignore_ascii_case(&claims.sub);
+    let is_creator = created_by.is_some_and(|id| id == user_id);
+
+    if !is_owner && !is_creator {
+        let _ = tx.rollback().await;
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            error: "forbidden".into(),
+            details: Some("Seul le créateur ou l'organisateur peut supprimer cet item".into()),
+        });
+    }
+
+    if let Err(_) = sqlx::query("DELETE FROM user_items WHERE event_id = $1 AND item_id = $2")
+        .bind(event_id)
+        .bind(item_id)
+        .execute(&mut *tx)
+        .await
+    {
+        let _ = tx.rollback().await;
+        return server_error();
+    }
+
+    if let Err(_) = sqlx::query("DELETE FROM events_items WHERE event_id = $1 AND item_id = $2")
+        .bind(event_id)
+        .bind(item_id)
+        .execute(&mut *tx)
+        .await
+    {
+        let _ = tx.rollback().await;
+        return server_error();
+    }
+
+    if let Err(_) = tx.commit().await {
+        return server_error();
+    }
+
+    HttpResponse::Ok().json(StatusResponse {
+        status: "deleted".into(),
+    })
+}
+
 async fn ensure_event_exists(db: &PgPool, event_id: i64) -> Result<(), HttpResponse> {
     let exists =
         sqlx::query_scalar::<_, bool>("SELECT EXISTS(SELECT 1 FROM events WHERE event_id = $1)")
@@ -705,24 +1046,6 @@ async fn ensure_item_exists(db: &PgPool, item_id: i64) -> Result<(), HttpRespons
     }
 }
 
-async fn ensure_event_has_all_items(db: &PgPool, event_id: i64) -> Result<(), HttpResponse> {
-    sqlx::query(
-        "INSERT INTO events_items (event_id, item_id, max_quantity, quantity)
-         SELECT $1, i.item_id, i.max_quantity, 0
-         FROM items i
-         WHERE NOT EXISTS (
-             SELECT 1 FROM events_items ei
-             WHERE ei.event_id = $1
-               AND ei.item_id = i.item_id
-         )",
-    )
-    .bind(event_id)
-    .execute(db)
-    .await
-    .map(|_| ())
-    .map_err(|_| server_error())
-}
-
 async fn fetch_event_item_view(
     db: &PgPool,
     event_id: i64,
@@ -735,10 +1058,13 @@ async fn fetch_event_item_view(
                 it.type AS type_name,
                 i.name_item,
                 ei.max_quantity,
-                ei.quantity AS reserved_quantity
+                ei.quantity AS reserved_quantity,
+                i.unit_label,
+                cu.email AS created_by_email
          FROM events_items ei
          JOIN items i ON i.item_id = ei.item_id
          JOIN item_types it ON it.type_id = i.type_id
+         LEFT JOIN users cu ON cu.id = ei.created_by
          WHERE ei.event_id = $1 AND ei.item_id = $2",
     )
     .bind(event_id)

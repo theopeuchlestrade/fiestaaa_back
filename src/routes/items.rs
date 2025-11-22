@@ -35,7 +35,7 @@ fn ensure_admin(req: &HttpRequest, state: &AppState) -> Result<(), HttpResponse>
 #[get("/items")]
 pub async fn list_items(state: web::Data<AppState>) -> impl Responder {
     let res = sqlx::query_as::<_, Item>(
-        "SELECT item_id, type_id, name_item, max_quantity FROM items ORDER BY item_id",
+        "SELECT item_id, type_id, name_item, max_quantity, unit_label FROM items ORDER BY item_id",
     )
     .fetch_all(&state.db)
     .await;
@@ -72,21 +72,25 @@ pub async fn create_item(
     }
 
     let payload = payload.into_inner();
-    if payload.name_item.trim().is_empty() || payload.max_quantity <= 0 {
+    if payload.name_item.trim().is_empty()
+        || payload.max_quantity <= 0
+        || payload.unit_label.trim().is_empty()
+    {
         return HttpResponse::BadRequest().json(ErrorResponse {
             error: "invalid_payload".into(),
-            details: Some("name_item non vide et max_quantity > 0".into()),
+            details: Some("name_item, unit_label non vides et max_quantity > 0".into()),
         });
     }
 
     let res = sqlx::query_as::<_, Item>(
-        "INSERT INTO items (type_id, name_item, max_quantity)
-         VALUES ($1, $2, $3)
-         RETURNING item_id, type_id, name_item, max_quantity",
+        "INSERT INTO items (type_id, name_item, max_quantity, unit_label)
+         VALUES ($1, $2, $3, $4)
+         RETURNING item_id, type_id, name_item, max_quantity, unit_label",
     )
     .bind(payload.type_id)
     .bind(payload.name_item.trim())
     .bind(payload.max_quantity)
+    .bind(payload.unit_label.trim())
     .fetch_one(&state.db)
     .await;
 
@@ -133,22 +137,26 @@ pub async fn replace_item(
     }
 
     let payload = payload.into_inner();
-    if payload.name_item.trim().is_empty() || payload.max_quantity <= 0 {
+    if payload.name_item.trim().is_empty()
+        || payload.max_quantity <= 0
+        || payload.unit_label.trim().is_empty()
+    {
         return HttpResponse::BadRequest().json(ErrorResponse {
             error: "invalid_payload".into(),
-            details: Some("name_item non vide et max_quantity > 0".into()),
+            details: Some("name_item, unit_label non vides et max_quantity > 0".into()),
         });
     }
 
     let res = sqlx::query_as::<_, Item>(
         "UPDATE items
-         SET type_id = $1, name_item = $2, max_quantity = $3
-         WHERE item_id = $4
-         RETURNING item_id, type_id, name_item, max_quantity",
+         SET type_id = $1, name_item = $2, max_quantity = $3, unit_label = $4
+         WHERE item_id = $5
+         RETURNING item_id, type_id, name_item, max_quantity, unit_label",
     )
     .bind(payload.type_id)
     .bind(payload.name_item.trim())
     .bind(payload.max_quantity)
+    .bind(payload.unit_label.trim())
     .bind(*item_id)
     .fetch_optional(&state.db)
     .await;
@@ -216,14 +224,25 @@ pub async fn update_item(
             details: Some("max_quantity doit être > 0".into()),
         });
     }
+    if payload
+        .unit_label
+        .as_ref()
+        .is_some_and(|v| v.trim().is_empty())
+    {
+        return HttpResponse::BadRequest().json(ErrorResponse {
+            error: "invalid_payload".into(),
+            details: Some("unit_label ne peut pas être vide".into()),
+        });
+    }
 
     let res = sqlx::query_as::<_, Item>(
         "UPDATE items
          SET type_id = COALESCE($1, type_id),
              name_item = COALESCE($2, name_item),
-             max_quantity = COALESCE($3, max_quantity)
-         WHERE item_id = $4
-         RETURNING item_id, type_id, name_item, max_quantity",
+             max_quantity = COALESCE($3, max_quantity),
+             unit_label = COALESCE($4, unit_label)
+         WHERE item_id = $5
+         RETURNING item_id, type_id, name_item, max_quantity, unit_label",
     )
     .bind(payload.type_id)
     .bind(
@@ -234,6 +253,13 @@ pub async fn update_item(
             .filter(|v| !v.is_empty()),
     )
     .bind(payload.max_quantity)
+    .bind(
+        payload
+            .unit_label
+            .as_ref()
+            .map(|v| v.trim())
+            .filter(|v| !v.is_empty()),
+    )
     .bind(*item_id)
     .fetch_optional(&state.db)
     .await;
