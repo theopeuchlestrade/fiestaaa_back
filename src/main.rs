@@ -16,10 +16,17 @@ async fn main() -> std::io::Result<()> {
     let cfg = config::AppConfig::from_env();
     let pool = db::connect_and_migrate(&cfg.database_url).await;
     let admin_emails = cfg.admin_emails.iter().cloned().collect::<HashSet<_>>();
+    let http_client = reqwest::Client::builder()
+        .user_agent(cfg.geocoding_user_agent.clone())
+        .build()
+        .expect("http client");
     let state = web::Data::new(state::AppState {
         db: pool,
         jwt_secret: cfg.jwt_secret.clone(),
         admin_emails,
+        http_client,
+        geocoding_base_url: cfg.geocoding_base_url.clone(),
+        geocoding_country_codes: cfg.geocoding_country_codes.clone(),
     });
 
     // Server

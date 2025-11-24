@@ -81,6 +81,8 @@ pub struct Event {
     pub date_event: chrono::NaiveDate,
     pub start_time: chrono::NaiveTime,
     pub address: String,
+    pub latitude: Option<f64>,
+    pub longitude: Option<f64>,
     pub payment_provider_id: Option<i32>,
     pub payment_identifier: Option<String>,
     pub payment_requested_amount: Option<f64>,
@@ -94,6 +96,8 @@ pub struct EventPayload {
     pub date_event: chrono::NaiveDate,
     pub start_time: chrono::NaiveTime,
     pub address: String,
+    pub latitude: Option<f64>,
+    pub longitude: Option<f64>,
     pub payment_provider_id: Option<i32>,
     pub payment_identifier: Option<String>,
     pub payment_requested_amount: Option<f64>,
@@ -106,6 +110,8 @@ pub struct EventPatchPayload {
     pub date_event: Option<chrono::NaiveDate>,
     pub start_time: Option<chrono::NaiveTime>,
     pub address: Option<String>,
+    pub latitude: Option<f64>,
+    pub longitude: Option<f64>,
     pub payment_provider_id: Option<i32>,
     pub payment_identifier: Option<String>,
     pub payment_requested_amount: Option<f64>,
@@ -185,4 +191,11 @@ pub struct PaymentProviderPatchPayload {
     pub url_template: Option<String>,
     pub validation_regex: Option<String>,
     pub is_active: Option<bool>,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct AddressSuggestion {
+    pub label: String,
+    pub latitude: f64,
+    pub longitude: f64,
 }

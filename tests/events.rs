@@ -112,8 +112,11 @@ async fn create_event_requires_authentication() -> Result<(), Box<dyn Error>> {
                 date_event: NaiveDate::from_ymd_opt(2024, 7, 1).unwrap(),
                 start_time: NaiveTime::from_hms_opt(20, 0, 0).unwrap(),
                 address: "123 Party Street".to_string(),
+                latitude: None,
+                longitude: None,
                 payment_provider_id: None,
                 payment_identifier: None,
+                payment_requested_amount: None,
             })
             .to_request(),
     )
@@ -149,8 +152,11 @@ async fn create_event_allows_authenticated_user() -> Result<(), Box<dyn Error>> 
                 date_event: NaiveDate::from_ymd_opt(2024, 7, 1).unwrap(),
                 start_time: NaiveTime::from_hms_opt(20, 0, 0).unwrap(),
                 address: "123 Party Street".to_string(),
+                latitude: None,
+                longitude: None,
                 payment_provider_id: None,
                 payment_identifier: None,
+                payment_requested_amount: None,
             })
             .to_request(),
     )
@@ -189,8 +195,11 @@ async fn events_crud_flow() -> Result<(), Box<dyn Error>> {
                 date_event: NaiveDate::from_ymd_opt(2024, 7, 1).unwrap(),
                 start_time: NaiveTime::from_hms_opt(20, 0, 0).unwrap(),
                 address: "123 Party Street".to_string(),
+                latitude: None,
+                longitude: None,
                 payment_provider_id: Some(provider_id),
                 payment_identifier: Some("PARTY2024".to_string()),
+                payment_requested_amount: None,
             })
             .to_request(),
     )
@@ -224,8 +233,11 @@ async fn events_crud_flow() -> Result<(), Box<dyn Error>> {
                 date_event: NaiveDate::from_ymd_opt(2024, 7, 2).unwrap(),
                 start_time: NaiveTime::from_hms_opt(21, 0, 0).unwrap(),
                 address: "456 Party Avenue".to_string(),
+                latitude: None,
+                longitude: None,
                 payment_provider_id: Some(provider_id),
                 payment_identifier: Some("MEGAPARTY2024".to_string()),
+                payment_requested_amount: None,
             })
             .to_request(),
     )
@@ -248,8 +260,11 @@ async fn events_crud_flow() -> Result<(), Box<dyn Error>> {
                 date_event: None,
                 start_time: Some(NaiveTime::from_hms_opt(22, 0, 0).unwrap()),
                 address: None,
+                latitude: None,
+                longitude: None,
                 payment_provider_id: None,
                 payment_identifier: None,
+                payment_requested_amount: None,
             })
             .to_request(),
     )
@@ -321,8 +336,11 @@ async fn event_items_reservation_flow() -> Result<(), Box<dyn Error>> {
                 date_event: NaiveDate::from_ymd_opt(2024, 8, 1).unwrap(),
                 start_time: NaiveTime::from_hms_opt(18, 30, 0).unwrap(),
                 address: "Club House".to_string(),
+                latitude: None,
+                longitude: None,
                 payment_provider_id: None,
                 payment_identifier: None,
+                payment_requested_amount: None,
             })
             .to_request(),
     )
@@ -478,8 +496,11 @@ async fn create_event_rejects_unknown_payment_provider() -> Result<(), Box<dyn E
                 date_event: NaiveDate::from_ymd_opt(2024, 7, 1).unwrap(),
                 start_time: NaiveTime::from_hms_opt(20, 0, 0).unwrap(),
                 address: "123 Party Street".to_string(),
+                latitude: None,
+                longitude: None,
                 payment_provider_id: Some(9999),
                 payment_identifier: Some("INVALID".to_string()),
+                payment_requested_amount: None,
             })
             .to_request(),
     )
@@ -517,8 +538,11 @@ async fn event_validates_empty_fields() -> Result<(), Box<dyn Error>> {
                 date_event: NaiveDate::from_ymd_opt(2024, 7, 1).unwrap(),
                 start_time: NaiveTime::from_hms_opt(20, 0, 0).unwrap(),
                 address: "Address".to_string(),
+                latitude: None,
+                longitude: None,
                 payment_provider_id: None,
                 payment_identifier: None,
+                payment_requested_amount: None,
             })
             .to_request(),
     )
@@ -537,8 +561,11 @@ async fn event_validates_empty_fields() -> Result<(), Box<dyn Error>> {
                 date_event: NaiveDate::from_ymd_opt(2024, 7, 1).unwrap(),
                 start_time: NaiveTime::from_hms_opt(20, 0, 0).unwrap(),
                 address: "Address".to_string(),
+                latitude: None,
+                longitude: None,
                 payment_provider_id: None,
                 payment_identifier: None,
+                payment_requested_amount: None,
             })
             .to_request(),
     )
@@ -557,8 +584,11 @@ async fn event_validates_empty_fields() -> Result<(), Box<dyn Error>> {
                 date_event: NaiveDate::from_ymd_opt(2024, 7, 1).unwrap(),
                 start_time: NaiveTime::from_hms_opt(20, 0, 0).unwrap(),
                 address: "".to_string(),
+                latitude: None,
+                longitude: None,
                 payment_provider_id: None,
                 payment_identifier: None,
+                payment_requested_amount: None,
             })
             .to_request(),
     )
