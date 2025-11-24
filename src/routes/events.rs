@@ -1,11 +1,12 @@
 use actix_web::{HttpRequest, HttpResponse, Responder, delete, get, patch, post, put, web};
 use regex::Regex;
+use serde::Deserialize;
 use sqlx::{Error, PgPool, Row};
 
 use crate::{
     auth::extract_claims_from_auth,
     models::{
-        ErrorResponse, Event, EventCustomItemPayload, EventItemAttachPayload,
+        AddressSuggestion, ErrorResponse, Event, EventCustomItemPayload, EventItemAttachPayload,
         EventItemReservationPayload, EventItemView, EventPatchPayload, EventPayload,
         StatusResponse,
     },
@@ -93,6 +94,135 @@ async fn ensure_event_member(
     }
 }
 
+#[derive(Deserialize)]
+pub struct AddressSearchQuery {
+    pub q: String,
+    pub limit: Option<u8>,
+}
+
+#[utoipa::path(
+    get,
+    path = "/geo/address-search",
+    tag = "events",
+    params(
+        ("q" = String, Query, description = "Adresse ou lieu à rechercher"),
+        ("limit" = u8, Query, description = "Nombre maximum de suggestions (1-10)")
+    ),
+    responses(
+        (status = 200, description = "Suggestions géocodées", body = [AddressSuggestion]),
+        (status = 400, description = "Requête trop courte", body = ErrorResponse),
+        (status = 401, description = "Authentification requise", body = ErrorResponse),
+        (status = 502, description = "Service de géocodage indisponible", body = ErrorResponse)
+    )
+)]
+#[get("/geo/address-search")]
+pub async fn search_address(
+    state: web::Data<AppState>,
+    req: HttpRequest,
+    params: web::Query<AddressSearchQuery>,
+) -> impl Responder {
+    if let Err(resp) = claims_email(&req, state.get_ref()) {
+        return resp;
+    }
+
+    let query = params.q.trim();
+    if query.len() < 3 {
+        return HttpResponse::BadRequest().json(ErrorResponse {
+            error: "query_too_short".into(),
+            details: Some("Au moins 3 caractères requis pour la recherche".into()),
+        });
+    }
+    let limit = params.limit.unwrap_or(5).clamp(1, 10);
+
+    match fetch_address_suggestions(
+        &state.http_client,
+        &state.geocoding_base_url,
+        state.geocoding_country_codes.as_deref(),
+        query,
+        limit,
+    )
+    .await
+    {
+        Ok(results) => HttpResponse::Ok().json(results),
+        Err(resp) => resp,
+    }
+}
+
+async fn fetch_address_suggestions(
+    client: &reqwest::Client,
+    base_url: &str,
+    country_codes: Option<&str>,
+    query: &str,
+    limit: u8,
+) -> Result<Vec<AddressSuggestion>, HttpResponse> {
+    let mut url = match reqwest::Url::parse(&format!(
+        "{}/search",
+        base_url.trim_end_matches('/')
+    )) {
+        Ok(url) => url,
+        Err(_) => {
+            return Err(HttpResponse::InternalServerError().json(ErrorResponse {
+                error: "geocoding_config_error".into(),
+                details: None,
+            }))
+        }
+    };
+
+    {
+        let mut pairs = url.query_pairs_mut();
+        pairs.append_pair("format", "jsonv2");
+        pairs.append_pair("addressdetails", "0");
+        pairs.append_pair("limit", &limit.to_string());
+        pairs.append_pair("q", query);
+        if let Some(cc) = country_codes {
+            pairs.append_pair("countrycodes", cc);
+        }
+    }
+
+    #[derive(Deserialize)]
+    struct NominatimPlace {
+        display_name: String,
+        lat: String,
+        lon: String,
+    }
+
+    let response = client.get(url).send().await.map_err(|_| {
+        HttpResponse::BadGateway().json(ErrorResponse {
+            error: "geocoding_unreachable".into(),
+            details: None,
+        })
+    })?;
+
+    if !response.status().is_success() {
+        return Err(HttpResponse::BadGateway().json(ErrorResponse {
+            error: "geocoding_error".into(),
+            details: Some(format!("Status: {}", response.status())),
+        }));
+    }
+
+    let places: Vec<NominatimPlace> = response.json().await.map_err(|_| {
+        HttpResponse::BadGateway().json(ErrorResponse {
+            error: "geocoding_parse_error".into(),
+            details: None,
+        })
+    })?;
+
+    let suggestions = places
+        .into_iter()
+        .filter_map(|place| {
+            let lat = place.lat.parse::<f64>().ok()?;
+            let lon = place.lon.parse::<f64>().ok()?;
+            Some(AddressSuggestion {
+                label: place.display_name,
+                latitude: lat,
+                longitude: lon,
+            })
+        })
+        .collect();
+
+    Ok(suggestions)
+}
+
 #[utoipa::path(
     get,
     path = "/events",
@@ -117,6 +247,8 @@ pub async fn list_events(state: web::Data<AppState>, req: HttpRequest) -> impl R
                 e.date_event,
                 e.start_time,
                 e.address,
+                e.latitude,
+                e.longitude,
                 e.payment_provider_id,
                 e.payment_identifier,
                 e.payment_requested_amount,
@@ -180,6 +312,18 @@ pub async fn create_event(
             ),
         });
     }
+    if payload.latitude.is_some() ^ payload.longitude.is_some() {
+        return HttpResponse::BadRequest().json(ErrorResponse {
+            error: "invalid_payload".into(),
+            details: Some("Latitude et longitude doivent être renseignées ensemble".into()),
+        });
+    }
+    if payload.latitude.is_some() ^ payload.longitude.is_some() {
+        return HttpResponse::BadRequest().json(ErrorResponse {
+            error: "invalid_payload".into(),
+            details: Some("Latitude et longitude doivent être renseignées ensemble".into()),
+        });
+    }
 
     let (payment_provider_id, payment_identifier) = match normalize_payment_info(
         &state.db,
@@ -193,15 +337,17 @@ pub async fn create_event(
     };
 
     let res = sqlx::query_as::<_, Event>(
-        "INSERT INTO events (name_event, description, date_event, start_time, address, payment_provider_id, payment_identifier, payment_requested_amount, owner_email)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-         RETURNING event_id, name_event, description, date_event, start_time, address, payment_provider_id, payment_identifier, payment_requested_amount, owner_email",
+        "INSERT INTO events (name_event, description, date_event, start_time, address, latitude, longitude, payment_provider_id, payment_identifier, payment_requested_amount, owner_email)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+         RETURNING event_id, name_event, description, date_event, start_time, address, latitude, longitude, payment_provider_id, payment_identifier, payment_requested_amount, owner_email",
     )
     .bind(payload.name_event.trim())
     .bind(payload.description.trim())
     .bind(payload.date_event)
     .bind(payload.start_time)
     .bind(payload.address.trim())
+    .bind(payload.latitude)
+    .bind(payload.longitude)
     .bind(payment_provider_id)
     .bind(payment_identifier)
     .bind(payload.payment_requested_amount)
@@ -278,16 +424,18 @@ pub async fn replace_event(
     let res = sqlx::query_as::<_, Event>(
         "UPDATE events
          SET name_event = $1, description = $2, date_event = $3, start_time = $4, 
-             address = $5, payment_provider_id = $6, payment_identifier = $7,
-             payment_requested_amount = $8
-         WHERE event_id = $9
-         RETURNING event_id, name_event, description, date_event, start_time, address, payment_provider_id, payment_identifier, payment_requested_amount, owner_email",
+             address = $5, latitude = $6, longitude = $7, payment_provider_id = $8, payment_identifier = $9,
+             payment_requested_amount = $10
+         WHERE event_id = $11
+         RETURNING event_id, name_event, description, date_event, start_time, address, latitude, longitude, payment_provider_id, payment_identifier, payment_requested_amount, owner_email",
     )
     .bind(payload.name_event.trim())
     .bind(payload.description.trim())
     .bind(payload.date_event)
     .bind(payload.start_time)
     .bind(payload.address.trim())
+    .bind(payload.latitude)
+    .bind(payload.longitude)
     .bind(payment_provider_id)
     .bind(payment_identifier)
     .bind(payload.payment_requested_amount)
@@ -362,6 +510,12 @@ pub async fn update_event(
             ),
         });
     }
+    if payload.latitude.is_some() ^ payload.longitude.is_some() {
+        return HttpResponse::BadRequest().json(ErrorResponse {
+            error: "invalid_payload".into(),
+            details: Some("Latitude et longitude doivent être renseignées ensemble".into()),
+        });
+    }
 
     let (current_provider_id, current_identifier) =
         match fetch_event_payment_info(&state.db, *event_id).await {
@@ -384,17 +538,21 @@ pub async fn update_event(
              date_event = COALESCE($3, date_event),
              start_time = COALESCE($4, start_time),
              address = COALESCE($5, address),
-             payment_provider_id = COALESCE($6, payment_provider_id),
-             payment_identifier = COALESCE($7, payment_identifier),
-             payment_requested_amount = COALESCE($8, payment_requested_amount)
-         WHERE event_id = $9
-         RETURNING event_id, name_event, description, date_event, start_time, address, payment_provider_id, payment_identifier, payment_requested_amount, owner_email",
+             latitude = COALESCE($6, latitude),
+             longitude = COALESCE($7, longitude),
+             payment_provider_id = COALESCE($8, payment_provider_id),
+             payment_identifier = COALESCE($9, payment_identifier),
+             payment_requested_amount = COALESCE($10, payment_requested_amount)
+         WHERE event_id = $11
+         RETURNING event_id, name_event, description, date_event, start_time, address, latitude, longitude, payment_provider_id, payment_identifier, payment_requested_amount, owner_email",
     )
     .bind(payload.name_event.as_ref().map(|v| v.trim()).filter(|v| !v.is_empty()))
     .bind(payload.description.as_ref().map(|v| v.trim()).filter(|v| !v.is_empty()))
     .bind(payload.date_event)
     .bind(payload.start_time)
     .bind(payload.address.as_ref().map(|v| v.trim()).filter(|v| !v.is_empty()))
+    .bind(payload.latitude)
+    .bind(payload.longitude)
     .bind(payment_provider_id)
     .bind(payment_identifier)
     .bind(payload.payment_requested_amount)

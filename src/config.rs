@@ -6,6 +6,9 @@ pub struct AppConfig {
     pub database_url: String,
     pub jwt_secret: String,
     pub admin_emails: Vec<String>,
+    pub geocoding_base_url: String,
+    pub geocoding_user_agent: String,
+    pub geocoding_country_codes: Option<String>,
 }
 
 impl AppConfig {
@@ -27,12 +30,21 @@ impl AppConfig {
             .filter(|s| !s.is_empty())
             .map(|s| s.to_lowercase())
             .collect::<Vec<_>>();
+        let geocoding_base_url = std::env::var("GEOCODING_BASE_URL")
+            .unwrap_or_else(|_| "https://nominatim.openstreetmap.org".into());
+        let geocoding_user_agent =
+            std::env::var("GEOCODING_USER_AGENT").unwrap_or_else(|_| "fiestaaa-backend/0.1".into());
+        let geocoding_country_codes =
+            std::env::var("GEOCODING_COUNTRY_CODES").ok().filter(|v| !v.trim().is_empty());
         Self {
             host,
             port,
             database_url,
             jwt_secret,
             admin_emails,
+            geocoding_base_url,
+            geocoding_user_agent,
+            geocoding_country_codes,
         }
     }
 }

@@ -29,6 +29,7 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(events::replace_event)
         .service(events::update_event)
         .service(events::delete_event)
+        .service(events::search_address)
         .service(events::list_event_items)
         .service(events::attach_event_item)
         .service(events::create_custom_event_item)
