@@ -200,6 +200,22 @@ pub struct PaymentProviderPatchPayload {
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct ShareTokenResponse {
+    pub token: String,
+    pub event_id: i64,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct ShareClaimPayload {
+    pub token: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct ShareClaimResponse {
+    pub event: Event,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct AddressSuggestion {
     pub label: String,
     pub latitude: f64,

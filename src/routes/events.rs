@@ -2,13 +2,14 @@ use actix_web::{HttpRequest, HttpResponse, Responder, delete, get, patch, post, 
 use regex::Regex;
 use serde::Deserialize;
 use sqlx::{Error, PgPool, Row};
+use uuid::Uuid;
 
 use crate::{
     auth::extract_claims_from_auth,
     models::{
         AddressSuggestion, ErrorResponse, Event, EventCustomItemPayload, EventItemAttachPayload,
         EventItemReservationPayload, EventItemView, EventPatchPayload, EventPayload,
-        StatusResponse,
+        ShareClaimPayload, ShareClaimResponse, ShareTokenResponse, StatusResponse,
     },
     state::AppState,
 };
@@ -621,6 +622,201 @@ pub async fn delete_event(
             details: None,
         }),
     }
+}
+
+#[utoipa::path(
+    post,
+    path = "/events/{event_id}/share",
+    tag = "events",
+    responses(
+        (status = 201, description = "Lien de partage généré", body = ShareTokenResponse),
+        (status = 403, description = "Non autorisé", body = ErrorResponse),
+        (status = 404, description = "Événement introuvable", body = ErrorResponse),
+        (status = 500, description = "Erreur base de données", body = ErrorResponse)
+    ),
+    params(
+        ("event_id" = i64, Path, description = "Identifiant de l'événement")
+    )
+)]
+#[post("/events/{event_id}/share")]
+pub async fn create_share_link(
+    state: web::Data<AppState>,
+    req: HttpRequest,
+    event_id: web::Path<i64>,
+) -> impl Responder {
+    let owner_email = match claims_email(&req, state.get_ref()) {
+        Ok(email) => email,
+        Err(resp) => return resp,
+    };
+
+    if let Err(resp) = ensure_event_owner(&req, state.get_ref(), *event_id).await {
+        return resp;
+    }
+
+    // also ensures event exists
+    if let Err(resp) = ensure_event_exists(&state.db, *event_id).await {
+        return resp;
+    }
+
+    let token = Uuid::new_v4();
+
+    let res = sqlx::query(
+        "INSERT INTO event_share_tokens (token, event_id, created_by_email) VALUES ($1, $2, $3)",
+    )
+    .bind(token)
+    .bind(*event_id)
+    .bind(&owner_email)
+    .execute(&state.db)
+    .await;
+
+    match res {
+        Ok(_) => {
+            let token_str = token.to_string();
+            HttpResponse::Created().json(ShareTokenResponse {
+                token: token_str,
+                event_id: *event_id,
+            })
+        }
+        Err(_) => server_error(),
+    }
+}
+
+#[utoipa::path(
+    post,
+    path = "/share/claim",
+    tag = "events",
+    request_body = ShareClaimPayload,
+    responses(
+        (status = 200, description = "Lien consommé et événement accessible", body = ShareClaimResponse),
+        (status = 400, description = "Token manquant", body = ErrorResponse),
+        (status = 401, description = "Authentification requise", body = ErrorResponse),
+        (status = 404, description = "Lien inexistant", body = ErrorResponse),
+        (status = 410, description = "Lien déjà consommé", body = ErrorResponse),
+        (status = 500, description = "Erreur base de données", body = ErrorResponse)
+    )
+)]
+#[post("/share/claim")]
+pub async fn claim_share_link(
+    state: web::Data<AppState>,
+    req: HttpRequest,
+    payload: web::Json<ShareClaimPayload>,
+) -> impl Responder {
+    let claims = match extract_claims_from_auth(&req, &state.jwt_secret) {
+        Ok(c) => c,
+        Err(resp) => return resp,
+    };
+
+    let token = payload.token.trim();
+    if token.is_empty() {
+        return HttpResponse::BadRequest().json(ErrorResponse {
+            error: "invalid_token".into(),
+            details: Some("Token manquant".into()),
+        });
+    }
+
+    let parsed_token = match Uuid::parse_str(token) {
+        Ok(t) => t,
+        Err(_) => {
+            return HttpResponse::BadRequest().json(ErrorResponse {
+                error: "invalid_token".into(),
+                details: Some("Format de token invalide".into()),
+            })
+        }
+    };
+
+    let mut tx = match state.db.begin().await {
+        Ok(tx) => tx,
+        Err(_) => return server_error(),
+    };
+
+    let token_row = match sqlx::query(
+        "SELECT event_id, used_at FROM event_share_tokens WHERE token = $1 FOR UPDATE",
+    )
+    .bind(parsed_token)
+    .fetch_optional(&mut *tx)
+    .await
+    {
+        Ok(Some(row)) => row,
+        Ok(None) => {
+            return HttpResponse::NotFound().json(ErrorResponse {
+                error: "token_not_found".into(),
+                details: None,
+            })
+        }
+        Err(_) => return server_error(),
+    };
+
+    let used_at: Option<chrono::DateTime<chrono::Utc>> = match token_row.try_get("used_at") {
+        Ok(v) => v,
+        Err(_) => return server_error(),
+    };
+    if used_at.is_some() {
+        return HttpResponse::Gone().json(ErrorResponse {
+            error: "token_used".into(),
+            details: Some("Ce lien a déjà été utilisé".into()),
+        });
+    }
+    let event_id: i64 = match token_row.try_get("event_id") {
+        Ok(v) => v,
+        Err(_) => return server_error(),
+    };
+
+    let event = sqlx::query_as::<_, Event>(
+        "SELECT event_id, name_event, description, date_event, start_time, address, latitude, longitude, payment_provider_id, payment_identifier, payment_requested_amount, owner_email
+         FROM events
+         WHERE event_id = $1",
+    )
+    .bind(event_id)
+    .fetch_optional(&mut *tx)
+    .await;
+
+    let event = match event {
+        Ok(Some(e)) => e,
+        Ok(None) => {
+            return HttpResponse::NotFound().json(ErrorResponse {
+                error: "event_not_found".into(),
+                details: None,
+            })
+        }
+        Err(_) => return server_error(),
+    };
+
+    let user_id = match fetch_user_id(&state.db, &claims.sub).await {
+        Ok(id) => id,
+        Err(resp) => return resp,
+    };
+
+    // Ensure an invitation exists, but let the user choose their response later.
+    if let Err(_) = sqlx::query(
+        "INSERT INTO invitations (event_id, user_id, status)
+         VALUES ($1, $2, 'Waiting')
+         ON CONFLICT (event_id, user_id) DO NOTHING",
+    )
+    .bind(event.event_id)
+    .bind(user_id)
+    .execute(&mut *tx)
+    .await
+    {
+        return server_error();
+    }
+
+    let update_res = sqlx::query(
+        "UPDATE event_share_tokens SET used_at = NOW(), used_by_email = $1 WHERE token = $2",
+    )
+    .bind(&claims.sub)
+    .bind(parsed_token)
+    .execute(&mut *tx)
+    .await;
+
+    if let Err(_) = update_res {
+        return server_error();
+    }
+
+    if tx.commit().await.is_err() {
+        return server_error();
+    }
+
+    HttpResponse::Ok().json(ShareClaimResponse { event })
 }
 
 #[utoipa::path(
