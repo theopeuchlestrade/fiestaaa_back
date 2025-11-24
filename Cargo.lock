@@ -734,6 +734,7 @@ dependencies = [
  "tokio",
  "utoipa",
  "utoipa-swagger-ui",
+ "uuid",
 ]
 
 [[package]]
@@ -2416,6 +2417,7 @@ dependencies = [
  "tokio-stream",
  "tracing",
  "url",
+ "uuid",
 ]
 
 [[package]]
@@ -2498,6 +2500,7 @@ dependencies = [
  "thiserror 1.0.69",
  "time",
  "tracing",
+ "uuid",
  "whoami",
 ]
 
@@ -2538,6 +2541,7 @@ dependencies = [
  "thiserror 1.0.69",
  "time",
  "tracing",
+ "uuid",
  "whoami",
 ]
 
@@ -2564,6 +2568,7 @@ dependencies = [
  "tracing",
  "url",
  "urlencoding",
+ "uuid",
 ]
 
 [[package]]
@@ -3048,6 +3053,17 @@ dependencies = [
  "serde_json",
  "utoipa",
  "zip",
+]
+
+[[package]]
+name = "uuid"
+version = "1.18.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2f87b8aa10b915a06587d0dec516c282ff295b475d94abf425d62b57710070a2"
+dependencies = [
+ "getrandom 0.3.4",
+ "js-sys",
+ "wasm-bindgen",
 ]
 
 [[package]]
