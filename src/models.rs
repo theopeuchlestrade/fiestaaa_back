@@ -157,6 +157,12 @@ pub struct Invitation {
     pub event_name: Option<String>,
 }
 
+#[derive(Debug, Serialize, Deserialize, ToSchema, FromRow)]
+pub struct InvitationSuggestion {
+    pub email: String,
+    pub last_invited_at: chrono::DateTime<chrono::Utc>,
+}
+
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct InvitationPayload {
     pub email: String,
