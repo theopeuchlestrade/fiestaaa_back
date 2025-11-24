@@ -3,10 +3,12 @@ use actix_web::{HttpRequest, HttpResponse, Responder, delete, get, patch, post, 
 use crate::{
     auth::extract_claims_from_auth,
     models::{
-        ErrorResponse, Invitation, InvitationPatchPayload, InvitationPayload, StatusResponse,
+        ErrorResponse, Invitation, InvitationPatchPayload, InvitationPayload, InvitationSuggestion,
+        StatusResponse,
     },
     state::AppState,
 };
+use serde::Deserialize;
 
 fn claims_email(req: &HttpRequest, state: &AppState) -> Result<String, HttpResponse> {
     let claims = extract_claims_from_auth(req, &state.jwt_secret)?;
@@ -38,17 +40,22 @@ async fn ensure_event_owner(
     req: &HttpRequest,
     state: &AppState,
     event_id: i64,
-) -> Result<(), HttpResponse> {
+) -> Result<String, HttpResponse> {
     let requester = claims_email(req, state)?;
     let owner = fetch_event_owner_email(&state.db, event_id).await?;
     if owner == requester {
-        Ok(())
+        Ok(owner)
     } else {
         Err(HttpResponse::Forbidden().json(ErrorResponse {
             error: "forbidden".into(),
             details: Some("only the creator can manage invitations".into()),
         }))
     }
+}
+
+#[derive(Deserialize)]
+pub struct InvitationSuggestionQuery {
+    pub q: Option<String>,
 }
 
 fn validate_status(status: &str) -> bool {
@@ -116,6 +123,68 @@ pub async fn list_event_invitations(
          WHERE i.event_id = $1
          ORDER BY i.date_invi DESC",
     )
+    .bind(*event_id)
+    .fetch_all(&state.db)
+    .await
+    {
+        Ok(list) => HttpResponse::Ok().json(list),
+        Err(_) => HttpResponse::InternalServerError().json(ErrorResponse {
+            error: "db_error".into(),
+            details: None,
+        }),
+    }
+}
+
+#[utoipa::path(
+    get,
+    path = "/events/{event_id}/invitations/suggestions",
+    tag = "invitations",
+    request_body = InvitationSuggestionQuery,
+    responses(
+        (status = 200, description = "Suggestions d'invitations", body = [InvitationSuggestion]),
+        (status = 403, description = "Non autorisé", body = ErrorResponse),
+        (status = 404, description = "Événement introuvable", body = ErrorResponse)
+    ),
+    params(
+        ("event_id" = i64, Path, description = "Identifiant de l'événement")
+    )
+)]
+#[get("/events/{event_id}/invitations/suggestions")]
+pub async fn suggest_invitations(
+    state: web::Data<AppState>,
+    req: HttpRequest,
+    event_id: web::Path<i64>,
+    query: web::Query<InvitationSuggestionQuery>,
+) -> impl Responder {
+    let owner_email = match ensure_event_owner(&req, state.get_ref(), *event_id).await {
+        Ok(owner) => owner,
+        Err(resp) => return resp,
+    };
+
+    let q = query.q.as_ref().map(|s| s.trim()).unwrap_or("");
+    let q = format!("%{}%", q);
+
+    match sqlx::query_as::<_, InvitationSuggestion>(
+        "SELECT u.email,
+                MAX(i.date_invi) AS last_invited_at
+         FROM invitations i
+         JOIN users u ON u.id = i.user_id
+         JOIN events e ON e.event_id = i.event_id
+         WHERE e.owner_email = $1
+           AND lower(u.email) LIKE lower($2)
+           AND NOT EXISTS (
+                SELECT 1
+                FROM invitations i2
+                JOIN users u2 ON u2.id = i2.user_id
+                WHERE i2.event_id = $3
+                  AND lower(u2.email) = lower(u.email)
+           )
+         GROUP BY u.email
+         ORDER BY MAX(i.date_invi) DESC, u.email ASC
+         LIMIT 10",
+    )
+    .bind(&owner_email)
+    .bind(&q)
     .bind(*event_id)
     .fetch_all(&state.db)
     .await
