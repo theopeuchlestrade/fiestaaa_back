@@ -274,6 +274,16 @@ pub async fn delete_invitation(
     if let Err(resp) = ensure_event_owner(&req, state.get_ref(), event_id).await {
         return resp;
     }
+    let owner_email = match fetch_event_owner_email(&state.db, event_id).await {
+        Ok(owner) => owner,
+        Err(resp) => return resp,
+    };
+    if owner_email.eq_ignore_ascii_case(email.trim()) {
+        return HttpResponse::BadRequest().json(ErrorResponse {
+            error: "cannot_remove_owner".into(),
+            details: Some("Le créateur ne peut pas être retiré de l'événement".into()),
+        });
+    }
     let user_id = match fetch_user_id_by_email(&state.db, &email).await {
         Ok(id) => id,
         Err(resp) => return resp,
