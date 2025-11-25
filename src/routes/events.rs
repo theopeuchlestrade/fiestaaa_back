@@ -253,6 +253,7 @@ pub async fn list_events(state: web::Data<AppState>, req: HttpRequest) -> impl R
                 e.payment_provider_id,
                 e.payment_identifier,
                 e.payment_requested_amount,
+                e.payment_per_person,
                 e.owner_email
          FROM events e
          WHERE lower(e.owner_email) = lower($1)
@@ -336,11 +337,16 @@ pub async fn create_event(
         Ok(values) => values,
         Err(resp) => return resp,
     };
+    let payment_per_person = if payment_provider_id.is_none() {
+        false
+    } else {
+        payload.payment_per_person.unwrap_or(false)
+    };
 
     let res = sqlx::query_as::<_, Event>(
-        "INSERT INTO events (name_event, description, date_event, start_time, address, latitude, longitude, payment_provider_id, payment_identifier, payment_requested_amount, owner_email)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-         RETURNING event_id, name_event, description, date_event, start_time, address, latitude, longitude, payment_provider_id, payment_identifier, payment_requested_amount, owner_email",
+        "INSERT INTO events (name_event, description, date_event, start_time, address, latitude, longitude, payment_provider_id, payment_identifier, payment_requested_amount, payment_per_person, owner_email)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+         RETURNING event_id, name_event, description, date_event, start_time, address, latitude, longitude, payment_provider_id, payment_identifier, payment_requested_amount, payment_per_person, owner_email",
     )
     .bind(payload.name_event.trim())
     .bind(payload.description.trim())
@@ -352,6 +358,7 @@ pub async fn create_event(
     .bind(payment_provider_id)
     .bind(payment_identifier)
     .bind(payload.payment_requested_amount)
+    .bind(payment_per_person)
     .bind(owner_email)
     .fetch_one(&state.db)
     .await;
@@ -421,14 +428,19 @@ pub async fn replace_event(
         Ok(values) => values,
         Err(resp) => return resp,
     };
+    let payment_per_person = if payment_provider_id.is_none() {
+        false
+    } else {
+        payload.payment_per_person.unwrap_or(false)
+    };
 
     let res = sqlx::query_as::<_, Event>(
         "UPDATE events
          SET name_event = $1, description = $2, date_event = $3, start_time = $4, 
              address = $5, latitude = $6, longitude = $7, payment_provider_id = $8, payment_identifier = $9,
-             payment_requested_amount = $10
-         WHERE event_id = $11
-         RETURNING event_id, name_event, description, date_event, start_time, address, latitude, longitude, payment_provider_id, payment_identifier, payment_requested_amount, owner_email",
+             payment_requested_amount = $10, payment_per_person = $11
+         WHERE event_id = $12
+         RETURNING event_id, name_event, description, date_event, start_time, address, latitude, longitude, payment_provider_id, payment_identifier, payment_requested_amount, payment_per_person, owner_email",
     )
     .bind(payload.name_event.trim())
     .bind(payload.description.trim())
@@ -440,6 +452,7 @@ pub async fn replace_event(
     .bind(payment_provider_id)
     .bind(payment_identifier)
     .bind(payload.payment_requested_amount)
+    .bind(payment_per_person)
     .bind(*event_id)
     .fetch_optional(&state.db)
     .await;
@@ -518,7 +531,7 @@ pub async fn update_event(
         });
     }
 
-    let (current_provider_id, current_identifier) =
+    let (current_provider_id, current_identifier, current_payment_per_person) =
         match fetch_event_payment_info(&state.db, *event_id).await {
             Ok(info) => info,
             Err(resp) => return resp,
@@ -531,6 +544,11 @@ pub async fn update_event(
             Ok(values) => values,
             Err(resp) => return resp,
         };
+    let payment_per_person = if payment_provider_id.is_none() {
+        false
+    } else {
+        payload.payment_per_person.unwrap_or(current_payment_per_person)
+    };
 
     let res = sqlx::query_as::<_, Event>(
         "UPDATE events
@@ -543,9 +561,10 @@ pub async fn update_event(
              longitude = COALESCE($7, longitude),
              payment_provider_id = COALESCE($8, payment_provider_id),
              payment_identifier = COALESCE($9, payment_identifier),
-             payment_requested_amount = COALESCE($10, payment_requested_amount)
-         WHERE event_id = $11
-         RETURNING event_id, name_event, description, date_event, start_time, address, latitude, longitude, payment_provider_id, payment_identifier, payment_requested_amount, owner_email",
+             payment_requested_amount = COALESCE($10, payment_requested_amount),
+             payment_per_person = $11
+         WHERE event_id = $12
+         RETURNING event_id, name_event, description, date_event, start_time, address, latitude, longitude, payment_provider_id, payment_identifier, payment_requested_amount, payment_per_person, owner_email",
     )
     .bind(payload.name_event.as_ref().map(|v| v.trim()).filter(|v| !v.is_empty()))
     .bind(payload.description.as_ref().map(|v| v.trim()).filter(|v| !v.is_empty()))
@@ -557,6 +576,7 @@ pub async fn update_event(
     .bind(payment_provider_id)
     .bind(payment_identifier)
     .bind(payload.payment_requested_amount)
+    .bind(payment_per_person)
     .bind(*event_id)
     .fetch_optional(&state.db)
     .await;
@@ -762,7 +782,7 @@ pub async fn claim_share_link(
     };
 
     let event = sqlx::query_as::<_, Event>(
-        "SELECT event_id, name_event, description, date_event, start_time, address, latitude, longitude, payment_provider_id, payment_identifier, payment_requested_amount, owner_email
+        "SELECT event_id, name_event, description, date_event, start_time, address, latitude, longitude, payment_provider_id, payment_identifier, payment_requested_amount, payment_per_person, owner_email
          FROM events
          WHERE event_id = $1",
     )
@@ -1485,9 +1505,9 @@ async fn ensure_event_exists(db: &PgPool, event_id: i64) -> Result<(), HttpRespo
 async fn fetch_event_payment_info(
     db: &PgPool,
     event_id: i64,
-) -> Result<(Option<i32>, Option<String>), HttpResponse> {
-    let row = sqlx::query_as::<_, (Option<i32>, Option<String>)>(
-        "SELECT payment_provider_id, payment_identifier FROM events WHERE event_id = $1",
+) -> Result<(Option<i32>, Option<String>, bool), HttpResponse> {
+    let row = sqlx::query_as::<_, (Option<i32>, Option<String>, bool)>(
+        "SELECT payment_provider_id, payment_identifier, payment_per_person FROM events WHERE event_id = $1",
     )
     .bind(event_id)
     .fetch_optional(db)
