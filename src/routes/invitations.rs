@@ -54,6 +54,48 @@ async fn ensure_event_owner(
     }
 }
 
+async fn ensure_event_participant(
+    req: &HttpRequest,
+    state: &AppState,
+    event_id: i64,
+) -> Result<(), HttpResponse> {
+    let requester = claims_email(req, state)?;
+    let owner = fetch_event_owner_email(&state.db, event_id).await?;
+    if owner.eq_ignore_ascii_case(&requester) {
+        return Ok(());
+    }
+
+    let is_member = sqlx::query_scalar::<_, bool>(
+        "SELECT EXISTS(
+            SELECT 1
+            FROM invitations i
+            JOIN users u ON u.id = i.user_id
+            WHERE i.event_id = $1
+              AND lower(u.email) = lower($2)
+              AND i.status <> 'Declined'
+        )",
+    )
+    .bind(event_id)
+    .bind(&requester)
+    .fetch_one(&state.db)
+    .await
+    .map_err(|_| {
+        HttpResponse::InternalServerError().json(ErrorResponse {
+            error: "db_error".into(),
+            details: None,
+        })
+    })?;
+
+    if is_member {
+        Ok(())
+    } else {
+        Err(HttpResponse::Forbidden().json(ErrorResponse {
+            error: "forbidden".into(),
+            details: Some("membership required".into()),
+        }))
+    }
+}
+
 #[derive(Deserialize)]
 pub struct InvitationSuggestionQuery {
     pub q: Option<String>,
@@ -112,17 +154,30 @@ pub async fn list_event_invitations(
     req: HttpRequest,
     event_id: web::Path<i64>,
 ) -> impl Responder {
-    if let Err(resp) = ensure_event_owner(&req, state.get_ref(), *event_id).await {
+    if let Err(resp) = ensure_event_participant(&req, state.get_ref(), *event_id).await {
         return resp;
     }
 
     match sqlx::query_as::<_, Invitation>(
-        "SELECT i.event_id, u.email, i.status, i.date_invi, e.name_event AS event_name
+        "SELECT e.event_id,
+                e.owner_email AS email,
+                'Accepted'::text AS status,
+                NOW() AS date_invi,
+                e.name_event AS event_name
+         FROM events e
+         WHERE e.event_id = $1
+         UNION ALL
+         SELECT i.event_id,
+                u.email,
+                i.status,
+                i.date_invi,
+                e.name_event AS event_name
          FROM invitations i
          JOIN users u ON u.id = i.user_id
          JOIN events e ON e.event_id = i.event_id
          WHERE i.event_id = $1
-         ORDER BY i.date_invi DESC",
+           AND lower(u.email) <> lower(e.owner_email)
+         ORDER BY date_invi DESC",
     )
     .bind(*event_id)
     .fetch_all(&state.db)
