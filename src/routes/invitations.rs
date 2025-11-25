@@ -1,4 +1,5 @@
 use actix_web::{HttpRequest, HttpResponse, Responder, delete, get, patch, post, web};
+use sqlx::Row;
 
 use crate::{
     auth::extract_claims_from_auth,
@@ -374,6 +375,15 @@ pub async fn respond_invitation(
     };
 
     let target_status = status;
+    let mut tx = match state.db.begin().await {
+        Ok(tx) => tx,
+        Err(_) => {
+            return HttpResponse::InternalServerError().json(ErrorResponse {
+                error: "db_error".into(),
+                details: None,
+            })
+        }
+    };
     let res = sqlx::query_as::<_, Invitation>(
         "UPDATE invitations
          SET status = $1
@@ -385,18 +395,94 @@ pub async fn respond_invitation(
     .bind(*event_id)
     .bind(user_id)
     .bind(email)
-    .fetch_optional(&state.db)
+    .fetch_optional(&mut *tx)
     .await;
 
-    match res {
-        Ok(Some(inv)) => HttpResponse::Ok().json(inv),
-        Ok(None) => HttpResponse::NotFound().json(ErrorResponse {
-            error: "invitation_not_found".into(),
-            details: None,
-        }),
-        Err(_) => HttpResponse::InternalServerError().json(ErrorResponse {
+    let updated = match res {
+        Ok(Some(inv)) => inv,
+        Ok(None) => {
+            let _ = tx.rollback().await;
+            return HttpResponse::NotFound().json(ErrorResponse {
+                error: "invitation_not_found".into(),
+                details: None,
+            });
+        }
+        Err(_) => {
+            let _ = tx.rollback().await;
+            return HttpResponse::InternalServerError().json(ErrorResponse {
+                error: "db_error".into(),
+                details: None,
+            });
+        }
+    };
+
+    if target_status == "Declined" {
+        let reservations = sqlx::query(
+            "SELECT item_id, quantity
+             FROM user_items
+             WHERE user_id = $1 AND event_id = $2
+             FOR UPDATE",
+        )
+        .bind(user_id)
+        .bind(*event_id)
+        .fetch_all(&mut *tx)
+        .await;
+
+        let reservations = match reservations {
+            Ok(rows) => rows,
+            Err(_) => {
+                let _ = tx.rollback().await;
+                return HttpResponse::InternalServerError().json(ErrorResponse {
+                    error: "db_error".into(),
+                    details: None,
+                });
+            }
+        };
+
+        for row in reservations {
+            let item_id: i64 = row.get("item_id");
+            let qty: i32 = row.get("quantity");
+            if let Err(_) = sqlx::query(
+                "UPDATE events_items
+                 SET quantity = GREATEST(quantity - $1, 0)
+                 WHERE event_id = $2 AND item_id = $3",
+            )
+            .bind(qty)
+            .bind(*event_id)
+            .bind(item_id)
+            .execute(&mut *tx)
+            .await
+            {
+                let _ = tx.rollback().await;
+                return HttpResponse::InternalServerError().json(ErrorResponse {
+                    error: "db_error".into(),
+                    details: None,
+                });
+            }
+        }
+
+        if let Err(_) = sqlx::query(
+            "DELETE FROM user_items WHERE user_id = $1 AND event_id = $2",
+        )
+        .bind(user_id)
+        .bind(*event_id)
+        .execute(&mut *tx)
+        .await
+        {
+            let _ = tx.rollback().await;
+            return HttpResponse::InternalServerError().json(ErrorResponse {
+                error: "db_error".into(),
+                details: None,
+            });
+        }
+    }
+
+    if let Err(_) = tx.commit().await {
+        return HttpResponse::InternalServerError().json(ErrorResponse {
             error: "db_error".into(),
             details: None,
-        }),
+        });
     }
+
+    HttpResponse::Ok().json(updated)
 }
