@@ -54,5 +54,8 @@ pub fn build_state(pool: PgPool, secret: &str, admin_emails: &[&str]) -> web::Da
         http_client,
         geocoding_base_url: "https://nominatim.openstreetmap.org".into(),
         geocoding_country_codes: None,
+        invitation_email_sender: None,
+        invitation_email_api_key: None,
+        app_base_url: "http://localhost:3000".into(),
     })
 }

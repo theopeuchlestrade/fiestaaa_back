@@ -724,6 +724,7 @@ dependencies = [
  "dotenvy",
  "env_logger",
  "jsonwebtoken",
+ "log",
  "once_cell",
  "rand_core 0.6.4",
  "regex",

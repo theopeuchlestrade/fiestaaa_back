@@ -156,16 +156,13 @@ async fn fetch_address_suggestions(
     query: &str,
     limit: u8,
 ) -> Result<Vec<AddressSuggestion>, HttpResponse> {
-    let mut url = match reqwest::Url::parse(&format!(
-        "{}/search",
-        base_url.trim_end_matches('/')
-    )) {
+    let mut url = match reqwest::Url::parse(&format!("{}/search", base_url.trim_end_matches('/'))) {
         Ok(url) => url,
         Err(_) => {
             return Err(HttpResponse::InternalServerError().json(ErrorResponse {
                 error: "geocoding_config_error".into(),
                 details: None,
-            }))
+            }));
         }
     };
 
@@ -547,7 +544,9 @@ pub async fn update_event(
     let payment_per_person = if payment_provider_id.is_none() {
         false
     } else {
-        payload.payment_per_person.unwrap_or(current_payment_per_person)
+        payload
+            .payment_per_person
+            .unwrap_or(current_payment_per_person)
     };
 
     let res = sqlx::query_as::<_, Event>(
@@ -740,7 +739,7 @@ pub async fn claim_share_link(
             return HttpResponse::BadRequest().json(ErrorResponse {
                 error: "invalid_token".into(),
                 details: Some("Format de token invalide".into()),
-            })
+            });
         }
     };
 
@@ -761,7 +760,7 @@ pub async fn claim_share_link(
             return HttpResponse::NotFound().json(ErrorResponse {
                 error: "token_not_found".into(),
                 details: None,
-            })
+            });
         }
         Err(_) => return server_error(),
     };
@@ -796,7 +795,7 @@ pub async fn claim_share_link(
             return HttpResponse::NotFound().json(ErrorResponse {
                 error: "event_not_found".into(),
                 details: None,
-            })
+            });
         }
         Err(_) => return server_error(),
     };
