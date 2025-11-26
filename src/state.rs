@@ -9,4 +9,7 @@ pub struct AppState {
     pub http_client: reqwest::Client,
     pub geocoding_base_url: String,
     pub geocoding_country_codes: Option<String>,
+    pub invitation_email_sender: Option<String>,
+    pub invitation_email_api_key: Option<String>,
+    pub app_base_url: String,
 }
