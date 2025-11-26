@@ -27,6 +27,9 @@ async fn main() -> std::io::Result<()> {
         http_client,
         geocoding_base_url: cfg.geocoding_base_url.clone(),
         geocoding_country_codes: cfg.geocoding_country_codes.clone(),
+        invitation_email_sender: cfg.invitation_email_sender.clone(),
+        invitation_email_api_key: cfg.invitation_email_api_key.clone(),
+        app_base_url: cfg.app_base_url.clone(),
     });
 
     // Server
