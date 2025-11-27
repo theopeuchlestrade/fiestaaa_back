@@ -1,5 +1,8 @@
-use actix_web::{HttpRequest, HttpResponse, Responder, get, patch, web};
+use actix_multipart::Multipart;
+use actix_web::{HttpRequest, HttpResponse, Responder, get, patch, post, web};
+use futures_util::StreamExt;
 use sqlx::Row;
+use uuid::Uuid;
 
 use crate::{
     auth::extract_claims_from_auth,
@@ -7,6 +10,16 @@ use crate::{
     models::{ErrorResponse, HandleAvailabilityResponse, HandleUpdatePayload, MeResponse},
     state::AppState,
 };
+
+const MAX_AVATAR_BYTES: usize = 1_000_000; // ~1MB
+const MAX_AVATAR_DIM: u32 = 512;
+
+async fn ensure_avatar_column(db: &sqlx::PgPool) -> Result<(), sqlx::Error> {
+    sqlx::query("ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_url TEXT;")
+        .execute(db)
+        .await?;
+    Ok(())
+}
 
 #[derive(serde::Deserialize)]
 pub struct HandleAvailabilityQuery {
@@ -78,11 +91,13 @@ pub async fn update_handle(
         });
     }
 
+    let _ = ensure_avatar_column(&state.db).await;
+
     let res = sqlx::query(
         "UPDATE users
          SET handle = $1
          WHERE lower(email) = lower($2)
-         RETURNING email, handle",
+         RETURNING email, handle, avatar_url",
     )
     .bind(&candidate)
     .bind(&claims.sub)
@@ -93,6 +108,7 @@ pub async fn update_handle(
         Ok(row) => HttpResponse::Ok().json(MeResponse {
             email: row.get("email"),
             handle: row.get("handle"),
+            avatar_url: row.get::<Option<String>, _>("avatar_url"),
             exp: claims.exp,
         }),
         Err(sqlx::Error::Database(db_err)) if db_err.code().as_deref() == Some("23505") => {
@@ -101,6 +117,148 @@ pub async fn update_handle(
                 details: None,
             })
         }
+        Err(sqlx::Error::RowNotFound) => HttpResponse::Unauthorized().json(ErrorResponse {
+            error: "user_not_found".into(),
+            details: None,
+        }),
+        Err(_) => HttpResponse::InternalServerError().json(ErrorResponse {
+            error: "db_error".into(),
+            details: None,
+        }),
+    }
+}
+
+#[utoipa::path(
+    post,
+    path = "/me/avatar",
+    tag = "users",
+    responses(
+        (status = 200, description = "Avatar mis à jour", body = MeResponse),
+        (status = 400, description = "Fichier invalide", body = ErrorResponse),
+        (status = 401, description = "Authentification requise", body = ErrorResponse),
+        (status = 413, description = "Fichier trop volumineux", body = ErrorResponse),
+    )
+)]
+#[post("/me/avatar")]
+pub async fn upload_avatar(
+    state: web::Data<AppState>,
+    req: HttpRequest,
+    mut payload: Multipart,
+) -> impl Responder {
+    let claims = match extract_claims_from_auth(&req, &state.jwt_secret) {
+        Ok(c) => c,
+        Err(resp) => return resp,
+    };
+
+    let mut bytes: Vec<u8> = Vec::new();
+    while let Some(field) = payload.next().await {
+        let mut field = match field {
+            Ok(f) => f,
+            Err(_) => {
+                return HttpResponse::BadRequest().json(ErrorResponse {
+                    error: "invalid_upload".into(),
+                    details: Some("champ multipart invalide".into()),
+                });
+            }
+        };
+        while let Some(chunk) = field.next().await {
+            let chunk = match chunk {
+                Ok(c) => c,
+                Err(_) => {
+                    return HttpResponse::BadRequest().json(ErrorResponse {
+                        error: "invalid_upload".into(),
+                        details: Some("lecture impossible".into()),
+                    });
+                }
+            };
+            if bytes.len() + chunk.len() > MAX_AVATAR_BYTES {
+                return HttpResponse::PayloadTooLarge().json(ErrorResponse {
+                    error: "file_too_large".into(),
+                    details: Some("limite 1 Mo".into()),
+                });
+            }
+            bytes.extend_from_slice(&chunk);
+        }
+        break;
+    }
+
+    if bytes.is_empty() {
+        return HttpResponse::BadRequest().json(ErrorResponse {
+            error: "file_missing".into(),
+            details: Some("aucun fichier reçu".into()),
+        });
+    }
+
+    let img = match image::load_from_memory(&bytes) {
+        Ok(img) => img,
+        Err(_) => {
+            return HttpResponse::BadRequest().json(ErrorResponse {
+                error: "invalid_image".into(),
+                details: Some("format image non supporté".into()),
+            });
+        }
+    };
+
+    let resized = img.resize(
+        MAX_AVATAR_DIM,
+        MAX_AVATAR_DIM,
+        image::imageops::FilterType::Triangle,
+    );
+    let mut encoded: Vec<u8> = Vec::new();
+    if resized
+        .write_to(
+            &mut std::io::Cursor::new(&mut encoded),
+            image::ImageFormat::Jpeg,
+        )
+        .is_err()
+    {
+        return HttpResponse::InternalServerError().json(ErrorResponse {
+            error: "encode_error".into(),
+            details: None,
+        });
+    }
+
+    let filename = format!("{}.jpg", Uuid::new_v4());
+    let path = std::path::Path::new(&state.avatar_upload_dir).join(&filename);
+    if let Err(e) = tokio::fs::create_dir_all(path.parent().unwrap()).await {
+        return HttpResponse::InternalServerError().json(ErrorResponse {
+            error: "storage_error".into(),
+            details: Some(format!("impossible de préparer le dossier: {e}")),
+        });
+    }
+    if let Err(e) = tokio::fs::write(&path, encoded).await {
+        return HttpResponse::InternalServerError().json(ErrorResponse {
+            error: "storage_error".into(),
+            details: Some(format!("écriture impossible: {e}")),
+        });
+    }
+
+    let public_url = format!(
+        "{}/{}",
+        state.avatar_base_url.trim_end_matches('/'),
+        filename
+    );
+
+    let _ = ensure_avatar_column(&state.db).await;
+
+    let res = sqlx::query(
+        "UPDATE users
+         SET avatar_url = $1
+         WHERE lower(email) = lower($2)
+         RETURNING email, handle, avatar_url",
+    )
+    .bind(&public_url)
+    .bind(&claims.sub)
+    .fetch_one(&state.db)
+    .await;
+
+    match res {
+        Ok(row) => HttpResponse::Ok().json(MeResponse {
+            email: row.get("email"),
+            handle: row.get("handle"),
+            avatar_url: row.get::<Option<String>, _>("avatar_url"),
+            exp: claims.exp,
+        }),
         Err(sqlx::Error::RowNotFound) => HttpResponse::Unauthorized().json(ErrorResponse {
             error: "user_not_found".into(),
             details: None,

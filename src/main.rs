@@ -1,4 +1,5 @@
 use actix_cors::Cors;
+use actix_files::Files;
 use actix_web::http::header::{AUTHORIZATION, CONTENT_TYPE};
 use actix_web::{App, HttpServer, middleware::Logger, web};
 use fiestaaa_back::{config, db, docs, routes, state};
@@ -30,6 +31,8 @@ async fn main() -> std::io::Result<()> {
         invitation_email_sender: cfg.invitation_email_sender.clone(),
         invitation_email_api_key: cfg.invitation_email_api_key.clone(),
         app_base_url: cfg.app_base_url.clone(),
+        avatar_upload_dir: cfg.avatar_upload_dir.clone(),
+        avatar_base_url: cfg.avatar_base_url.clone(),
     });
 
     // Server
@@ -45,6 +48,7 @@ async fn main() -> std::io::Result<()> {
             .wrap(Logger::default())
             .wrap(cors)
             .configure(routes::configure)
+            .service(Files::new("/media/avatars", &cfg.avatar_upload_dir).prefer_utf8(true))
             .service(
                 SwaggerUi::new("/docs/{_:.*}").url("/docs/openapi.json", docs::ApiDoc::openapi()),
             )
