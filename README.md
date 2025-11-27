@@ -18,6 +18,10 @@ Run
 - API: http://127.0.0.1:8080
 - Ctrl+C to stop; `docker compose down` to clean up.
 
+Run clean database 
+- `docker compose down -v`
+- `docker compose up --build`
+
 Notes
 - Migrations run automatically on API startup (via `sqlx::migrate!`).
 - The API container mounts the project directory; code changes rebuild on next run.
