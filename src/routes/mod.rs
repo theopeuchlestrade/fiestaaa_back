@@ -2,6 +2,7 @@ use actix_web::web;
 
 pub mod auth;
 pub mod events;
+pub mod friends;
 pub mod health;
 pub mod invitations;
 pub mod items;
@@ -42,6 +43,12 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(events::create_custom_event_item)
         .service(events::reserve_event_item)
         .service(events::delete_event_item)
+        .service(friends::list_friends)
+        .service(friends::search_friends)
+        .service(friends::create_friend_request)
+        .service(friends::list_friend_requests)
+        .service(friends::respond_friend_request)
+        .service(friends::delete_friend)
         .service(payment_providers::list_payment_providers)
         .service(payment_providers::create_payment_provider)
         .service(payment_providers::replace_payment_provider)

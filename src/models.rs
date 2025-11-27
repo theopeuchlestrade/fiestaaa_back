@@ -189,6 +189,41 @@ pub struct InvitationPatchPayload {
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema, FromRow)]
+pub struct Friend {
+    pub email: String,
+    pub handle: String,
+    pub since: chrono::DateTime<chrono::Utc>,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema, FromRow)]
+pub struct FriendSearchResult {
+    pub email: String,
+    pub handle: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct FriendRequestPayload {
+    #[serde(alias = "email", alias = "handle")]
+    pub identifier: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct FriendRequestActionPayload {
+    pub status: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema, FromRow)]
+pub struct FriendRequest {
+    pub id: i64,
+    pub sender_email: String,
+    pub sender_handle: String,
+    pub receiver_email: String,
+    pub receiver_handle: String,
+    pub status: String,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema, FromRow)]
 pub struct PaymentProvider {
     pub provider_id: i32,
     pub provider_name: String,
