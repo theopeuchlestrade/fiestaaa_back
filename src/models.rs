@@ -47,6 +47,7 @@ pub struct MeResponse {
     pub email: String,
     pub exp: usize,
     pub handle: String,
+    pub avatar_url: Option<String>,
 }
 
 #[derive(Serialize, ToSchema)]
@@ -192,6 +193,7 @@ pub struct InvitationPatchPayload {
 pub struct Friend {
     pub email: String,
     pub handle: String,
+    pub avatar_url: Option<String>,
     pub since: chrono::DateTime<chrono::Utc>,
 }
 
@@ -199,6 +201,7 @@ pub struct Friend {
 pub struct FriendSearchResult {
     pub email: String,
     pub handle: String,
+    pub avatar_url: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
@@ -217,10 +220,21 @@ pub struct FriendRequest {
     pub id: i64,
     pub sender_email: String,
     pub sender_handle: String,
+    pub sender_avatar_url: Option<String>,
     pub receiver_email: String,
     pub receiver_handle: String,
+    pub receiver_avatar_url: Option<String>,
     pub status: String,
     pub created_at: chrono::DateTime<chrono::Utc>,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema, FromRow)]
+pub struct ItemContribution {
+    pub item_id: i64,
+    pub quantity: i32,
+    pub email: String,
+    pub handle: Option<String>,
+    pub avatar_url: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema, FromRow)]

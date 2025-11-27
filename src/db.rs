@@ -18,6 +18,11 @@ pub async fn connect_and_migrate(database_url: &str) -> Pool<Postgres> {
         std::process::exit(1);
     }
 
+    if let Err(e) = ensure_avatar_column(&pool).await {
+        eprintln!("Failed to ensure avatar column: {e}");
+        std::process::exit(1);
+    }
+
     pool
 }
 
@@ -72,5 +77,17 @@ async fn ensure_friend_tables(pool: &Pool<Postgres>) -> Result<(), sqlx::Error> 
     .execute(pool)
     .await?;
 
+    Ok(())
+}
+
+async fn ensure_avatar_column(pool: &Pool<Postgres>) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        r#"
+        ALTER TABLE users
+            ADD COLUMN IF NOT EXISTS avatar_url TEXT;
+        "#,
+    )
+    .execute(pool)
+    .await?;
     Ok(())
 }

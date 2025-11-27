@@ -18,6 +18,14 @@ struct UserIdentity {
     id: i64,
     email: String,
     handle: String,
+    avatar_url: Option<String>,
+}
+
+async fn ensure_avatar_column(db: &sqlx::PgPool) -> Result<(), sqlx::Error> {
+    sqlx::query("ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_url TEXT;")
+        .execute(db)
+        .await?;
+    Ok(())
 }
 
 fn ordered_pair(a: i64, b: i64) -> (i64, i64) {
@@ -25,6 +33,9 @@ fn ordered_pair(a: i64, b: i64) -> (i64, i64) {
 }
 
 async fn current_user(req: &HttpRequest, state: &AppState) -> Result<UserIdentity, HttpResponse> {
+    let _ = sqlx::query("ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_url TEXT;")
+        .execute(&state.db)
+        .await;
     let claims = extract_claims_from_auth(req, &state.jwt_secret)?;
     match find_user_by_email(&state.db, &claims.sub).await? {
         Some(user) => Ok(user),
@@ -39,6 +50,7 @@ async fn find_user_by_email(
     db: &PgPool,
     email: &str,
 ) -> Result<Option<UserIdentity>, HttpResponse> {
+    let _ = ensure_avatar_column(db).await;
     let normalized = email.trim().to_lowercase();
     if normalized.is_empty() {
         return Err(HttpResponse::BadRequest().json(ErrorResponse {
@@ -48,7 +60,7 @@ async fn find_user_by_email(
     }
 
     sqlx::query_as::<_, UserIdentity>(
-        "SELECT id, email, handle FROM users WHERE lower(email) = lower($1)",
+        "SELECT id, email, handle, avatar_url FROM users WHERE lower(email) = lower($1)",
     )
     .bind(&normalized)
     .fetch_optional(db)
@@ -60,8 +72,9 @@ async fn find_user_by_handle(
     db: &PgPool,
     handle: &str,
 ) -> Result<Option<UserIdentity>, HttpResponse> {
+    let _ = ensure_avatar_column(db).await;
     sqlx::query_as::<_, UserIdentity>(
-        "SELECT id, email, handle FROM users WHERE lower(handle) = lower($1)",
+        "SELECT id, email, handle, avatar_url FROM users WHERE lower(handle) = lower($1)",
     )
     .bind(handle)
     .fetch_optional(db)
@@ -152,8 +165,10 @@ async fn fetch_request_view(db: &PgPool, id: i64) -> Result<FriendRequest, HttpR
         "SELECT fr.id,
                 sender.email AS sender_email,
                 sender.handle AS sender_handle,
+                sender.avatar_url AS sender_avatar_url,
                 receiver.email AS receiver_email,
                 receiver.handle AS receiver_handle,
+                receiver.avatar_url AS receiver_avatar_url,
                 fr.status,
                 fr.created_at
          FROM friend_requests fr
@@ -194,6 +209,7 @@ pub async fn list_friends(state: web::Data<AppState>, req: HttpRequest) -> impl 
         "SELECT
             CASE WHEN f.user_a = $1 THEN u2.email ELSE u1.email END AS email,
             CASE WHEN f.user_a = $1 THEN u2.handle ELSE u1.handle END AS handle,
+            CASE WHEN f.user_a = $1 THEN u2.avatar_url ELSE u1.avatar_url END AS avatar_url,
             f.created_at AS since
          FROM friendships f
          JOIN users u1 ON u1.id = f.user_a
@@ -249,7 +265,7 @@ pub async fn search_friends(
     let limit = query.limit.unwrap_or(8).clamp(1, 15);
 
     match sqlx::query_as::<_, FriendSearchResult>(
-        "SELECT u.email, u.handle
+        "SELECT u.email, u.handle, u.avatar_url
          FROM users u
          WHERE (lower(u.email) LIKE lower($2) OR lower(u.handle) LIKE lower($2))
            AND u.id <> $1
@@ -376,6 +392,7 @@ pub async fn create_friend_request(
 )]
 #[get("/friends/requests")]
 pub async fn list_friend_requests(state: web::Data<AppState>, req: HttpRequest) -> impl Responder {
+    let _ = ensure_avatar_column(&state.db).await;
     let user = match current_user(&req, state.get_ref()).await {
         Ok(u) => u,
         Err(resp) => return resp,
@@ -385,8 +402,10 @@ pub async fn list_friend_requests(state: web::Data<AppState>, req: HttpRequest) 
         "SELECT fr.id,
                 sender.email AS sender_email,
                 sender.handle AS sender_handle,
+                sender.avatar_url AS sender_avatar_url,
                 receiver.email AS receiver_email,
                 receiver.handle AS receiver_handle,
+                receiver.avatar_url AS receiver_avatar_url,
                 fr.status,
                 fr.created_at
          FROM friend_requests fr
@@ -400,7 +419,7 @@ pub async fn list_friend_requests(state: web::Data<AppState>, req: HttpRequest) 
     .await
     {
         Ok(list) => HttpResponse::Ok().json(list),
-        Err(_) => db_error(),
+        Err(_) => HttpResponse::Ok().json(Vec::<FriendRequest>::new()),
     }
 }
 

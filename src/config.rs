@@ -12,6 +12,8 @@ pub struct AppConfig {
     pub invitation_email_sender: Option<String>,
     pub invitation_email_api_key: Option<String>,
     pub app_base_url: String,
+    pub avatar_upload_dir: String,
+    pub avatar_base_url: String,
 }
 
 impl AppConfig {
@@ -49,6 +51,10 @@ impl AppConfig {
             .filter(|v| !v.trim().is_empty());
         let app_base_url =
             std::env::var("APP_BASE_URL").unwrap_or_else(|_| "https://fiestaaa.app".into());
+        let avatar_upload_dir =
+            std::env::var("AVATAR_UPLOAD_DIR").unwrap_or_else(|_| "./uploads/avatars".into());
+        let avatar_base_url = std::env::var("AVATAR_BASE_URL")
+            .unwrap_or_else(|_| "http://localhost:8080/media/avatars".into());
         Self {
             host,
             port,
@@ -61,6 +67,8 @@ impl AppConfig {
             invitation_email_sender,
             invitation_email_api_key,
             app_base_url,
+            avatar_upload_dir,
+            avatar_base_url,
         }
     }
 }

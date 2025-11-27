@@ -9,7 +9,8 @@ use crate::{
     models::{
         AddressSuggestion, ErrorResponse, Event, EventCustomItemPayload, EventItemAttachPayload,
         EventItemReservationPayload, EventItemView, EventPatchPayload, EventPayload,
-        ShareClaimPayload, ShareClaimResponse, ShareTokenResponse, StatusResponse,
+        ItemContribution, ShareClaimPayload, ShareClaimResponse, ShareTokenResponse,
+        StatusResponse,
     },
     state::AppState,
 };
@@ -937,6 +938,52 @@ pub async fn list_event_items(
 
     match result {
         Ok(items) => HttpResponse::Ok().json(items),
+        Err(_) => server_error(),
+    }
+}
+
+#[utoipa::path(
+    get,
+    path = "/events/{event_id}/items/contributions",
+    tag = "events",
+    responses(
+        (status = 200, description = "Contributions des items de l'événement", body = [ItemContribution]),
+        (status = 403, description = "Non autorisé", body = ErrorResponse),
+        (status = 404, description = "Événement introuvable", body = ErrorResponse)
+    ),
+    params(
+        ("event_id" = i64, Path, description = "Identifiant de l'événement")
+    )
+)]
+#[get("/events/{event_id}/items/contributions")]
+pub async fn list_event_item_contributions(
+    state: web::Data<AppState>,
+    req: HttpRequest,
+    event_id: web::Path<i64>,
+) -> impl Responder {
+    let _ = sqlx::query("ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_url TEXT;")
+        .execute(&state.db)
+        .await;
+    if let Err(resp) = ensure_event_member(&req, state.get_ref(), *event_id).await {
+        return resp;
+    }
+
+    let result = sqlx::query_as::<_, ItemContribution>(
+        "SELECT ui.item_id,
+                ui.quantity,
+                u.email,
+                u.handle,
+                u.avatar_url
+         FROM user_items ui
+         JOIN users u ON u.id = ui.user_id
+         WHERE ui.event_id = $1",
+    )
+    .bind(*event_id)
+    .fetch_all(&state.db)
+    .await;
+
+    match result {
+        Ok(list) => HttpResponse::Ok().json(list),
         Err(_) => server_error(),
     }
 }

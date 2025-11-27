@@ -5,9 +5,9 @@ use crate::models::{
     EventItemReservationPayload, EventItemView, EventPatchPayload, EventPayload, Friend,
     FriendRequest, FriendRequestActionPayload, FriendRequestPayload, FriendSearchResult,
     HandleAvailabilityResponse, HandleUpdatePayload, HealthResponse, Invitation,
-    InvitationPatchPayload, InvitationPayload, Item, ItemPatchPayload, ItemPayload, LoginPayload,
-    MeResponse, PaymentProvider, PaymentProviderPatchPayload, PaymentProviderPayload,
-    RegisterPayload, StatusResponse, TokenResponse,
+    InvitationPatchPayload, InvitationPayload, Item, ItemContribution, ItemPatchPayload,
+    ItemPayload, LoginPayload, MeResponse, PaymentProvider, PaymentProviderPatchPayload,
+    PaymentProviderPayload, RegisterPayload, StatusResponse, TokenResponse,
 };
 
 #[derive(OpenApi)]
@@ -34,6 +34,7 @@ use crate::models::{
         crate::routes::events::attach_event_item,
         crate::routes::events::reserve_event_item,
         crate::routes::events::delete_event_item,
+        crate::routes::events::list_event_item_contributions,
         crate::routes::events::create_custom_event_item,
         crate::routes::invitations::list_event_invitations,
         crate::routes::invitations::create_invitation,
@@ -76,6 +77,7 @@ use crate::models::{
             Invitation,
             InvitationPayload,
             InvitationPatchPayload,
+            ItemContribution,
             Friend,
             FriendSearchResult,
             FriendRequestPayload,
