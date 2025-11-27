@@ -7,6 +7,7 @@ pub mod invitations;
 pub mod items;
 pub mod payment_providers;
 pub mod root;
+pub mod users;
 
 pub fn configure(cfg: &mut web::ServiceConfig) {
     cfg.service(root::hello)
@@ -25,6 +26,8 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(invitations::delete_invitation)
         .service(invitations::list_my_invitations)
         .service(invitations::respond_invitation)
+        .service(users::check_handle_availability)
+        .service(users::update_handle)
         .service(events::list_events)
         .service(events::create_event)
         .service(events::replace_event)

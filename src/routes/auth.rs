@@ -3,7 +3,8 @@ use actix_web::{HttpResponse, Responder, post, web};
 use sqlx::Error;
 
 use crate::{
-    auth::{encode_jwt, hash_password, now_ts, verify_user_db},
+    auth::{encode_jwt, fetch_user_auth, hash_password, now_ts, verify_password},
+    handles::{generate_unique_handle, handle_available, is_valid_handle, normalize_handle},
     models::{Claims, ErrorResponse, LoginPayload, RegisterPayload, StatusResponse, TokenResponse},
     state::AppState,
 };
@@ -27,6 +28,10 @@ pub async fn register(
 ) -> impl Responder {
     let email = payload.email.trim().to_lowercase();
     let password = payload.password.trim();
+    let requested_handle = payload
+        .handle
+        .as_ref()
+        .map(|raw| normalize_handle(raw).normalized);
 
     if email.is_empty() || password.len() < 8 {
         return HttpResponse::BadRequest().json(ErrorResponse {
@@ -34,6 +39,41 @@ pub async fn register(
             details: Some("email required, password >= 8 chars".into()),
         });
     }
+
+    let handle = match requested_handle {
+        Some(ref h) => {
+            if !is_valid_handle(h) {
+                return HttpResponse::BadRequest().json(ErrorResponse {
+                    error: "invalid_handle".into(),
+                    details: Some("format attendu: 4-32 chars [a-z0-9._-]".into()),
+                });
+            }
+            match handle_available(&state.db, h).await {
+                Ok(true) => h.clone(),
+                Ok(false) => {
+                    return HttpResponse::Conflict().json(ErrorResponse {
+                        error: "handle_taken".into(),
+                        details: None,
+                    });
+                }
+                Err(_) => {
+                    return HttpResponse::InternalServerError().json(ErrorResponse {
+                        error: "db_error".into(),
+                        details: None,
+                    });
+                }
+            }
+        }
+        None => match generate_unique_handle(&state.db).await {
+            Ok(h) => h,
+            Err(_) => {
+                return HttpResponse::InternalServerError().json(ErrorResponse {
+                    error: "handle_generation_failed".into(),
+                    details: None,
+                });
+            }
+        },
+    };
 
     let hash = match hash_password(password) {
         Ok(h) => h,
@@ -45,9 +85,10 @@ pub async fn register(
         }
     };
 
-    let res = sqlx::query("INSERT INTO users (email, password_hash) VALUES ($1, $2)")
+    let res = sqlx::query("INSERT INTO users (email, password_hash, handle) VALUES ($1, $2, $3)")
         .bind(&email)
         .bind(&hash)
+        .bind(&handle)
         .execute(&state.db)
         .await;
 
@@ -57,8 +98,14 @@ pub async fn register(
         }),
         Err(e) => match e {
             Error::Database(db_err) if db_err.code().as_deref() == Some("23505") => {
+                let constraint = db_err.constraint().unwrap_or_default();
+                let error = if constraint.contains("handle") {
+                    "handle_taken"
+                } else {
+                    "email_taken"
+                };
                 HttpResponse::Conflict().json(ErrorResponse {
-                    error: "email_taken".into(),
+                    error: error.into(),
                     details: None,
                 })
             }
@@ -83,8 +130,14 @@ pub async fn register(
 )]
 #[post("/auth/login")]
 pub async fn login(state: web::Data<AppState>, payload: web::Json<LoginPayload>) -> impl Responder {
-    let ok = match verify_user_db(&state.db, &payload.email, &payload.password).await {
-        Ok(v) => v,
+    let auth_row = match fetch_user_auth(&state.db, &payload.identifier).await {
+        Ok(Some(row)) => row,
+        Ok(None) => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                error: "invalid_credentials".into(),
+                details: None,
+            });
+        }
         Err(_) => {
             return HttpResponse::InternalServerError().json(ErrorResponse {
                 error: "db_error".into(),
@@ -92,7 +145,8 @@ pub async fn login(state: web::Data<AppState>, payload: web::Json<LoginPayload>)
             });
         }
     };
-    if !ok {
+
+    if !verify_password(&auth_row.password_hash, &payload.password) {
         return HttpResponse::Unauthorized().json(ErrorResponse {
             error: "invalid_credentials".into(),
             details: None,
@@ -101,14 +155,19 @@ pub async fn login(state: web::Data<AppState>, payload: web::Json<LoginPayload>)
 
     let exp = (now_ts() + 24 * 3600) as usize;
     let claims = Claims {
-        sub: payload.email.to_owned(),
+        sub: auth_row.email.clone(),
+        handle: auth_row.handle.clone(),
         exp,
     };
 
     match encode_jwt(&claims, &state.jwt_secret) {
         Ok(token) => HttpResponse::Ok()
             .insert_header((CONTENT_TYPE, "application/json"))
-            .json(TokenResponse { token }),
+            .json(TokenResponse {
+                token,
+                email: auth_row.email,
+                handle: auth_row.handle,
+            }),
         Err(_) => HttpResponse::InternalServerError().json(ErrorResponse {
             error: "token_creation_failed".into(),
             details: None,

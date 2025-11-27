@@ -8,9 +8,12 @@ use jsonwebtoken::{
     Algorithm, DecodingKey, EncodingKey, Header, Validation, decode, encode, errors::ErrorKind,
 };
 use rand_core::OsRng;
-use sqlx::{Pool, Postgres, Row};
+use sqlx::{Pool, Postgres};
 
-use crate::models::{Claims, ErrorResponse};
+use crate::{
+    handles::{looks_like_email, normalize_handle},
+    models::{Claims, ErrorResponse},
+};
 
 pub fn now_ts() -> u64 {
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -38,18 +41,35 @@ pub fn verify_password(hash: &str, password: &str) -> bool {
     }
 }
 
-pub async fn verify_user_db(
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct UserAuthRow {
+    pub id: i64,
+    pub email: String,
+    pub handle: String,
+    pub password_hash: String,
+}
+
+pub async fn fetch_user_auth(
     pool: &Pool<Postgres>,
-    email: &str,
-    password: &str,
-) -> sqlx::Result<bool> {
-    let row = sqlx::query("SELECT password_hash FROM users WHERE lower(email)=lower($1)")
-        .bind(email)
+    identifier: &str,
+) -> sqlx::Result<Option<UserAuthRow>> {
+    let trimmed = identifier.trim();
+    if looks_like_email(trimmed) {
+        sqlx::query_as::<_, UserAuthRow>(
+            "SELECT id, email, handle, password_hash FROM users WHERE lower(email)=lower($1)",
+        )
+        .bind(trimmed)
         .fetch_optional(pool)
-        .await?;
-    let Some(row) = row else { return Ok(false) };
-    let stored: String = row.get("password_hash");
-    Ok(verify_password(&stored, password))
+        .await
+    } else {
+        let normalized = normalize_handle(trimmed).normalized;
+        sqlx::query_as::<_, UserAuthRow>(
+            "SELECT id, email, handle, password_hash FROM users WHERE lower(handle)=lower($1)",
+        )
+        .bind(normalized)
+        .fetch_optional(pool)
+        .await
+    }
 }
 
 pub fn encode_jwt(claims: &Claims, secret: &str) -> Result<String, ()> {
