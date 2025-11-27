@@ -76,7 +76,7 @@ async fn ensure_event_member(
             JOIN users u ON u.id = i.user_id
             WHERE i.event_id = $1
               AND lower(u.email) = lower($2)
-              AND i.status <> 'Declined'
+              AND i.status = 'Accepted'
         )",
     )
     .bind(event_id)
