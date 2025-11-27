@@ -4,7 +4,9 @@ use utoipa::ToSchema;
 
 #[derive(Serialize, Deserialize, ToSchema)]
 pub struct LoginPayload {
-    pub email: String,
+    /// Email ou identifiant (handle)
+    #[serde(alias = "email", alias = "handle")]
+    pub identifier: String,
     pub password: String,
 }
 
@@ -12,17 +14,21 @@ pub struct LoginPayload {
 pub struct RegisterPayload {
     pub email: String,
     pub password: String,
+    pub handle: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct Claims {
     pub sub: String,
     pub exp: usize,
+    pub handle: String,
 }
 
 #[derive(Serialize, ToSchema)]
 pub struct TokenResponse {
     pub token: String,
+    pub email: String,
+    pub handle: String,
 }
 
 #[derive(Serialize, ToSchema)]
@@ -40,6 +46,7 @@ pub struct ErrorResponse {
 pub struct MeResponse {
     pub email: String,
     pub exp: usize,
+    pub handle: String,
 }
 
 #[derive(Serialize, ToSchema)]
@@ -156,6 +163,7 @@ pub struct EventCustomItemPayload {
 pub struct Invitation {
     pub event_id: i64,
     pub email: String,
+    pub handle: Option<String>,
     pub status: String,
     pub date_invi: chrono::DateTime<chrono::Utc>,
     pub event_name: Option<String>,
@@ -164,12 +172,14 @@ pub struct Invitation {
 #[derive(Debug, Serialize, Deserialize, ToSchema, FromRow)]
 pub struct InvitationSuggestion {
     pub email: String,
+    pub handle: String,
     pub last_invited_at: chrono::DateTime<chrono::Utc>,
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct InvitationPayload {
-    pub email: String,
+    #[serde(alias = "email", alias = "handle")]
+    pub identifier: String,
     pub status: Option<String>,
 }
 
@@ -224,4 +234,14 @@ pub struct AddressSuggestion {
     pub label: String,
     pub latitude: f64,
     pub longitude: f64,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct HandleAvailabilityResponse {
+    pub available: bool,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct HandleUpdatePayload {
+    pub handle: String,
 }

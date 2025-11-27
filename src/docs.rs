@@ -2,9 +2,10 @@ use utoipa::OpenApi;
 
 use crate::models::{
     AddressSuggestion, ErrorResponse, Event, EventCustomItemPayload, EventItemAttachPayload,
-    EventItemReservationPayload, EventItemView, EventPatchPayload, EventPayload, HealthResponse,
-    Invitation, InvitationPatchPayload, InvitationPayload, Item, ItemPatchPayload, ItemPayload,
-    LoginPayload, MeResponse, PaymentProvider, PaymentProviderPatchPayload, PaymentProviderPayload,
+    EventItemReservationPayload, EventItemView, EventPatchPayload, EventPayload,
+    HandleAvailabilityResponse, HandleUpdatePayload, HealthResponse, Invitation,
+    InvitationPatchPayload, InvitationPayload, Item, ItemPatchPayload, ItemPayload, LoginPayload,
+    MeResponse, PaymentProvider, PaymentProviderPatchPayload, PaymentProviderPayload,
     RegisterPayload, StatusResponse, TokenResponse,
 };
 
@@ -37,6 +38,8 @@ use crate::models::{
         crate::routes::invitations::delete_invitation,
         crate::routes::invitations::list_my_invitations,
         crate::routes::invitations::respond_invitation,
+        crate::routes::users::check_handle_availability,
+        crate::routes::users::update_handle,
         crate::routes::payment_providers::list_payment_providers,
         crate::routes::payment_providers::create_payment_provider,
         crate::routes::payment_providers::replace_payment_provider,
@@ -65,6 +68,8 @@ use crate::models::{
             Invitation,
             InvitationPayload,
             InvitationPatchPayload,
+            HandleAvailabilityResponse,
+            HandleUpdatePayload,
             PaymentProvider,
             PaymentProviderPayload,
             PaymentProviderPatchPayload,
@@ -78,6 +83,7 @@ use crate::models::{
         (name = "items", description = "Catalogue des items référencés"),
         (name = "events", description = "Gestion des événements"),
         (name = "invitations", description = "Gestion des invitations aux événements"),
+        (name = "users", description = "Gestion des utilisateurs et handles"),
         (name = "payment-providers", description = "Configuration des fournisseurs de paiement (admin)")
     )
 )]

@@ -1,6 +1,11 @@
 use actix_web::{HttpRequest, HttpResponse, Responder, get, web};
+use sqlx::Row;
 
-use crate::{auth::extract_claims_from_auth, models::MeResponse, state::AppState};
+use crate::{
+    auth::extract_claims_from_auth,
+    models::{ErrorResponse, MeResponse},
+    state::AppState,
+};
 
 #[utoipa::path(
     get,
@@ -27,10 +32,34 @@ pub async fn hello() -> impl Responder {
 #[get("/me")]
 pub async fn me(state: web::Data<AppState>, req: HttpRequest) -> impl Responder {
     match extract_claims_from_auth(&req, &state.jwt_secret) {
-        Ok(claims) => HttpResponse::Ok().json(MeResponse {
-            email: claims.sub,
-            exp: claims.exp,
-        }),
+        Ok(claims) => {
+            let record =
+                sqlx::query("SELECT email, handle FROM users WHERE lower(email)=lower($1)")
+                    .bind(&claims.sub)
+                    .fetch_optional(&state.db)
+                    .await;
+
+            match record {
+                Ok(Some(user)) => {
+                    let email: String =
+                        user.try_get("email").unwrap_or_else(|_| claims.sub.clone());
+                    let handle: String = user.try_get("handle").unwrap_or_else(|_| claims.handle);
+                    HttpResponse::Ok().json(MeResponse {
+                        email,
+                        handle,
+                        exp: claims.exp,
+                    })
+                }
+                Ok(None) => HttpResponse::Unauthorized().json(ErrorResponse {
+                    error: "user_not_found".into(),
+                    details: None,
+                }),
+                Err(_) => HttpResponse::InternalServerError().json(ErrorResponse {
+                    error: "db_error".into(),
+                    details: None,
+                }),
+            }
+        }
         Err(resp) => resp,
     }
 }
