@@ -223,6 +223,60 @@ async fn fetch_address_suggestions(
 
 #[utoipa::path(
     get,
+    path = "/events/{event_id}",
+    tag = "events",
+    responses(
+        (status = 200, description = "Événement trouvé", body = Event),
+        (status = 401, description = "Authentification requise", body = ErrorResponse),
+        (status = 403, description = "Accès non autorisé", body = ErrorResponse),
+        (status = 404, description = "Événement introuvable", body = ErrorResponse)
+    ),
+    params(
+        ("event_id" = i64, Path, description = "Identifiant de l'événement")
+    )
+)]
+#[get("/events/{event_id}")]
+pub async fn get_event(
+    state: web::Data<AppState>,
+    req: HttpRequest,
+    event_id: web::Path<i64>,
+) -> impl Responder {
+    if let Err(resp) = ensure_event_member(&req, state.get_ref(), *event_id).await {
+        return resp;
+    }
+
+    match sqlx::query_as::<_, Event>(
+        "SELECT event_id,
+                name_event,
+                description,
+                date_event,
+                start_time,
+                address,
+                latitude,
+                longitude,
+                payment_provider_id,
+                payment_identifier,
+                payment_requested_amount,
+                payment_per_person,
+                owner_email
+         FROM events
+         WHERE event_id = $1",
+    )
+    .bind(*event_id)
+    .fetch_optional(&state.db)
+    .await
+    {
+        Ok(Some(event)) => HttpResponse::Ok().json(event),
+        Ok(None) => HttpResponse::NotFound().json(ErrorResponse {
+            error: "event_not_found".into(),
+            details: None,
+        }),
+        Err(_) => server_error(),
+    }
+}
+
+#[utoipa::path(
+    get,
     path = "/events",
     tag = "events",
     responses(
