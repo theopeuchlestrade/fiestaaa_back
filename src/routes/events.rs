@@ -1060,54 +1060,21 @@ pub async fn create_custom_event_item(
     let item_id = if let Some(item_id) = existing_event_item {
         item_id
     } else {
-        match sqlx::query_scalar::<_, i64>(
-            "SELECT item_id FROM items WHERE lower(name_item) = $1 LIMIT 1",
+        // Always create a fresh item when not already attached to this event to avoid leaking a previous type.
+        let default_type_id = match sqlx::query_scalar::<_, i64>(
+            "SELECT type_id FROM item_types WHERE type = 'Autres' LIMIT 1",
         )
-        .bind(&normalized_name)
         .fetch_optional(&mut *tx)
         .await
         {
             Ok(Some(id)) => id,
             Ok(None) => {
-                let default_type_id = match sqlx::query_scalar::<_, i64>(
-                    "SELECT type_id FROM item_types WHERE type = 'Autres' LIMIT 1",
-                )
-                .fetch_optional(&mut *tx)
-                .await
-                {
-                    Ok(Some(id)) => id,
-                    Ok(None) => {
-                        match sqlx::query_scalar::<_, i64>(
-                            "INSERT INTO item_types (type)
-                             VALUES ('Autres')
-                             ON CONFLICT (type) DO UPDATE SET type = EXCLUDED.type
-                             RETURNING type_id",
-                        )
-                        .fetch_one(&mut *tx)
-                        .await
-                        {
-                            Ok(id) => id,
-                            Err(_) => {
-                                let _ = tx.rollback().await;
-                                return server_error();
-                            }
-                        }
-                    }
-                    Err(_) => {
-                        let _ = tx.rollback().await;
-                        return server_error();
-                    }
-                };
-
                 match sqlx::query_scalar::<_, i64>(
-                    "INSERT INTO items (type_id, name_item, max_quantity, unit_label)
-                     VALUES ($1, $2, $3, $4)
-                     RETURNING item_id",
+                    "INSERT INTO item_types (type)
+                     VALUES ('Autres')
+                     ON CONFLICT (type) DO UPDATE SET type = EXCLUDED.type
+                     RETURNING type_id",
                 )
-                .bind(default_type_id)
-                .bind(name_trimmed.as_str())
-                .bind(payload.max_quantity)
-                .bind(unit_label.as_str())
                 .fetch_one(&mut *tx)
                 .await
                 {
@@ -1118,6 +1085,25 @@ pub async fn create_custom_event_item(
                     }
                 }
             }
+            Err(_) => {
+                let _ = tx.rollback().await;
+                return server_error();
+            }
+        };
+
+        match sqlx::query_scalar::<_, i64>(
+            "INSERT INTO items (type_id, name_item, max_quantity, unit_label)
+             VALUES ($1, $2, $3, $4)
+             RETURNING item_id",
+        )
+        .bind(default_type_id)
+        .bind(name_trimmed.as_str())
+        .bind(payload.max_quantity)
+        .bind(unit_label.as_str())
+        .fetch_one(&mut *tx)
+        .await
+        {
+            Ok(id) => id,
             Err(_) => {
                 let _ = tx.rollback().await;
                 return server_error();
