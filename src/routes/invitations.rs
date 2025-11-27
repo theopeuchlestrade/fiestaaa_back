@@ -2,11 +2,12 @@ use actix_web::{HttpRequest, HttpResponse, Responder, delete, get, patch, post, 
 use chrono::{NaiveDate, NaiveTime};
 use log::{error, warn};
 use serde_json::json;
-use sqlx::Row;
+use sqlx::{FromRow, Row};
 use uuid::Uuid;
 
 use crate::{
     auth::extract_claims_from_auth,
+    handles::{is_valid_handle, looks_like_email, normalize_handle},
     models::{
         ErrorResponse, Invitation, InvitationPatchPayload, InvitationPayload, InvitationSuggestion,
         StatusResponse,
@@ -109,29 +110,45 @@ fn validate_status(status: &str) -> bool {
     matches!(status, "Waiting" | "Accepted" | "Declined")
 }
 
-async fn fetch_user_id_by_email(db: &sqlx::PgPool, email: &str) -> Result<i64, HttpResponse> {
-    let normalized = email.trim().to_lowercase();
-    if normalized.is_empty() {
+#[derive(Debug, FromRow)]
+struct UserIdentity {
+    id: i64,
+    email: String,
+    handle: String,
+}
+
+enum TargetIdentifier {
+    Email(String),
+    Handle(String),
+}
+
+fn parse_identifier(raw: &str) -> Result<TargetIdentifier, HttpResponse> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
         return Err(HttpResponse::BadRequest().json(ErrorResponse {
-            error: "invalid_email".into(),
-            details: Some("email is required".into()),
+            error: "invalid_identifier".into(),
+            details: Some("valeur requise".into()),
         }));
     }
 
-    let record =
-        sqlx::query_scalar::<_, i64>("SELECT id FROM users WHERE lower(email) = lower($1)")
-            .bind(&normalized)
-            .fetch_optional(db)
-            .await
-            .map_err(|_| {
-                HttpResponse::InternalServerError().json(ErrorResponse {
-                    error: "db_error".into(),
-                    details: None,
-                })
-            })?;
+    if looks_like_email(trimmed) {
+        return Ok(TargetIdentifier::Email(trimmed.to_lowercase()));
+    }
 
-    match record {
-        Some(id) => Ok(id),
+    let normalized = normalize_handle(trimmed).normalized;
+    if !is_valid_handle(&normalized) {
+        return Err(HttpResponse::BadRequest().json(ErrorResponse {
+            error: "invalid_handle".into(),
+            details: Some("format attendu: 4-32 chars [a-z0-9._-]".into()),
+        }));
+    }
+
+    Ok(TargetIdentifier::Handle(normalized))
+}
+
+async fn fetch_user_by_email(db: &sqlx::PgPool, email: &str) -> Result<UserIdentity, HttpResponse> {
+    match find_user_by_email(db, email).await? {
+        Some(u) => Ok(u),
         None => Err(HttpResponse::NotFound().json(ErrorResponse {
             error: "user_not_found".into(),
             details: None,
@@ -139,10 +156,10 @@ async fn fetch_user_id_by_email(db: &sqlx::PgPool, email: &str) -> Result<i64, H
     }
 }
 
-async fn find_user_id_by_email(
+async fn find_user_by_email(
     db: &sqlx::PgPool,
     email: &str,
-) -> Result<Option<i64>, HttpResponse> {
+) -> Result<Option<UserIdentity>, HttpResponse> {
     let normalized = email.trim().to_lowercase();
     if normalized.is_empty() {
         return Err(HttpResponse::BadRequest().json(ErrorResponse {
@@ -151,19 +168,36 @@ async fn find_user_id_by_email(
         }));
     }
 
-    let record =
-        sqlx::query_scalar::<_, i64>("SELECT id FROM users WHERE lower(email) = lower($1)")
-            .bind(&normalized)
-            .fetch_optional(db)
-            .await
-            .map_err(|_| {
-                HttpResponse::InternalServerError().json(ErrorResponse {
-                    error: "db_error".into(),
-                    details: None,
-                })
-            })?;
+    sqlx::query_as::<_, UserIdentity>(
+        "SELECT id, email, handle FROM users WHERE lower(email) = lower($1)",
+    )
+    .bind(&normalized)
+    .fetch_optional(db)
+    .await
+    .map_err(|_| {
+        HttpResponse::InternalServerError().json(ErrorResponse {
+            error: "db_error".into(),
+            details: None,
+        })
+    })
+}
 
-    Ok(record)
+async fn find_user_by_handle(
+    db: &sqlx::PgPool,
+    handle: &str,
+) -> Result<Option<UserIdentity>, HttpResponse> {
+    sqlx::query_as::<_, UserIdentity>(
+        "SELECT id, email, handle FROM users WHERE lower(handle) = lower($1)",
+    )
+    .bind(handle)
+    .fetch_optional(db)
+    .await
+    .map_err(|_| {
+        HttpResponse::InternalServerError().json(ErrorResponse {
+            error: "db_error".into(),
+            details: None,
+        })
+    })
 }
 
 struct EventEmailMetadata {
@@ -355,6 +389,25 @@ async fn invite_unregistered_user(
     }))
 }
 
+async fn insert_invitation_for_user(
+    db: &sqlx::PgPool,
+    event_id: i64,
+    user: &UserIdentity,
+) -> Result<Invitation, sqlx::Error> {
+    sqlx::query_as::<_, Invitation>(
+        "INSERT INTO invitations (event_id, user_id, status)
+         VALUES ($1, $2, 'Waiting')
+         RETURNING event_id, $3 AS email, $4 AS handle, status, date_invi,
+                   (SELECT name_event FROM events WHERE event_id = $1) AS event_name",
+    )
+    .bind(event_id)
+    .bind(user.id)
+    .bind(&user.email)
+    .bind(&user.handle)
+    .fetch_one(db)
+    .await
+}
+
 #[utoipa::path(
     get,
     path = "/events/{event_id}/invitations",
@@ -381,14 +434,17 @@ pub async fn list_event_invitations(
     match sqlx::query_as::<_, Invitation>(
         "SELECT e.event_id,
                 e.owner_email AS email,
+                u_owner.handle AS handle,
                 'Accepted'::text AS status,
                 NOW() AS date_invi,
                 e.name_event AS event_name
          FROM events e
+         LEFT JOIN users u_owner ON lower(u_owner.email) = lower(e.owner_email)
          WHERE e.event_id = $1
          UNION ALL
          SELECT i.event_id,
                 u.email,
+                u.handle,
                 i.status,
                 i.date_invi,
                 e.name_event AS event_name
@@ -442,12 +498,13 @@ pub async fn suggest_invitations(
 
     match sqlx::query_as::<_, InvitationSuggestion>(
         "SELECT u.email,
+                u.handle,
                 MAX(i.date_invi) AS last_invited_at
          FROM invitations i
          JOIN users u ON u.id = i.user_id
          JOIN events e ON e.event_id = i.event_id
          WHERE e.owner_email = $1
-           AND lower(u.email) LIKE lower($2)
+           AND (lower(u.email) LIKE lower($2) OR lower(u.handle) LIKE lower($2))
            AND NOT EXISTS (
                 SELECT 1
                 FROM invitations i2
@@ -455,7 +512,7 @@ pub async fn suggest_invitations(
                 WHERE i2.event_id = $3
                   AND lower(u2.email) = lower(u.email)
            )
-         GROUP BY u.email
+         GROUP BY u.email, u.handle
          ORDER BY MAX(i.date_invi) DESC, u.email ASC
          LIMIT 10",
     )
@@ -499,45 +556,70 @@ pub async fn create_invitation(
         Err(resp) => return resp,
     };
 
-    let target_email = payload.email.trim().to_lowercase();
-
-    let user_id = match find_user_id_by_email(&state.db, &target_email).await {
+    let identifier = match parse_identifier(&payload.identifier) {
         Ok(id) => id,
         Err(resp) => return resp,
     };
 
-    if let Some(user_id) = user_id {
-        let res = sqlx::query_as::<_, Invitation>(
-            "INSERT INTO invitations (event_id, user_id, status)
-             VALUES ($1, $2, 'Waiting')
-             RETURNING event_id, $3 AS email, status, date_invi,
-                       (SELECT name_event FROM events WHERE event_id = $1) AS event_name",
-        )
-        .bind(*event_id)
-        .bind(user_id)
-        .bind(&target_email)
-        .fetch_one(&state.db)
-        .await;
+    match identifier {
+        TargetIdentifier::Email(email) => {
+            let user = match find_user_by_email(&state.db, &email).await {
+                Ok(u) => u,
+                Err(resp) => return resp,
+            };
 
-        match res {
-            Ok(inv) => HttpResponse::Created().json(inv),
-            Err(sqlx::Error::Database(db_err)) if db_err.code().as_deref() == Some("23505") => {
-                HttpResponse::Conflict().json(ErrorResponse {
-                    error: "invitation_exists".into(),
-                    details: None,
-                })
+            if let Some(user) = user {
+                match insert_invitation_for_user(&state.db, *event_id, &user).await {
+                    Ok(inv) => HttpResponse::Created().json(inv),
+                    Err(sqlx::Error::Database(db_err))
+                        if db_err.code().as_deref() == Some("23505") =>
+                    {
+                        HttpResponse::Conflict().json(ErrorResponse {
+                            error: "invitation_exists".into(),
+                            details: None,
+                        })
+                    }
+                    Err(_) => HttpResponse::InternalServerError().json(ErrorResponse {
+                        error: "db_error".into(),
+                        details: None,
+                    }),
+                }
+            } else {
+                match invite_unregistered_user(state.get_ref(), *event_id, &email, &owner_email)
+                    .await
+                {
+                    Ok(resp) => resp,
+                    Err(resp) => resp,
+                }
             }
-            Err(_) => HttpResponse::InternalServerError().json(ErrorResponse {
-                error: "db_error".into(),
-                details: None,
-            }),
         }
-    } else {
-        match invite_unregistered_user(state.get_ref(), *event_id, &target_email, &owner_email)
-            .await
-        {
-            Ok(resp) => resp,
-            Err(resp) => resp,
+        TargetIdentifier::Handle(handle) => {
+            let user = match find_user_by_handle(&state.db, &handle).await {
+                Ok(u) => u,
+                Err(resp) => return resp,
+            };
+
+            match user {
+                Some(user) => match insert_invitation_for_user(&state.db, *event_id, &user).await {
+                    Ok(inv) => HttpResponse::Created().json(inv),
+                    Err(sqlx::Error::Database(db_err))
+                        if db_err.code().as_deref() == Some("23505") =>
+                    {
+                        HttpResponse::Conflict().json(ErrorResponse {
+                            error: "invitation_exists".into(),
+                            details: None,
+                        })
+                    }
+                    Err(_) => HttpResponse::InternalServerError().json(ErrorResponse {
+                        error: "db_error".into(),
+                        details: None,
+                    }),
+                },
+                None => HttpResponse::NotFound().json(ErrorResponse {
+                    error: "user_not_found".into(),
+                    details: Some("identifiant introuvable".into()),
+                }),
+            }
         }
     }
 }
@@ -572,14 +654,14 @@ pub async fn delete_invitation(
             details: Some("Le créateur ne peut pas être retiré de l'événement".into()),
         });
     }
-    let user_id = match fetch_user_id_by_email(&state.db, &email).await {
+    let user = match fetch_user_by_email(&state.db, &email).await {
         Ok(id) => id,
         Err(resp) => return resp,
     };
 
     match sqlx::query("DELETE FROM invitations WHERE event_id = $1 AND user_id = $2")
         .bind(event_id)
-        .bind(user_id)
+        .bind(user.id)
         .execute(&state.db)
         .await
     {
@@ -614,7 +696,7 @@ pub async fn list_my_invitations(state: web::Data<AppState>, req: HttpRequest) -
     };
 
     match sqlx::query_as::<_, Invitation>(
-        "SELECT i.event_id, u.email, i.status, i.date_invi, e.name_event AS event_name
+        "SELECT i.event_id, u.email, u.handle, i.status, i.date_invi, e.name_event AS event_name
          FROM invitations i
          JOIN users u ON u.id = i.user_id
          JOIN events e ON e.event_id = i.event_id
@@ -667,7 +749,7 @@ pub async fn respond_invitation(
         }
     };
 
-    let user_id = match fetch_user_id_by_email(&state.db, &email).await {
+    let user = match fetch_user_by_email(&state.db, &email).await {
         Ok(id) => id,
         Err(resp) => return resp,
     };
@@ -686,13 +768,14 @@ pub async fn respond_invitation(
         "UPDATE invitations
          SET status = $1
          WHERE event_id = $2 AND user_id = $3
-         RETURNING event_id, $4 AS email, status, date_invi,
+         RETURNING event_id, $4 AS email, $5 AS handle, status, date_invi,
                    (SELECT name_event FROM events WHERE event_id = $2) AS event_name",
     )
     .bind(&target_status)
     .bind(*event_id)
-    .bind(user_id)
-    .bind(email)
+    .bind(user.id)
+    .bind(&user.email)
+    .bind(&user.handle)
     .fetch_optional(&mut *tx)
     .await;
 
@@ -721,7 +804,7 @@ pub async fn respond_invitation(
              WHERE user_id = $1 AND event_id = $2
              FOR UPDATE",
         )
-        .bind(user_id)
+        .bind(user.id)
         .bind(*event_id)
         .fetch_all(&mut *tx)
         .await;
@@ -760,7 +843,7 @@ pub async fn respond_invitation(
         }
 
         if let Err(_) = sqlx::query("DELETE FROM user_items WHERE user_id = $1 AND event_id = $2")
-            .bind(user_id)
+            .bind(user.id)
             .bind(*event_id)
             .execute(&mut *tx)
             .await
