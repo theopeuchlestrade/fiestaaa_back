@@ -2,7 +2,8 @@ use utoipa::OpenApi;
 
 use crate::models::{
     AddressSuggestion, ErrorResponse, Event, EventCustomItemPayload, EventItemAttachPayload,
-    EventItemReservationPayload, EventItemView, EventPatchPayload, EventPayload,
+    EventItemReservationPayload, EventItemView, EventPatchPayload, EventPayload, Friend,
+    FriendRequest, FriendRequestActionPayload, FriendRequestPayload, FriendSearchResult,
     HandleAvailabilityResponse, HandleUpdatePayload, HealthResponse, Invitation,
     InvitationPatchPayload, InvitationPayload, Item, ItemPatchPayload, ItemPayload, LoginPayload,
     MeResponse, PaymentProvider, PaymentProviderPatchPayload, PaymentProviderPayload,
@@ -39,6 +40,12 @@ use crate::models::{
         crate::routes::invitations::delete_invitation,
         crate::routes::invitations::list_my_invitations,
         crate::routes::invitations::respond_invitation,
+        crate::routes::friends::list_friends,
+        crate::routes::friends::search_friends,
+        crate::routes::friends::create_friend_request,
+        crate::routes::friends::list_friend_requests,
+        crate::routes::friends::respond_friend_request,
+        crate::routes::friends::delete_friend,
         crate::routes::users::check_handle_availability,
         crate::routes::users::update_handle,
         crate::routes::payment_providers::list_payment_providers,
@@ -69,6 +76,11 @@ use crate::models::{
             Invitation,
             InvitationPayload,
             InvitationPatchPayload,
+            Friend,
+            FriendSearchResult,
+            FriendRequestPayload,
+            FriendRequestActionPayload,
+            FriendRequest,
             HandleAvailabilityResponse,
             HandleUpdatePayload,
             PaymentProvider,
@@ -84,6 +96,7 @@ use crate::models::{
         (name = "items", description = "Catalogue des items référencés"),
         (name = "events", description = "Gestion des événements"),
         (name = "invitations", description = "Gestion des invitations aux événements"),
+        (name = "friends", description = "Gestion des amis et demandes"),
         (name = "users", description = "Gestion des utilisateurs et handles"),
         (name = "payment-providers", description = "Configuration des fournisseurs de paiement (admin)")
     )
