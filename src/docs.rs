@@ -17,6 +17,7 @@ use crate::models::{
         crate::routes::auth::register,
         crate::routes::auth::login,
         crate::routes::health::health,
+        crate::routes::events::get_event,
         crate::routes::items::list_items,
         crate::routes::items::create_item,
         crate::routes::items::replace_item,
