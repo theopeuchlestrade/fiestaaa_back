@@ -781,17 +781,27 @@ pub async fn respond_invitation(
         }
     };
     let res = sqlx::query_as::<_, Invitation>(
-        "UPDATE invitations
-         SET status = $1
-         WHERE event_id = $2 AND user_id = $3
-         RETURNING event_id, $4 AS email, $5 AS handle, status, date_invi,
-                   (SELECT name_event FROM events WHERE event_id = $2) AS event_name",
+        "WITH updated_invitation AS (
+            UPDATE invitations 
+            SET status = $1 
+            WHERE event_id = $2 AND user_id = $3
+            RETURNING event_id, user_id, status, date_invi
+         )
+         SELECT 
+            ui.event_id, 
+            u.email, 
+            u.handle, 
+            u.avatar_url, 
+            ui.status, 
+            ui.date_invi, 
+            e.name_event AS event_name
+         FROM updated_invitation ui
+         JOIN users u ON u.id = ui.user_id
+         JOIN events e ON e.event_id = ui.event_id",
     )
     .bind(&target_status)
     .bind(*event_id)
     .bind(user.id)
-    .bind(&user.email)
-    .bind(&user.handle)
     .fetch_optional(&mut *tx)
     .await;
 
