@@ -4,3 +4,4 @@
 !.env.example
 api-keys-*.csv
 api-keys-*.csv 
+/uploads/avatars

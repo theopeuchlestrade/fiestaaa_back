@@ -115,6 +115,14 @@ struct UserIdentity {
     id: i64,
     email: String,
     handle: String,
+    avatar_url: Option<String>,
+}
+
+async fn ensure_avatar_column(db: &sqlx::PgPool) -> Result<(), sqlx::Error> {
+    sqlx::query("ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_url TEXT;")
+        .execute(db)
+        .await?;
+    Ok(())
 }
 
 enum TargetIdentifier {
@@ -147,6 +155,7 @@ fn parse_identifier(raw: &str) -> Result<TargetIdentifier, HttpResponse> {
 }
 
 async fn fetch_user_by_email(db: &sqlx::PgPool, email: &str) -> Result<UserIdentity, HttpResponse> {
+    let _ = ensure_avatar_column(db).await;
     match find_user_by_email(db, email).await? {
         Some(u) => Ok(u),
         None => Err(HttpResponse::NotFound().json(ErrorResponse {
@@ -160,6 +169,7 @@ async fn find_user_by_email(
     db: &sqlx::PgPool,
     email: &str,
 ) -> Result<Option<UserIdentity>, HttpResponse> {
+    let _ = ensure_avatar_column(db).await;
     let normalized = email.trim().to_lowercase();
     if normalized.is_empty() {
         return Err(HttpResponse::BadRequest().json(ErrorResponse {
@@ -169,7 +179,7 @@ async fn find_user_by_email(
     }
 
     sqlx::query_as::<_, UserIdentity>(
-        "SELECT id, email, handle FROM users WHERE lower(email) = lower($1)",
+        "SELECT id, email, handle, avatar_url FROM users WHERE lower(email) = lower($1)",
     )
     .bind(&normalized)
     .fetch_optional(db)
@@ -186,8 +196,9 @@ async fn find_user_by_handle(
     db: &sqlx::PgPool,
     handle: &str,
 ) -> Result<Option<UserIdentity>, HttpResponse> {
+    let _ = ensure_avatar_column(db).await;
     sqlx::query_as::<_, UserIdentity>(
-        "SELECT id, email, handle FROM users WHERE lower(handle) = lower($1)",
+        "SELECT id, email, handle, avatar_url FROM users WHERE lower(handle) = lower($1)",
     )
     .bind(handle)
     .fetch_optional(db)
@@ -397,13 +408,14 @@ async fn insert_invitation_for_user(
     sqlx::query_as::<_, Invitation>(
         "INSERT INTO invitations (event_id, user_id, status)
          VALUES ($1, $2, 'Waiting')
-         RETURNING event_id, $3 AS email, $4 AS handle, status, date_invi,
+         RETURNING event_id, $3 AS email, $4 AS handle, $5 AS avatar_url, status, date_invi,
                    (SELECT name_event FROM events WHERE event_id = $1) AS event_name",
     )
     .bind(event_id)
     .bind(user.id)
     .bind(&user.email)
     .bind(&user.handle)
+    .bind(&user.avatar_url)
     .fetch_one(db)
     .await
 }
@@ -427,6 +439,7 @@ pub async fn list_event_invitations(
     req: HttpRequest,
     event_id: web::Path<i64>,
 ) -> impl Responder {
+    let _ = ensure_avatar_column(&state.db).await;
     if let Err(resp) = ensure_event_participant(&req, state.get_ref(), *event_id).await {
         return resp;
     }
@@ -435,6 +448,7 @@ pub async fn list_event_invitations(
         "SELECT e.event_id,
                 e.owner_email AS email,
                 u_owner.handle AS handle,
+                u_owner.avatar_url AS avatar_url,
                 'Accepted'::text AS status,
                 NOW() AS date_invi,
                 e.name_event AS event_name
@@ -445,6 +459,7 @@ pub async fn list_event_invitations(
          SELECT i.event_id,
                 u.email,
                 u.handle,
+                u.avatar_url,
                 i.status,
                 i.date_invi,
                 e.name_event AS event_name
@@ -690,13 +705,14 @@ pub async fn delete_invitation(
 )]
 #[get("/my/invitations")]
 pub async fn list_my_invitations(state: web::Data<AppState>, req: HttpRequest) -> impl Responder {
+    let _ = ensure_avatar_column(&state.db).await;
     let email = match claims_email(&req, state.get_ref()) {
         Ok(e) => e,
         Err(resp) => return resp,
     };
 
     match sqlx::query_as::<_, Invitation>(
-        "SELECT i.event_id, u.email, u.handle, i.status, i.date_invi, e.name_event AS event_name
+        "SELECT i.event_id, u.email, u.handle, u.avatar_url, i.status, i.date_invi, e.name_event AS event_name
          FROM invitations i
          JOIN users u ON u.id = i.user_id
          JOIN events e ON e.event_id = i.event_id
