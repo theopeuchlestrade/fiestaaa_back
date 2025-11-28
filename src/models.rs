@@ -165,6 +165,7 @@ pub struct Invitation {
     pub event_id: i64,
     pub email: String,
     pub handle: Option<String>,
+    pub avatar_url: Option<String>,
     pub status: String,
     pub date_invi: chrono::DateTime<chrono::Utc>,
     pub event_name: Option<String>,
