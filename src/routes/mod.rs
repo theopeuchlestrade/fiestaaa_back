@@ -7,6 +7,7 @@ pub mod health;
 pub mod invitations;
 pub mod items;
 pub mod payment_providers;
+pub mod qr_codes;
 pub mod root;
 pub mod users;
 pub mod realtime;
@@ -28,6 +29,9 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(invitations::delete_invitation)
         .service(invitations::list_my_invitations)
         .service(invitations::respond_invitation)
+        .service(qr_codes::generate_my_qr_code)
+        .service(qr_codes::scan_qr_code)
+        .service(qr_codes::get_qr_scan_stats)
         .service(users::check_handle_availability)
         .service(users::update_handle)
         .service(users::upload_avatar)
