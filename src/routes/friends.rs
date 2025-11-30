@@ -9,6 +9,7 @@ use crate::{
         ErrorResponse, Friend, FriendRequest, FriendRequestActionPayload, FriendRequestPayload,
         FriendSearchResult, StatusResponse,
     },
+    realtime::publish_global,
     state::AppState,
 };
 
@@ -376,7 +377,14 @@ pub async fn create_friend_request(
     };
 
     match fetch_request_view(&state.db, row.get("id")).await {
-        Ok(req) => HttpResponse::Created().json(req),
+        Ok(req) => {
+            publish_global(
+                &state.redis_client,
+                &serde_json::json!({"type": "friend_request_updated"}),
+            )
+            .await;
+            HttpResponse::Created().json(req)
+        }
         Err(resp) => resp,
     }
 }
@@ -548,7 +556,14 @@ pub async fn respond_friend_request(
     }
 
     match fetch_request_view(&state.db, *id).await {
-        Ok(req) => HttpResponse::Ok().json(req),
+        Ok(req) => {
+            publish_global(
+                &state.redis_client,
+                &serde_json::json!({"type": "friend_request_updated"}),
+            )
+            .await;
+            HttpResponse::Ok().json(req)
+        }
         Err(resp) => resp,
     }
 }

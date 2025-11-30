@@ -1,6 +1,7 @@
 use std::collections::HashSet;
 
 use sqlx::{Pool, Postgres};
+use redis::Client as RedisClient;
 
 pub struct AppState {
     pub db: Pool<Postgres>,
@@ -14,4 +15,5 @@ pub struct AppState {
     pub app_base_url: String,
     pub avatar_upload_dir: String,
     pub avatar_base_url: String,
+    pub redis_client: Option<RedisClient>,
 }

@@ -5,11 +5,14 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      redis:
+        condition: service_started
     env_file:
       - .env
     environment:
       # In-compose DB host is the service name `db`
       DATABASE_URL: postgres://postgres:postgres@db:5432/fiestaaa
+      REDIS_URL: redis://redis:6379
     ports:
       - "8080:8080"
     volumes:
@@ -32,6 +35,12 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
 
 volumes:
   db_data:
