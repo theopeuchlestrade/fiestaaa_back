@@ -2,6 +2,7 @@ use actix_web::{HttpRequest, HttpResponse, Responder, delete, get, patch, post, 
 use chrono::NaiveDate;
 use regex::Regex;
 use serde::Deserialize;
+use serde_json::json;
 use sqlx::{Error, PgPool, Row};
 use uuid::Uuid;
 
@@ -13,7 +14,7 @@ use crate::{
         ItemContribution, ShareClaimPayload, ShareClaimResponse, ShareTokenResponse,
         StatusResponse,
     },
-    realtime::{publish_event, publish_global},
+    realtime::publish_event,
     state::AppState,
 };
 
@@ -341,17 +342,6 @@ pub async fn get_event(
     .await
     {
         Ok(Some(event)) => {
-            publish_global(
-                &state.redis_client,
-                &serde_json::json!({"type": "event_updated", "event": &event}),
-            )
-            .await;
-            publish_event(
-                &state.redis_client,
-                event.event_id,
-                &serde_json::json!({"type": "event_updated", "event": &event}),
-            )
-            .await;
             HttpResponse::Ok().json(event)
         }
         Ok(None) => HttpResponse::NotFound().json(ErrorResponse {
@@ -519,11 +509,10 @@ pub async fn create_event(
 
     match res {
         Ok(event) => {
-            publish_global(&state.redis_client, &serde_json::json!({"type": "event_created", "event": &event})).await;
             publish_event(
                 &state.redis_client,
                 event.event_id,
-                &serde_json::json!({"type": "event_updated", "event": &event}),
+                &json!({"type": "event_updated", "event_id": event.event_id, "event": &event}),
             )
             .await;
             HttpResponse::Created().json(event)
@@ -626,15 +615,10 @@ pub async fn replace_event(
 
     match res {
         Ok(Some(event)) => {
-            publish_global(
-                &state.redis_client,
-                &serde_json::json!({"type": "event_updated", "event": &event}),
-            )
-            .await;
             publish_event(
                 &state.redis_client,
                 event.event_id,
-                &serde_json::json!({"type": "event_updated", "event": &event}),
+                &json!({"type": "event_updated", "event_id": event.event_id, "event": &event}),
             )
             .await;
             HttpResponse::Ok().json(event)
@@ -833,22 +817,9 @@ pub async fn delete_event(
             error: "event_not_found".into(),
             details: None,
         }),
-        Ok(_) => {
-            publish_global(
-                &state.redis_client,
-                &serde_json::json!({"type": "event_deleted", "event_id": *event_id}),
-            )
-            .await;
-            publish_event(
-                &state.redis_client,
-                *event_id,
-                &serde_json::json!({"type": "event_deleted", "event_id": *event_id}),
-            )
-            .await;
-            HttpResponse::Ok().json(StatusResponse {
-                status: "deleted".into(),
-            })
-        }
+        Ok(_) => HttpResponse::Ok().json(StatusResponse {
+            status: "deleted".into(),
+        }),
         Err(_) => HttpResponse::InternalServerError().json(ErrorResponse {
             error: "db_error".into(),
             details: None,
@@ -1230,7 +1201,7 @@ pub async fn attach_event_item(
                     publish_event(
                         &state.redis_client,
                         ev,
-                        &serde_json::json!({"type": "items_changed", "event_id": ev, "item_id": item}),
+                        &json!({"type": "items_changed", "event_id": ev, "item_id": item}),
                     )
                     .await;
                     HttpResponse::Ok().json(view)
@@ -1414,7 +1385,15 @@ pub async fn create_custom_event_item(
     }
 
     match fetch_event_item_view(&state.db, ev_id, item_id).await {
-        Ok(view) => HttpResponse::Ok().json(view),
+        Ok(view) => {
+            publish_event(
+                &state.redis_client,
+                ev_id,
+                &json!({"type": "items_changed", "event_id": ev_id, "item_id": item_id}),
+            )
+            .await;
+            HttpResponse::Ok().json(view)
+        }
         Err(resp) => resp,
     }
 }
@@ -1566,7 +1545,15 @@ pub async fn reserve_event_item(
     }
 
     match fetch_event_item_view(&state.db, event_id, item_id).await {
-        Ok(view) => HttpResponse::Ok().json(view),
+        Ok(view) => {
+            publish_event(
+                &state.redis_client,
+                event_id,
+                &json!({"type": "items_changed", "event_id": event_id, "item_id": item_id}),
+            )
+            .await;
+            return HttpResponse::Ok().json(view);
+        }
         Err(resp) => resp,
     }
 }
@@ -1677,6 +1664,13 @@ pub async fn delete_event_item(
     if let Err(_) = tx.commit().await {
         return server_error();
     }
+
+    publish_event(
+        &state.redis_client,
+        event_id,
+        &json!({"type": "items_changed", "event_id": event_id, "item_id": item_id}),
+    )
+    .await;
 
     HttpResponse::Ok().json(StatusResponse {
         status: "deleted".into(),
