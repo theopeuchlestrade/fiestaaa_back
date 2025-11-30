@@ -299,7 +299,6 @@ pub struct HandleUpdatePayload {
     pub handle: String,
 }
 
-// QR Code Check-in Models
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct QRCodeGenerateResponse {
     pub qr_token: String,
