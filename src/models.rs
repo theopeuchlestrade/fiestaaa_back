@@ -298,3 +298,34 @@ pub struct HandleAvailabilityResponse {
 pub struct HandleUpdatePayload {
     pub handle: String,
 }
+
+// QR Code Check-in Models
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct QRCodeGenerateResponse {
+    pub qr_token: String,
+    pub event_id: i64,
+    pub generated_at: chrono::DateTime<chrono::Utc>,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct QRCodeScanPayload {
+    pub token: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct QRCodeScanResponse {
+    pub success: bool,
+    pub status: String,
+    pub user_email: Option<String>,
+    pub user_handle: Option<String>,
+    pub user_avatar_url: Option<String>,
+    pub scanned_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub message: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct QRCodeStatsResponse {
+    pub total_invited: i64,
+    pub total_checked_in: i64,
+    pub pending_checkins: i64,
+}
