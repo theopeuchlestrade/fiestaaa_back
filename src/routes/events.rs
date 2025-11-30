@@ -1,4 +1,5 @@
 use actix_web::{HttpRequest, HttpResponse, Responder, delete, get, patch, post, put, web};
+use chrono::NaiveDate;
 use regex::Regex;
 use serde::Deserialize;
 use sqlx::{Error, PgPool, Row};
@@ -94,6 +95,76 @@ async fn ensure_event_member(
             details: Some("membership required".into()),
         }))
     }
+}
+
+fn validate_invitation_deadline(
+    deadline: Option<NaiveDate>,
+    event_date: NaiveDate,
+) -> Result<(), HttpResponse> {
+    if let Some(limit) = deadline {
+        let today = chrono::Utc::now().date_naive();
+        if limit < today {
+            return Err(HttpResponse::BadRequest().json(ErrorResponse {
+                error: "invalid_invitation_deadline".into(),
+                details: Some("La date limite de réponse ne peut pas être dans le passé".into()),
+            }));
+        }
+        if limit > event_date {
+            return Err(HttpResponse::BadRequest().json(ErrorResponse {
+                error: "invalid_invitation_deadline".into(),
+                details: Some("La date limite de réponse doit être avant ou au jour de l'événement".into()),
+            }));
+        }
+    }
+
+    Ok(())
+}
+
+async fn ensure_invitation_deadline_schema(db: &PgPool) -> Result<(), HttpResponse> {
+    if let Err(_) = sqlx::query("ALTER TABLE events ADD COLUMN IF NOT EXISTS invitation_deadline DATE")
+        .execute(db)
+        .await
+    {
+        return Err(server_error());
+    }
+
+    let ensure_constraint = r#"
+        DO $$
+        BEGIN
+            BEGIN
+                ALTER TABLE events
+                ADD CONSTRAINT invitation_deadline_before_event
+                CHECK (invitation_deadline IS NULL OR invitation_deadline <= date_event);
+            EXCEPTION
+                WHEN duplicate_object THEN
+                    NULL;
+            END;
+        END
+        $$;
+    "#;
+
+    if let Err(_) = sqlx::query(ensure_constraint).execute(db).await {
+        return Err(server_error());
+    }
+
+    Ok(())
+}
+
+async fn expire_overdue_invitations(db: &PgPool) -> Result<(), HttpResponse> {
+    ensure_invitation_deadline_schema(db).await?;
+    sqlx::query(
+        "UPDATE invitations i
+         SET status = 'Expired'
+         FROM events e
+         WHERE i.event_id = e.event_id
+           AND i.status = 'Waiting'
+           AND e.invitation_deadline IS NOT NULL
+           AND CURRENT_DATE > e.invitation_deadline",
+    )
+    .execute(db)
+    .await
+    .map(|_| ())
+    .map_err(|_| server_error())
 }
 
 #[derive(Deserialize)]
@@ -252,6 +323,7 @@ pub async fn get_event(
                 description,
                 date_event,
                 start_time,
+                invitation_deadline,
                 address,
                 latitude,
                 longitude,
@@ -292,6 +364,9 @@ pub async fn list_events(state: web::Data<AppState>, req: HttpRequest) -> impl R
         Ok(e) => e,
         Err(resp) => return resp,
     };
+    if let Err(resp) = expire_overdue_invitations(&state.db).await {
+        return resp;
+    }
 
     let res = sqlx::query_as::<_, Event>(
         "SELECT e.event_id,
@@ -299,6 +374,7 @@ pub async fn list_events(state: web::Data<AppState>, req: HttpRequest) -> impl R
                 e.description,
                 e.date_event,
                 e.start_time,
+                e.invitation_deadline,
                 e.address,
                 e.latitude,
                 e.longitude,
@@ -315,7 +391,7 @@ pub async fn list_events(state: web::Data<AppState>, req: HttpRequest) -> impl R
                 JOIN users u ON u.id = i.user_id
                 WHERE i.event_id = e.event_id
                   AND lower(u.email) = lower($1)
-                  AND i.status <> 'Declined'
+                  AND i.status NOT IN ('Declined', 'Expired')
             )
          ORDER BY e.date_event, e.start_time",
     )
@@ -350,6 +426,9 @@ pub async fn create_event(
     req: HttpRequest,
     payload: web::Json<EventPayload>,
 ) -> impl Responder {
+    if let Err(resp) = ensure_invitation_deadline_schema(&state.db).await {
+        return resp;
+    }
     let owner_email = match claims_email(&req, state.get_ref()) {
         Ok(email) => email,
         Err(resp) => return resp,
@@ -371,6 +450,10 @@ pub async fn create_event(
             error: "invalid_payload".into(),
             details: Some("Latitude et longitude doivent être renseignées ensemble".into()),
         });
+    }
+    if let Err(resp) = validate_invitation_deadline(payload.invitation_deadline, payload.date_event)
+    {
+        return resp;
     }
     if payload.latitude.is_some() ^ payload.longitude.is_some() {
         return HttpResponse::BadRequest().json(ErrorResponse {
@@ -394,16 +477,21 @@ pub async fn create_event(
     } else {
         payload.payment_per_person.unwrap_or(false)
     };
+    if let Err(resp) = validate_invitation_deadline(payload.invitation_deadline, payload.date_event)
+    {
+        return resp;
+    }
 
     let res = sqlx::query_as::<_, Event>(
-        "INSERT INTO events (name_event, description, date_event, start_time, address, latitude, longitude, payment_provider_id, payment_identifier, payment_requested_amount, payment_per_person, owner_email)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-         RETURNING event_id, name_event, description, date_event, start_time, address, latitude, longitude, payment_provider_id, payment_identifier, payment_requested_amount, payment_per_person, owner_email",
+        "INSERT INTO events (name_event, description, date_event, start_time, invitation_deadline, address, latitude, longitude, payment_provider_id, payment_identifier, payment_requested_amount, payment_per_person, owner_email)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+         RETURNING event_id, name_event, description, date_event, start_time, invitation_deadline, address, latitude, longitude, payment_provider_id, payment_identifier, payment_requested_amount, payment_per_person, owner_email",
     )
     .bind(payload.name_event.trim())
     .bind(payload.description.trim())
     .bind(payload.date_event)
     .bind(payload.start_time)
+    .bind(payload.invitation_deadline)
     .bind(payload.address.trim())
     .bind(payload.latitude)
     .bind(payload.longitude)
@@ -453,6 +541,9 @@ pub async fn replace_event(
     event_id: web::Path<i64>,
     payload: web::Json<EventPayload>,
 ) -> impl Responder {
+    if let Err(resp) = ensure_invitation_deadline_schema(&state.db).await {
+        return resp;
+    }
     if let Err(resp) = ensure_event_owner(&req, state.get_ref(), *event_id).await {
         return resp;
     }
@@ -489,15 +580,16 @@ pub async fn replace_event(
     let res = sqlx::query_as::<_, Event>(
         "UPDATE events
          SET name_event = $1, description = $2, date_event = $3, start_time = $4, 
-             address = $5, latitude = $6, longitude = $7, payment_provider_id = $8, payment_identifier = $9,
-             payment_requested_amount = $10, payment_per_person = $11
-         WHERE event_id = $12
-         RETURNING event_id, name_event, description, date_event, start_time, address, latitude, longitude, payment_provider_id, payment_identifier, payment_requested_amount, payment_per_person, owner_email",
+             invitation_deadline = $5, address = $6, latitude = $7, longitude = $8, payment_provider_id = $9, payment_identifier = $10,
+             payment_requested_amount = $11, payment_per_person = $12
+         WHERE event_id = $13
+         RETURNING event_id, name_event, description, date_event, start_time, invitation_deadline, address, latitude, longitude, payment_provider_id, payment_identifier, payment_requested_amount, payment_per_person, owner_email",
     )
     .bind(payload.name_event.trim())
     .bind(payload.description.trim())
     .bind(payload.date_event)
     .bind(payload.start_time)
+    .bind(payload.invitation_deadline)
     .bind(payload.address.trim())
     .bind(payload.latitude)
     .bind(payload.longitude)
@@ -551,6 +643,9 @@ pub async fn update_event(
     event_id: web::Path<i64>,
     payload: web::Json<EventPatchPayload>,
 ) -> impl Responder {
+    if let Err(resp) = ensure_invitation_deadline_schema(&state.db).await {
+        return resp;
+    }
     if let Err(resp) = ensure_event_owner(&req, state.get_ref(), *event_id).await {
         return resp;
     }
@@ -583,11 +678,16 @@ pub async fn update_event(
         });
     }
 
-    let (current_provider_id, current_identifier, current_payment_per_person) =
-        match fetch_event_payment_info(&state.db, *event_id).await {
-            Ok(info) => info,
-            Err(resp) => return resp,
-        };
+    let (
+        current_provider_id,
+        current_identifier,
+        current_payment_per_person,
+        current_date_event,
+        current_invitation_deadline,
+    ) = match fetch_event_payment_info(&state.db, *event_id).await {
+        Ok(info) => info,
+        Err(resp) => return resp,
+    };
 
     let merged_provider = payload.payment_provider_id.or(current_provider_id);
     let merged_identifier = payload.payment_identifier.clone().or(current_identifier);
@@ -603,6 +703,13 @@ pub async fn update_event(
             .payment_per_person
             .unwrap_or(current_payment_per_person)
     };
+    let target_date_event = payload.date_event.unwrap_or(current_date_event);
+    let target_deadline = payload
+        .invitation_deadline
+        .or(current_invitation_deadline);
+    if let Err(resp) = validate_invitation_deadline(target_deadline, target_date_event) {
+        return resp;
+    }
 
     let res = sqlx::query_as::<_, Event>(
         "UPDATE events
@@ -610,20 +717,22 @@ pub async fn update_event(
              description = COALESCE($2, description),
              date_event = COALESCE($3, date_event),
              start_time = COALESCE($4, start_time),
-             address = COALESCE($5, address),
-             latitude = COALESCE($6, latitude),
-             longitude = COALESCE($7, longitude),
-             payment_provider_id = COALESCE($8, payment_provider_id),
-             payment_identifier = COALESCE($9, payment_identifier),
-             payment_requested_amount = COALESCE($10, payment_requested_amount),
-             payment_per_person = $11
-         WHERE event_id = $12
-         RETURNING event_id, name_event, description, date_event, start_time, address, latitude, longitude, payment_provider_id, payment_identifier, payment_requested_amount, payment_per_person, owner_email",
+             invitation_deadline = COALESCE($5, invitation_deadline),
+             address = COALESCE($6, address),
+             latitude = COALESCE($7, latitude),
+             longitude = COALESCE($8, longitude),
+             payment_provider_id = COALESCE($9, payment_provider_id),
+             payment_identifier = COALESCE($10, payment_identifier),
+             payment_requested_amount = COALESCE($11, payment_requested_amount),
+             payment_per_person = $12
+         WHERE event_id = $13
+         RETURNING event_id, name_event, description, date_event, start_time, invitation_deadline, address, latitude, longitude, payment_provider_id, payment_identifier, payment_requested_amount, payment_per_person, owner_email",
     )
     .bind(payload.name_event.as_ref().map(|v| v.trim()).filter(|v| !v.is_empty()))
     .bind(payload.description.as_ref().map(|v| v.trim()).filter(|v| !v.is_empty()))
     .bind(payload.date_event)
     .bind(payload.start_time)
+    .bind(payload.invitation_deadline)
     .bind(payload.address.as_ref().map(|v| v.trim()).filter(|v| !v.is_empty()))
     .bind(payload.latitude)
     .bind(payload.longitude)
@@ -836,7 +945,7 @@ pub async fn claim_share_link(
     };
 
     let event = sqlx::query_as::<_, Event>(
-        "SELECT event_id, name_event, description, date_event, start_time, address, latitude, longitude, payment_provider_id, payment_identifier, payment_requested_amount, payment_per_person, owner_email
+        "SELECT event_id, name_event, description, date_event, start_time, invitation_deadline, address, latitude, longitude, payment_provider_id, payment_identifier, payment_requested_amount, payment_per_person, owner_email
          FROM events
          WHERE event_id = $1",
     )
@@ -854,6 +963,15 @@ pub async fn claim_share_link(
         }
         Err(_) => return server_error(),
     };
+
+    if let Some(limit) = event.invitation_deadline {
+        if chrono::Utc::now().date_naive() > limit {
+            return HttpResponse::Gone().json(ErrorResponse {
+                error: "invitation_expired".into(),
+                details: Some("La date limite pour répondre est dépassée".into()),
+            });
+        }
+    }
 
     let user_id = match fetch_user_id(&state.db, &claims.sub).await {
         Ok(id) => id,
@@ -1591,9 +1709,9 @@ async fn ensure_event_exists(db: &PgPool, event_id: i64) -> Result<(), HttpRespo
 async fn fetch_event_payment_info(
     db: &PgPool,
     event_id: i64,
-) -> Result<(Option<i32>, Option<String>, bool), HttpResponse> {
-    let row = sqlx::query_as::<_, (Option<i32>, Option<String>, bool)>(
-        "SELECT payment_provider_id, payment_identifier, payment_per_person FROM events WHERE event_id = $1",
+) -> Result<(Option<i32>, Option<String>, bool, NaiveDate, Option<NaiveDate>), HttpResponse> {
+    let row = sqlx::query_as::<_, (Option<i32>, Option<String>, bool, NaiveDate, Option<NaiveDate>)>(
+        "SELECT payment_provider_id, payment_identifier, payment_per_person, date_event, invitation_deadline FROM events WHERE event_id = $1",
     )
     .bind(event_id)
     .fetch_optional(db)
