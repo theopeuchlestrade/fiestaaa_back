@@ -9,6 +9,7 @@ pub mod items;
 pub mod payment_providers;
 pub mod root;
 pub mod users;
+pub mod realtime;
 
 pub fn configure(cfg: &mut web::ServiceConfig) {
     cfg.service(root::hello)
@@ -45,6 +46,7 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(events::create_custom_event_item)
         .service(events::reserve_event_item)
         .service(events::delete_event_item)
+        .service(realtime::websocket)
         .service(friends::list_friends)
         .service(friends::search_friends)
         .service(friends::create_friend_request)
