@@ -77,7 +77,7 @@ async fn ensure_event_participant(
             JOIN users u ON u.id = i.user_id
             WHERE i.event_id = $1
               AND lower(u.email) = lower($2)
-              AND i.status <> 'Declined'
+              AND i.status NOT IN ('Declined', 'Expired')
         )",
     )
     .bind(event_id)
@@ -106,10 +106,6 @@ pub struct InvitationSuggestionQuery {
     pub q: Option<String>,
 }
 
-fn validate_status(status: &str) -> bool {
-    matches!(status, "Waiting" | "Accepted" | "Declined")
-}
-
 #[derive(Debug, FromRow)]
 struct UserIdentity {
     id: i64,
@@ -128,6 +124,64 @@ async fn ensure_avatar_column(db: &sqlx::PgPool) -> Result<(), sqlx::Error> {
 enum TargetIdentifier {
     Email(String),
     Handle(String),
+}
+
+async fn ensure_invitation_deadline_schema(db: &sqlx::PgPool) -> Result<(), HttpResponse> {
+    if let Err(_) = sqlx::query("ALTER TABLE events ADD COLUMN IF NOT EXISTS invitation_deadline DATE")
+        .execute(db)
+        .await
+    {
+        return Err(HttpResponse::InternalServerError().json(ErrorResponse {
+            error: "db_error".into(),
+            details: None,
+        }));
+    }
+
+    let ensure_constraint = r#"
+        DO $$
+        BEGIN
+            BEGIN
+                ALTER TABLE events
+                ADD CONSTRAINT invitation_deadline_before_event
+                CHECK (invitation_deadline IS NULL OR invitation_deadline <= date_event);
+            EXCEPTION
+                WHEN duplicate_object THEN
+                    NULL;
+            END;
+        END
+        $$;
+    "#;
+
+    if let Err(_) = sqlx::query(ensure_constraint).execute(db).await {
+        return Err(HttpResponse::InternalServerError().json(ErrorResponse {
+            error: "db_error".into(),
+            details: None,
+        }));
+    }
+
+    Ok(())
+}
+
+async fn expire_overdue_invitations(db: &sqlx::PgPool) -> Result<(), HttpResponse> {
+    ensure_invitation_deadline_schema(db).await?;
+    sqlx::query(
+        "UPDATE invitations i
+         SET status = 'Expired'
+         FROM events e
+         WHERE i.event_id = e.event_id
+           AND i.status = 'Waiting'
+           AND e.invitation_deadline IS NOT NULL
+           AND CURRENT_DATE > e.invitation_deadline",
+    )
+    .execute(db)
+    .await
+    .map(|_| ())
+    .map_err(|_| {
+        HttpResponse::InternalServerError().json(ErrorResponse {
+            error: "db_error".into(),
+            details: None,
+        })
+    })
 }
 
 fn parse_identifier(raw: &str) -> Result<TargetIdentifier, HttpResponse> {
@@ -443,6 +497,9 @@ pub async fn list_event_invitations(
     if let Err(resp) = ensure_event_participant(&req, state.get_ref(), *event_id).await {
         return resp;
     }
+    if let Err(resp) = expire_overdue_invitations(&state.db).await {
+        return resp;
+    }
 
     match sqlx::query_as::<_, Invitation>(
         "SELECT e.event_id,
@@ -566,10 +623,42 @@ pub async fn create_invitation(
     event_id: web::Path<i64>,
     payload: web::Json<InvitationPayload>,
 ) -> impl Responder {
+    if let Err(resp) = ensure_invitation_deadline_schema(&state.db).await {
+        return resp;
+    }
     let owner_email = match ensure_event_owner(&req, state.get_ref(), *event_id).await {
         Ok(owner) => owner,
         Err(resp) => return resp,
     };
+    if let Err(resp) = expire_overdue_invitations(&state.db).await {
+        return resp;
+    }
+
+    let invitation_deadline = sqlx::query_scalar::<_, Option<NaiveDate>>(
+        "SELECT invitation_deadline FROM events WHERE event_id = $1",
+    )
+    .bind(*event_id)
+    .fetch_optional(&state.db)
+    .await;
+
+    let invitation_deadline = match invitation_deadline {
+        Ok(value) => value,
+        Err(_) => {
+            return HttpResponse::InternalServerError().json(ErrorResponse {
+                error: "db_error".into(),
+                details: None,
+            });
+        }
+    };
+
+    if let Some(Some(limit)) = invitation_deadline {
+        if chrono::Utc::now().date_naive() > limit {
+            return HttpResponse::Gone().json(ErrorResponse {
+                error: "invitation_expired".into(),
+                details: Some("La date limite pour répondre est dépassée".into()),
+            });
+        }
+    }
 
     let identifier = match parse_identifier(&payload.identifier) {
         Ok(id) => id,
@@ -710,6 +799,9 @@ pub async fn list_my_invitations(state: web::Data<AppState>, req: HttpRequest) -
         Ok(e) => e,
         Err(resp) => return resp,
     };
+    if let Err(resp) = expire_overdue_invitations(&state.db).await {
+        return resp;
+    }
 
     match sqlx::query_as::<_, Invitation>(
         "SELECT i.event_id, u.email, u.handle, u.avatar_url, i.status, i.date_invi, e.name_event AS event_name
@@ -756,7 +848,7 @@ pub async fn respond_invitation(
     };
 
     let status = match payload.status.clone() {
-        Some(s) if validate_status(s.trim()) => s.trim().to_string(),
+        Some(s) if matches!(s.trim(), "Accepted" | "Declined") => s.trim().to_string(),
         _ => {
             return HttpResponse::BadRequest().json(ErrorResponse {
                 error: "invalid_status".into(),
@@ -769,6 +861,9 @@ pub async fn respond_invitation(
         Ok(id) => id,
         Err(resp) => return resp,
     };
+    if let Err(resp) = expire_overdue_invitations(&state.db).await {
+        return resp;
+    }
 
     let target_status = status;
     let mut tx = match state.db.begin().await {
@@ -780,6 +875,40 @@ pub async fn respond_invitation(
             });
         }
     };
+    let current_status = sqlx::query_scalar::<_, String>(
+        "SELECT status FROM invitations WHERE event_id = $1 AND user_id = $2 FOR UPDATE",
+    )
+    .bind(*event_id)
+    .bind(user.id)
+    .fetch_optional(&mut *tx)
+    .await;
+
+    let current_status = match current_status {
+        Ok(Some(s)) => s,
+        Ok(None) => {
+            let _ = tx.rollback().await;
+            return HttpResponse::NotFound().json(ErrorResponse {
+                error: "invitation_not_found".into(),
+                details: None,
+            });
+        }
+        Err(_) => {
+            let _ = tx.rollback().await;
+            return HttpResponse::InternalServerError().json(ErrorResponse {
+                error: "db_error".into(),
+                details: None,
+            });
+        }
+    };
+
+    if current_status == "Expired" {
+        let _ = tx.rollback().await;
+        return HttpResponse::Gone().json(ErrorResponse {
+            error: "invitation_expired".into(),
+            details: Some("La date limite pour répondre est dépassée".into()),
+        });
+    }
+
     let res = sqlx::query_as::<_, Invitation>(
         "WITH updated_invitation AS (
             UPDATE invitations 
