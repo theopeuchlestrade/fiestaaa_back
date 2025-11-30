@@ -1,2 +1,0 @@
-ALTER TABLE items
-    ADD COLUMN IF NOT EXISTS unit_label TEXT NOT NULL DEFAULT 'pièce';
