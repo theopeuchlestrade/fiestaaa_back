@@ -12,6 +12,7 @@ use crate::{
         ErrorResponse, Invitation, InvitationPatchPayload, InvitationPayload, InvitationSuggestion,
         StatusResponse,
     },
+    realtime::{publish_event, publish_global},
     state::AppState,
 };
 use serde::Deserialize;
@@ -674,7 +675,20 @@ pub async fn create_invitation(
 
             if let Some(user) = user {
                 match insert_invitation_for_user(&state.db, *event_id, &user).await {
-                    Ok(inv) => HttpResponse::Created().json(inv),
+                    Ok(inv) => {
+                        publish_event(
+                            &state.redis_client,
+                            *event_id,
+                            &json!({"type": "invitation_updated", "event_id": *event_id}),
+                        )
+                        .await;
+                        publish_global(
+                            &state.redis_client,
+                            &json!({"type": "invitation_updated", "event_id": *event_id}),
+                        )
+                        .await;
+                        HttpResponse::Created().json(inv)
+                    }
                     Err(sqlx::Error::Database(db_err))
                         if db_err.code().as_deref() == Some("23505") =>
                     {
@@ -705,7 +719,20 @@ pub async fn create_invitation(
 
             match user {
                 Some(user) => match insert_invitation_for_user(&state.db, *event_id, &user).await {
-                    Ok(inv) => HttpResponse::Created().json(inv),
+                    Ok(inv) => {
+                        publish_event(
+                            &state.redis_client,
+                            *event_id,
+                            &json!({"type": "invitation_updated", "event_id": *event_id}),
+                        )
+                        .await;
+                        publish_global(
+                            &state.redis_client,
+                            &json!({"type": "invitation_updated", "event_id": *event_id}),
+                        )
+                        .await;
+                        HttpResponse::Created().json(inv)
+                    }
                     Err(sqlx::Error::Database(db_err))
                         if db_err.code().as_deref() == Some("23505") =>
                     {
@@ -1017,6 +1044,18 @@ pub async fn respond_invitation(
             details: None,
         });
     }
+
+    publish_event(
+        &state.redis_client,
+        *event_id,
+        &json!({"type": "invitation_updated", "event_id": *event_id, "status": target_status}),
+    )
+    .await;
+    publish_global(
+        &state.redis_client,
+        &json!({"type": "invitation_updated", "event_id": *event_id, "status": target_status}),
+    )
+    .await;
 
     HttpResponse::Ok().json(updated)
 }

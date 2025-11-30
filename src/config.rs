@@ -14,6 +14,7 @@ pub struct AppConfig {
     pub app_base_url: String,
     pub avatar_upload_dir: String,
     pub avatar_base_url: String,
+    pub redis_url: Option<String>,
 }
 
 impl AppConfig {
@@ -55,6 +56,7 @@ impl AppConfig {
             std::env::var("AVATAR_UPLOAD_DIR").unwrap_or_else(|_| "./uploads/avatars".into());
         let avatar_base_url = std::env::var("AVATAR_BASE_URL")
             .unwrap_or_else(|_| "http://localhost:8080/media/avatars".into());
+        let redis_url = std::env::var("REDIS_URL").ok().filter(|v| !v.trim().is_empty());
         Self {
             host,
             port,
@@ -69,6 +71,7 @@ impl AppConfig {
             app_base_url,
             avatar_upload_dir,
             avatar_base_url,
+            redis_url,
         }
     }
 }

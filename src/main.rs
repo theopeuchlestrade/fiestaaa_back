@@ -6,6 +6,7 @@ use fiestaaa_back::{config, db, docs, routes, state};
 use std::collections::HashSet;
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
+use redis::Client as RedisClient;
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
@@ -33,6 +34,10 @@ async fn main() -> std::io::Result<()> {
         app_base_url: cfg.app_base_url.clone(),
         avatar_upload_dir: cfg.avatar_upload_dir.clone(),
         avatar_base_url: cfg.avatar_base_url.clone(),
+        redis_client: cfg
+            .redis_url
+            .as_ref()
+            .and_then(|url| RedisClient::open(url.as_str()).ok()),
     });
 
     // Server

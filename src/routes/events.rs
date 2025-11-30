@@ -13,6 +13,7 @@ use crate::{
         ItemContribution, ShareClaimPayload, ShareClaimResponse, ShareTokenResponse,
         StatusResponse,
     },
+    realtime::{publish_event, publish_global},
     state::AppState,
 };
 
@@ -339,7 +340,20 @@ pub async fn get_event(
     .fetch_optional(&state.db)
     .await
     {
-        Ok(Some(event)) => HttpResponse::Ok().json(event),
+        Ok(Some(event)) => {
+            publish_global(
+                &state.redis_client,
+                &serde_json::json!({"type": "event_updated", "event": &event}),
+            )
+            .await;
+            publish_event(
+                &state.redis_client,
+                event.event_id,
+                &serde_json::json!({"type": "event_updated", "event": &event}),
+            )
+            .await;
+            HttpResponse::Ok().json(event)
+        }
         Ok(None) => HttpResponse::NotFound().json(ErrorResponse {
             error: "event_not_found".into(),
             details: None,
@@ -504,7 +518,16 @@ pub async fn create_event(
     .await;
 
     match res {
-        Ok(event) => HttpResponse::Created().json(event),
+        Ok(event) => {
+            publish_global(&state.redis_client, &serde_json::json!({"type": "event_created", "event": &event})).await;
+            publish_event(
+                &state.redis_client,
+                event.event_id,
+                &serde_json::json!({"type": "event_updated", "event": &event}),
+            )
+            .await;
+            HttpResponse::Created().json(event)
+        }
         Err(Error::Database(db_err)) if db_err.code().as_deref() == Some("23503") => {
             HttpResponse::BadRequest().json(ErrorResponse {
                 error: "unknown_payment_provider".into(),
@@ -602,7 +625,20 @@ pub async fn replace_event(
     .await;
 
     match res {
-        Ok(Some(event)) => HttpResponse::Ok().json(event),
+        Ok(Some(event)) => {
+            publish_global(
+                &state.redis_client,
+                &serde_json::json!({"type": "event_updated", "event": &event}),
+            )
+            .await;
+            publish_event(
+                &state.redis_client,
+                event.event_id,
+                &serde_json::json!({"type": "event_updated", "event": &event}),
+            )
+            .await;
+            HttpResponse::Ok().json(event)
+        }
         Ok(None) => HttpResponse::NotFound().json(ErrorResponse {
             error: "event_not_found".into(),
             details: None,
@@ -797,9 +833,22 @@ pub async fn delete_event(
             error: "event_not_found".into(),
             details: None,
         }),
-        Ok(_) => HttpResponse::Ok().json(StatusResponse {
-            status: "deleted".into(),
-        }),
+        Ok(_) => {
+            publish_global(
+                &state.redis_client,
+                &serde_json::json!({"type": "event_deleted", "event_id": *event_id}),
+            )
+            .await;
+            publish_event(
+                &state.redis_client,
+                *event_id,
+                &serde_json::json!({"type": "event_deleted", "event_id": *event_id}),
+            )
+            .await;
+            HttpResponse::Ok().json(StatusResponse {
+                status: "deleted".into(),
+            })
+        }
         Err(_) => HttpResponse::InternalServerError().json(ErrorResponse {
             error: "db_error".into(),
             details: None,
@@ -1177,7 +1226,15 @@ pub async fn attach_event_item(
             let ev: i64 = row.get("event_id");
             let item: i64 = row.get("item_id");
             match fetch_event_item_view(&state.db, ev, item).await {
-                Ok(view) => HttpResponse::Ok().json(view),
+                Ok(view) => {
+                    publish_event(
+                        &state.redis_client,
+                        ev,
+                        &serde_json::json!({"type": "items_changed", "event_id": ev, "item_id": item}),
+                    )
+                    .await;
+                    HttpResponse::Ok().json(view)
+                }
                 Err(resp) => resp,
             }
         }
