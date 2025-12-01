@@ -84,11 +84,17 @@ impl NotificationService {
         };
 
         let status = resp.status();
-        let parsed = resp.json::<FcmResponse>().await;
+        let body_text = resp.text().await.unwrap_or_default();
+        let parsed = serde_json::from_str::<FcmResponse>(&body_text);
         match parsed {
             Ok(body) => {
                 if status.is_client_error() || status.is_server_error() {
                     warn!(
+                        "FCM responded with status {} (success {:?}, failure {:?})",
+                        status, body.success, body.failure
+                    );
+                } else {
+                    debug!(
                         "FCM responded with status {} (success {:?}, failure {:?})",
                         status, body.success, body.failure
                     );
@@ -99,7 +105,11 @@ impl NotificationService {
                 }
             }
             Err(err) => {
-                warn!("failed to parse FCM response: {err}");
+                let snippet = &body_text.chars().take(200).collect::<String>();
+                warn!(
+                    "failed to parse FCM response (status {}): {} body_snippet='{}'",
+                    status, err, snippet
+                );
             }
         }
     }
