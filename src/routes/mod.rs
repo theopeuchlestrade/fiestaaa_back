@@ -6,11 +6,12 @@ pub mod friends;
 pub mod health;
 pub mod invitations;
 pub mod items;
+pub mod notifications;
 pub mod payment_providers;
 pub mod qr_codes;
+pub mod realtime;
 pub mod root;
 pub mod users;
-pub mod realtime;
 
 pub fn configure(cfg: &mut web::ServiceConfig) {
     cfg.service(root::hello)
@@ -57,6 +58,9 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(friends::list_friend_requests)
         .service(friends::respond_friend_request)
         .service(friends::delete_friend)
+        .service(notifications::register_device)
+        .service(notifications::refresh_device)
+        .service(notifications::delete_device)
         .service(payment_providers::list_payment_providers)
         .service(payment_providers::create_payment_provider)
         .service(payment_providers::replace_payment_provider)

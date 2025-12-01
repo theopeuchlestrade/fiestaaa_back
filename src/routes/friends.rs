@@ -1,5 +1,6 @@
 use actix_web::{HttpRequest, HttpResponse, Responder, delete, get, patch, post, web};
 use serde::Deserialize;
+use serde_json::json;
 use sqlx::{PgPool, Row};
 
 use crate::{
@@ -9,6 +10,7 @@ use crate::{
         ErrorResponse, Friend, FriendRequest, FriendRequestActionPayload, FriendRequestPayload,
         FriendSearchResult, StatusResponse,
     },
+    notifications::notify_users,
     realtime::publish_global,
     state::AppState,
 };
@@ -378,6 +380,25 @@ pub async fn create_friend_request(
 
     match fetch_request_view(&state.db, row.get("id")).await {
         Ok(req) => {
+            let title = "Nouvelle demande d'ami".to_string();
+            let body = format!("{} souhaite t'ajouter", req.sender_handle);
+            let dedup = format!("friend_request:{}", req.id);
+            notify_users(
+                &state.notifications,
+                &state.db,
+                &[target.id],
+                &title,
+                &body,
+                json!({
+                    "type": "friend_request",
+                    "request_id": req.id,
+                    "from_email": req.sender_email,
+                    "from_handle": req.sender_handle
+                }),
+                Some(&dedup),
+                Some(600),
+            )
+            .await;
             publish_global(
                 &state.redis_client,
                 &serde_json::json!({"type": "friend_request_updated"}),
@@ -557,6 +578,31 @@ pub async fn respond_friend_request(
 
     match fetch_request_view(&state.db, *id).await {
         Ok(req) => {
+            let status_label = if target_status == "Accepted" {
+                "acceptée"
+            } else {
+                "refusée"
+            };
+            let title = format!("Demande d'ami {status_label}");
+            let body = format!("{} a {status_label} votre demande", req.receiver_handle);
+            let dedup = format!("friend_response:{}:{target_status}", req.id);
+            notify_users(
+                &state.notifications,
+                &state.db,
+                &[sender_id],
+                &title,
+                &body,
+                json!({
+                    "type": "friend_response",
+                    "request_id": req.id,
+                    "status": target_status,
+                    "from_email": req.receiver_email,
+                    "from_handle": req.receiver_handle
+                }),
+                Some(&dedup),
+                Some(300),
+            )
+            .await;
             publish_global(
                 &state.redis_client,
                 &serde_json::json!({"type": "friend_request_updated"}),

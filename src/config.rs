@@ -15,6 +15,9 @@ pub struct AppConfig {
     pub avatar_upload_dir: String,
     pub avatar_base_url: String,
     pub redis_url: Option<String>,
+    pub fcm_server_key: Option<String>,
+    pub fcm_vapid_key: Option<String>,
+    pub notification_dedup_ttl_seconds: u64,
 }
 
 impl AppConfig {
@@ -56,7 +59,19 @@ impl AppConfig {
             std::env::var("AVATAR_UPLOAD_DIR").unwrap_or_else(|_| "./uploads/avatars".into());
         let avatar_base_url = std::env::var("AVATAR_BASE_URL")
             .unwrap_or_else(|_| "http://localhost:8080/media/avatars".into());
-        let redis_url = std::env::var("REDIS_URL").ok().filter(|v| !v.trim().is_empty());
+        let redis_url = std::env::var("REDIS_URL")
+            .ok()
+            .filter(|v| !v.trim().is_empty());
+        let fcm_server_key = std::env::var("FCM_SERVER_KEY")
+            .ok()
+            .filter(|v| !v.trim().is_empty());
+        let fcm_vapid_key = std::env::var("FIESTAAA_FCM_VAPID_KEY")
+            .ok()
+            .filter(|v| !v.trim().is_empty());
+        let notification_dedup_ttl_seconds = std::env::var("NOTIFICATION_DEDUP_TTL_SECONDS")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(300);
         Self {
             host,
             port,
@@ -72,6 +87,9 @@ impl AppConfig {
             avatar_upload_dir,
             avatar_base_url,
             redis_url,
+            fcm_server_key,
+            fcm_vapid_key,
+            notification_dedup_ttl_seconds,
         }
     }
 }

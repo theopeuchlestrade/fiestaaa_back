@@ -1,7 +1,8 @@
 use std::collections::HashSet;
 
-use sqlx::{Pool, Postgres};
+use crate::notifications::NotificationService;
 use redis::Client as RedisClient;
+use sqlx::{Pool, Postgres};
 
 pub struct AppState {
     pub db: Pool<Postgres>,
@@ -16,4 +17,5 @@ pub struct AppState {
     pub avatar_upload_dir: String,
     pub avatar_base_url: String,
     pub redis_client: Option<RedisClient>,
+    pub notifications: NotificationService,
 }

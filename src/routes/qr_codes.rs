@@ -148,8 +148,7 @@ pub async fn generate_my_qr_code(
     match existing_qr {
         Ok(Some(row)) => {
             let token: Uuid = row.try_get("qr_token").unwrap();
-            let generated_at: chrono::DateTime<chrono::Utc> =
-                row.try_get("generated_at").unwrap();
+            let generated_at: chrono::DateTime<chrono::Utc> = row.try_get("generated_at").unwrap();
 
             HttpResponse::Ok().json(QRCodeGenerateResponse {
                 qr_token: token.to_string(),
