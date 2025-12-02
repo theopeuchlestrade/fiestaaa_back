@@ -18,6 +18,8 @@ pub struct AppConfig {
     pub fcm_server_key: Option<String>,
     pub fcm_vapid_key: Option<String>,
     pub notification_dedup_ttl_seconds: u64,
+    pub fcm_service_account_path: Option<String>,
+    pub fcm_project_id: Option<String>,
 }
 
 impl AppConfig {
@@ -72,6 +74,12 @@ impl AppConfig {
             .ok()
             .and_then(|v| v.parse().ok())
             .unwrap_or(300);
+        let fcm_service_account_path = std::env::var("FCM_SERVICE_ACCOUNT_PATH")
+            .ok()
+            .filter(|v| !v.trim().is_empty());
+        let fcm_project_id = std::env::var("FCM_PROJECT_ID")
+            .ok()
+            .filter(|v| !v.trim().is_empty());
         Self {
             host,
             port,
@@ -90,6 +98,8 @@ impl AppConfig {
             fcm_server_key,
             fcm_vapid_key,
             notification_dedup_ttl_seconds,
+            fcm_service_account_path,
+            fcm_project_id,
         }
     }
 }

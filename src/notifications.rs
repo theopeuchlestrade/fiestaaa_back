@@ -1,4 +1,7 @@
 use std::collections::HashMap;
+use std::fs;
+use std::path::PathBuf;
+use std::sync::Arc;
 
 use log::{debug, warn};
 use redis::Client as RedisClient;
@@ -7,31 +10,66 @@ use serde_json::Value;
 use sqlx::{Pool, Postgres, Row};
 
 const FCM_ENDPOINT: &str = "https://fcm.googleapis.com/fcm/send";
+const FCM_V1_BASE: &str = "https://fcm.googleapis.com/v1";
+const FCM_SCOPE: &str = "https://www.googleapis.com/auth/firebase.messaging";
+
+#[derive(Debug, Deserialize)]
+struct ServiceAccountProject {
+    project_id: Option<String>,
+}
 #[derive(Clone)]
 pub struct NotificationService {
     pub server_key: Option<String>,
     pub redis_client: Option<RedisClient>,
     pub http_client: reqwest::Client,
     pub default_dedup_ttl_seconds: u64,
+    pub fcm_project_id: Option<String>,
+    pub fcm_token_provider: Option<Arc<dyn gcp_auth::TokenProvider + Send + Sync>>,
 }
 
 impl NotificationService {
     pub fn new(
         server_key: Option<String>,
+        service_account_path: Option<String>,
+        fcm_project_id: Option<String>,
         redis_client: Option<RedisClient>,
         http_client: reqwest::Client,
         default_dedup_ttl_seconds: u64,
     ) -> Self {
+        let fcm_token_provider = service_account_path.as_ref().and_then(|path| {
+            let pb = PathBuf::from(path);
+            match gcp_auth::CustomServiceAccount::from_file(pb) {
+                Ok(sa) => Some(Arc::new(sa) as Arc<dyn gcp_auth::TokenProvider + Send + Sync>),
+                Err(err) => {
+                    warn!("failed to load FCM service account: {err}");
+                    None
+                }
+            }
+        });
+
+        let derived_project_id = if fcm_project_id.is_none() {
+            service_account_path
+                .as_ref()
+                .and_then(|path| fs::read_to_string(path).ok())
+                .and_then(|txt| serde_json::from_str::<ServiceAccountProject>(&txt).ok())
+                .and_then(|sa| sa.project_id)
+        } else {
+            fcm_project_id.clone()
+        };
+
         Self {
             server_key,
             redis_client,
             http_client,
             default_dedup_ttl_seconds,
+            fcm_project_id: derived_project_id,
+            fcm_token_provider,
         }
     }
 
     pub fn is_enabled(&self) -> bool {
         self.server_key.is_some()
+            || (self.fcm_token_provider.is_some() && self.fcm_project_id.is_some())
     }
 
     pub async fn send_to_tokens(
@@ -44,7 +82,7 @@ impl NotificationService {
         dedup_key: Option<String>,
         dedup_ttl: Option<u64>,
     ) {
-        if self.server_key.is_none() || tokens.is_empty() {
+        if tokens.is_empty() {
             return;
         }
 
@@ -54,6 +92,28 @@ impl NotificationService {
                 debug!("notification skipped by throttle for key {key}");
                 return;
             }
+        }
+
+        if let (Some(project_id), Some(provider)) =
+            (&self.fcm_project_id, self.fcm_token_provider.as_ref())
+        {
+            for tok in tokens {
+                self.send_v1(
+                    db,
+                    project_id,
+                    provider.clone(),
+                    &tok,
+                    title,
+                    body,
+                    data.clone(),
+                )
+                    .await;
+            }
+            return;
+        }
+
+        if self.server_key.is_none() {
+            return;
         }
 
         let payload = serde_json::json!({
@@ -114,6 +174,67 @@ impl NotificationService {
         }
     }
 
+    async fn send_v1(
+        &self,
+        db: &Pool<Postgres>,
+        project_id: &str,
+        provider: Arc<dyn gcp_auth::TokenProvider + Send + Sync>,
+        token: &str,
+        title: &str,
+        body: &str,
+        data: Value,
+    ) {
+        let url = format!("{FCM_V1_BASE}/projects/{project_id}/messages:send");
+        let access = match provider.token(&[FCM_SCOPE]).await {
+            Ok(tok) => tok.as_str().to_string(),
+            Err(err) => {
+                warn!("fcm v1 auth token error: {err}");
+                return;
+            }
+        };
+
+        let data_map = data_to_string_map(&data);
+
+        let payload = serde_json::json!({
+            "message": {
+                "token": token,
+                "notification": { "title": title, "body": body },
+                "data": data_map
+            }
+        });
+
+        let resp = match self.http_client
+            .post(url)
+            .bearer_auth(access)
+            .json(&payload)
+            .send()
+            .await {
+                Ok(r) => r,
+                Err(err) => {
+                    warn!("failed to send FCM v1 request: {err}");
+                    return;
+                }
+            };
+
+        let status = resp.status();
+        let body_txt = resp.text().await.unwrap_or_default();
+        if status.is_client_error() || status.is_server_error() {
+            warn!("FCM v1 status {} body_snippet='{}'", status, body_txt.chars().take(200).collect::<String>());
+        } else {
+            debug!("FCM v1 status {} body_snippet='{}'", status, body_txt.chars().take(120).collect::<String>());
+        }
+
+        if status == reqwest::StatusCode::NOT_FOUND
+            || body_txt.contains("UNREGISTERED")
+            || body_txt.contains("INVALID_ARGUMENT")
+        {
+            let _ = sqlx::query("UPDATE user_devices SET disabled_at = NOW() WHERE fcm_token = $1")
+                .bind(token)
+                .execute(db)
+                .await;
+        }
+    }
+
     async fn is_throttled(&self, key: &str, ttl_seconds: u64) -> bool {
         if let Some(client) = self.redis_client.as_ref() {
             if let Ok(mut conn) = client.get_multiplexed_async_connection().await {
@@ -140,6 +261,23 @@ impl NotificationService {
             }
         }
         false
+    }
+}
+
+fn data_to_string_map(data: &Value) -> HashMap<String, String> {
+    match data {
+        Value::Object(map) => map
+            .iter()
+            .map(|(k, v)| {
+                let s = if let Some(str_val) = v.as_str() {
+                    str_val.to_string()
+                } else {
+                    v.to_string()
+                };
+                (k.clone(), s)
+            })
+            .collect(),
+        _ => HashMap::new(),
     }
 }
 

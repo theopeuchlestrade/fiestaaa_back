@@ -18,4 +18,5 @@ pub struct AppState {
     pub avatar_base_url: String,
     pub redis_client: Option<RedisClient>,
     pub notifications: NotificationService,
+    pub fcm_project_id: Option<String>,
 }

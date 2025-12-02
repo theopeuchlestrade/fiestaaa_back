@@ -28,6 +28,8 @@ async fn main() -> std::io::Result<()> {
         .and_then(|url| RedisClient::open(url.as_str()).ok());
     let notifications = notifications::NotificationService::new(
         cfg.fcm_server_key.clone(),
+        cfg.fcm_service_account_path.clone(),
+        cfg.fcm_project_id.clone(),
         redis_client.clone(),
         http_client.clone(),
         cfg.notification_dedup_ttl_seconds,
@@ -46,6 +48,7 @@ async fn main() -> std::io::Result<()> {
         avatar_base_url: cfg.avatar_base_url.clone(),
         redis_client,
         notifications,
+        fcm_project_id: cfg.fcm_project_id.clone(),
     });
 
     // Server
