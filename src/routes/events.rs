@@ -1,5 +1,6 @@
 use actix_web::{HttpRequest, HttpResponse, Responder, delete, get, patch, post, put, web};
 use chrono::NaiveDate;
+use log::warn;
 use regex::Regex;
 use serde::Deserialize;
 use serde_json::json;
@@ -14,6 +15,7 @@ use crate::{
         ItemContribution, ShareClaimPayload, ShareClaimResponse, ShareTokenResponse,
         StatusResponse,
     },
+    notifications::{event_member_user_ids, notify_users},
     realtime::publish_event,
     state::AppState,
 };
@@ -99,6 +101,43 @@ async fn ensure_event_member(
     }
 }
 
+async fn notify_event_members(state: &AppState, event: &Event, updated_fields: &[&str]) {
+    if updated_fields.is_empty() || !state.notifications.is_enabled() {
+        return;
+    }
+
+    let members = match event_member_user_ids(&state.db, event.event_id).await {
+        Ok(list) => list,
+        Err(err) => {
+            warn!("failed to load event members for notifications: {err}");
+            return;
+        }
+    };
+
+    if members.is_empty() {
+        return;
+    }
+
+    let fields: Vec<String> = updated_fields.iter().map(|f| f.to_string()).collect();
+    let dedup = format!("event_updated:{}", event.event_id);
+    notify_users(
+        &state.notifications,
+        &state.db,
+        &members,
+        "Événement mis à jour",
+        &format!("{} a été mis à jour", event.name_event),
+        json!({
+            "type": "event_updated",
+            "event_id": event.event_id,
+            "event_name": event.name_event,
+            "fields": fields
+        }),
+        Some(&dedup),
+        Some(300),
+    )
+    .await;
+}
+
 fn validate_invitation_deadline(
     deadline: Option<NaiveDate>,
     event_date: NaiveDate,
@@ -114,7 +153,9 @@ fn validate_invitation_deadline(
         if limit > event_date {
             return Err(HttpResponse::BadRequest().json(ErrorResponse {
                 error: "invalid_invitation_deadline".into(),
-                details: Some("La date limite de réponse doit être avant ou au jour de l'événement".into()),
+                details: Some(
+                    "La date limite de réponse doit être avant ou au jour de l'événement".into(),
+                ),
             }));
         }
     }
@@ -123,9 +164,10 @@ fn validate_invitation_deadline(
 }
 
 async fn ensure_invitation_deadline_schema(db: &PgPool) -> Result<(), HttpResponse> {
-    if let Err(_) = sqlx::query("ALTER TABLE events ADD COLUMN IF NOT EXISTS invitation_deadline DATE")
-        .execute(db)
-        .await
+    if let Err(_) =
+        sqlx::query("ALTER TABLE events ADD COLUMN IF NOT EXISTS invitation_deadline DATE")
+            .execute(db)
+            .await
     {
         return Err(server_error());
     }
@@ -341,9 +383,7 @@ pub async fn get_event(
     .fetch_optional(&state.db)
     .await
     {
-        Ok(Some(event)) => {
-            HttpResponse::Ok().json(event)
-        }
+        Ok(Some(event)) => HttpResponse::Ok().json(event),
         Ok(None) => HttpResponse::NotFound().json(ErrorResponse {
             error: "event_not_found".into(),
             details: None,
@@ -459,13 +499,6 @@ pub async fn create_event(
     {
         return resp;
     }
-    if payload.latitude.is_some() ^ payload.longitude.is_some() {
-        return HttpResponse::BadRequest().json(ErrorResponse {
-            error: "invalid_payload".into(),
-            details: Some("Latitude et longitude doivent être renseignées ensemble".into()),
-        });
-    }
-
     let (payment_provider_id, payment_identifier) = match normalize_payment_info(
         &state.db,
         payload.payment_provider_id,
@@ -481,10 +514,6 @@ pub async fn create_event(
     } else {
         payload.payment_per_person.unwrap_or(false)
     };
-    if let Err(resp) = validate_invitation_deadline(payload.invitation_deadline, payload.date_event)
-    {
-        return resp;
-    }
 
     let res = sqlx::query_as::<_, Event>(
         "INSERT INTO events (name_event, description, date_event, start_time, invitation_deadline, address, latitude, longitude, payment_provider_id, payment_identifier, payment_requested_amount, payment_per_person, owner_email)
@@ -561,6 +590,7 @@ pub async fn replace_event(
     }
 
     let payload = payload.into_inner();
+    let updated_fields = vec!["name", "description", "date", "time", "location"];
     if payload.name_event.trim().is_empty()
         || payload.description.trim().is_empty()
         || payload.address.trim().is_empty()
@@ -615,6 +645,7 @@ pub async fn replace_event(
 
     match res {
         Ok(Some(event)) => {
+            notify_event_members(state.get_ref(), &event, &updated_fields).await;
             publish_event(
                 &state.redis_client,
                 event.event_id,
@@ -671,6 +702,22 @@ pub async fn update_event(
     }
 
     let payload = payload.into_inner();
+    let mut updated_fields: Vec<&str> = Vec::new();
+    if payload.name_event.is_some() {
+        updated_fields.push("name");
+    }
+    if payload.description.is_some() {
+        updated_fields.push("description");
+    }
+    if payload.date_event.is_some() {
+        updated_fields.push("date");
+    }
+    if payload.start_time.is_some() {
+        updated_fields.push("time");
+    }
+    if payload.address.is_some() || payload.latitude.is_some() || payload.longitude.is_some() {
+        updated_fields.push("location");
+    }
     if payload
         .name_event
         .as_ref()
@@ -724,9 +771,7 @@ pub async fn update_event(
             .unwrap_or(current_payment_per_person)
     };
     let target_date_event = payload.date_event.unwrap_or(current_date_event);
-    let target_deadline = payload
-        .invitation_deadline
-        .or(current_invitation_deadline);
+    let target_deadline = payload.invitation_deadline.or(current_invitation_deadline);
     if let Err(resp) = validate_invitation_deadline(target_deadline, target_date_event) {
         return resp;
     }
@@ -765,7 +810,10 @@ pub async fn update_event(
     .await;
 
     match res {
-        Ok(Some(event)) => HttpResponse::Ok().json(event),
+        Ok(Some(event)) => {
+            notify_event_members(state.get_ref(), &event, &updated_fields).await;
+            HttpResponse::Ok().json(event)
+        }
         Ok(None) => HttpResponse::NotFound().json(ErrorResponse {
             error: "event_not_found".into(),
             details: None,
@@ -1760,7 +1808,16 @@ async fn ensure_event_exists(db: &PgPool, event_id: i64) -> Result<(), HttpRespo
 async fn fetch_event_payment_info(
     db: &PgPool,
     event_id: i64,
-) -> Result<(Option<i32>, Option<String>, bool, NaiveDate, Option<NaiveDate>), HttpResponse> {
+) -> Result<
+    (
+        Option<i32>,
+        Option<String>,
+        bool,
+        NaiveDate,
+        Option<NaiveDate>,
+    ),
+    HttpResponse,
+> {
     let row = sqlx::query_as::<_, (Option<i32>, Option<String>, bool, NaiveDate, Option<NaiveDate>)>(
         "SELECT payment_provider_id, payment_identifier, payment_per_person, date_event, invitation_deadline FROM events WHERE event_id = $1",
     )

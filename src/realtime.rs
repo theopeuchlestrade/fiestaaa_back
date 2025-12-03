@@ -2,9 +2,8 @@ use std::time::{Duration, Instant};
 
 use actix::prelude::*;
 use actix_web::{
-    get,
+    HttpRequest, HttpResponse, get,
     web::{self, Data},
-    HttpRequest, HttpResponse,
 };
 use actix_web_actors::ws;
 use futures_util::StreamExt;
@@ -56,8 +55,7 @@ pub async fn websocket(
     req: HttpRequest,
     stream: web::Payload,
 ) -> Result<HttpResponse, actix_web::Error> {
-    let params: EventWsQuery = serde_urlencoded::from_str(req.query_string())
-        .unwrap_or_default();
+    let params: EventWsQuery = serde_urlencoded::from_str(req.query_string()).unwrap_or_default();
     let claims = match extract_claims_from_auth(&req, &state.jwt_secret) {
         Ok(c) => c,
         Err(_) => {
@@ -161,7 +159,9 @@ impl Actor for WsSession {
                 }
             });
         } else {
-            ctx.text(json!({"type": "warning", "payload": {"message": "realtime_disabled"}}).to_string());
+            ctx.text(
+                json!({"type": "warning", "payload": {"message": "realtime_disabled"}}).to_string(),
+            );
         }
     }
 }

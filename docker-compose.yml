@@ -13,6 +13,7 @@ services:
       # In-compose DB host is the service name `db`
       DATABASE_URL: postgres://postgres:postgres@db:5432/fiestaaa
       REDIS_URL: redis://redis:6379
+      RUST_LOG: info,fiestaaa_back::notifications=debug
     ports:
       - "8080:8080"
     volumes:

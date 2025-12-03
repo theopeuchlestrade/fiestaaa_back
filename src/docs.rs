@@ -1,13 +1,14 @@
 use utoipa::OpenApi;
 
 use crate::models::{
-    AddressSuggestion, ErrorResponse, Event, EventCustomItemPayload, EventItemAttachPayload,
-    EventItemReservationPayload, EventItemView, EventPatchPayload, EventPayload, Friend,
-    FriendRequest, FriendRequestActionPayload, FriendRequestPayload, FriendSearchResult,
-    HandleAvailabilityResponse, HandleUpdatePayload, HealthResponse, Invitation,
-    InvitationPatchPayload, InvitationPayload, Item, ItemContribution, ItemPatchPayload,
-    ItemPayload, LoginPayload, MeResponse, PaymentProvider, PaymentProviderPatchPayload,
-    PaymentProviderPayload, RegisterPayload, StatusResponse, TokenResponse,
+    AddressSuggestion, DeviceRefreshPayload, DeviceRegisterPayload, ErrorResponse, Event,
+    EventCustomItemPayload, EventItemAttachPayload, EventItemReservationPayload, EventItemView,
+    EventPatchPayload, EventPayload, Friend, FriendRequest, FriendRequestActionPayload,
+    FriendRequestPayload, FriendSearchResult, HandleAvailabilityResponse, HandleUpdatePayload,
+    HealthResponse, Invitation, InvitationPatchPayload, InvitationPayload, Item, ItemContribution,
+    ItemPatchPayload, ItemPayload, LoginPayload, MeResponse, PaymentProvider,
+    PaymentProviderPatchPayload, PaymentProviderPayload, RegisterPayload, StatusResponse,
+    TokenResponse,
 };
 
 #[derive(OpenApi)]
@@ -47,6 +48,9 @@ use crate::models::{
         crate::routes::friends::list_friend_requests,
         crate::routes::friends::respond_friend_request,
         crate::routes::friends::delete_friend,
+        crate::routes::notifications::register_device,
+        crate::routes::notifications::refresh_device,
+        crate::routes::notifications::delete_device,
         crate::routes::users::check_handle_availability,
         crate::routes::users::update_handle,
         crate::routes::payment_providers::list_payment_providers,
@@ -88,7 +92,9 @@ use crate::models::{
             PaymentProvider,
             PaymentProviderPayload,
             PaymentProviderPatchPayload,
-            AddressSuggestion
+            AddressSuggestion,
+            DeviceRegisterPayload,
+            DeviceRefreshPayload
         )
     ),
     tags(
@@ -100,7 +106,8 @@ use crate::models::{
         (name = "invitations", description = "Gestion des invitations aux événements"),
         (name = "friends", description = "Gestion des amis et demandes"),
         (name = "users", description = "Gestion des utilisateurs et handles"),
-        (name = "payment-providers", description = "Configuration des fournisseurs de paiement (admin)")
+        (name = "payment-providers", description = "Configuration des fournisseurs de paiement (admin)"),
+        (name = "notifications", description = "Enregistrement des devices pour les notifications push")
     )
 )]
 pub struct ApiDoc;

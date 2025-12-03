@@ -12,6 +12,7 @@ use crate::{
         ErrorResponse, Invitation, InvitationPatchPayload, InvitationPayload, InvitationSuggestion,
         StatusResponse,
     },
+    notifications::{find_user_id_by_email, notify_users},
     realtime::{publish_event, publish_global},
     state::AppState,
 };
@@ -128,9 +129,10 @@ enum TargetIdentifier {
 }
 
 async fn ensure_invitation_deadline_schema(db: &sqlx::PgPool) -> Result<(), HttpResponse> {
-    if let Err(_) = sqlx::query("ALTER TABLE events ADD COLUMN IF NOT EXISTS invitation_deadline DATE")
-        .execute(db)
-        .await
+    if let Err(_) =
+        sqlx::query("ALTER TABLE events ADD COLUMN IF NOT EXISTS invitation_deadline DATE")
+            .execute(db)
+            .await
     {
         return Err(HttpResponse::InternalServerError().json(ErrorResponse {
             error: "db_error".into(),
@@ -687,6 +689,28 @@ pub async fn create_invitation(
                             &json!({"type": "invitation_updated", "event_id": *event_id}),
                         )
                         .await;
+                        let event_name = inv
+                            .event_name
+                            .clone()
+                            .unwrap_or_else(|| "un événement".into());
+                        let title = format!("Invitation à {event_name}");
+                        let body = format!("{} t'a invité(e) à {event_name}", owner_email);
+                        let dedup = format!("invite_received:{}", *event_id);
+                        notify_users(
+                            &state.notifications,
+                            &state.db,
+                            &[user.id],
+                            &title,
+                            &body,
+                            json!({
+                                "type": "invite_received",
+                                "event_id": *event_id,
+                                "event_name": inv.event_name
+                            }),
+                            Some(&dedup),
+                            Some(600),
+                        )
+                        .await;
                         HttpResponse::Created().json(inv)
                     }
                     Err(sqlx::Error::Database(db_err))
@@ -729,6 +753,28 @@ pub async fn create_invitation(
                         publish_global(
                             &state.redis_client,
                             &json!({"type": "invitation_updated", "event_id": *event_id}),
+                        )
+                        .await;
+                        let event_name = inv
+                            .event_name
+                            .clone()
+                            .unwrap_or_else(|| "un événement".into());
+                        let title = format!("Invitation à {event_name}");
+                        let body = format!("{} t'a invité(e) à {event_name}", owner_email);
+                        let dedup = format!("invite_received:{}", *event_id);
+                        notify_users(
+                            &state.notifications,
+                            &state.db,
+                            &[user.id],
+                            &title,
+                            &body,
+                            json!({
+                                "type": "invite_received",
+                                "event_id": *event_id,
+                                "event_name": inv.event_name
+                            }),
+                            Some(&dedup),
+                            Some(600),
                         )
                         .await;
                         HttpResponse::Created().json(inv)
@@ -886,6 +932,10 @@ pub async fn respond_invitation(
 
     let user = match fetch_user_by_email(&state.db, &email).await {
         Ok(id) => id,
+        Err(resp) => return resp,
+    };
+    let owner_email = match fetch_event_owner_email(&state.db, *event_id).await {
+        Ok(email) => email,
         Err(resp) => return resp,
     };
     if let Err(resp) = expire_overdue_invitations(&state.db).await {
@@ -1056,6 +1106,44 @@ pub async fn respond_invitation(
         &json!({"type": "invitation_updated", "event_id": *event_id, "status": target_status}),
     )
     .await;
+
+    if !owner_email.eq_ignore_ascii_case(&email) {
+        if let Ok(Some(owner_id)) = find_user_id_by_email(&state.db, &owner_email).await {
+            let status_label = if target_status == "Accepted" {
+                "accepté"
+            } else {
+                "refusé"
+            };
+            let event_name = updated
+                .event_name
+                .clone()
+                .unwrap_or_else(|| "un événement".into());
+            let author = updated
+                .handle
+                .as_deref()
+                .unwrap_or_else(|| updated.email.as_str());
+            let title = format!("Réponse à ton invitation");
+            let body = format!("{author} a {status_label} l'invitation à {event_name}");
+            let dedup = format!("invite_response:{}:{}", *event_id, user.id);
+            notify_users(
+                &state.notifications,
+                &state.db,
+                &[owner_id],
+                &title,
+                &body,
+                json!({
+                    "type": "invite_response",
+                    "event_id": *event_id,
+                    "status": target_status,
+                    "user_email": updated.email.clone(),
+                    "user_handle": updated.handle.clone()
+                }),
+                Some(&dedup),
+                Some(300),
+            )
+            .await;
+        }
+    }
 
     HttpResponse::Ok().json(updated)
 }
