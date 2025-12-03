@@ -2,11 +2,11 @@ use actix_cors::Cors;
 use actix_files::Files;
 use actix_web::http::header::{AUTHORIZATION, CONTENT_TYPE};
 use actix_web::{App, HttpServer, middleware::Logger, web};
-use fiestaaa_back::{config, db, docs, routes, state};
+use fiestaaa_back::{config, db, docs, notifications, routes, state};
+use redis::Client as RedisClient;
 use std::collections::HashSet;
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
-use redis::Client as RedisClient;
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
@@ -22,6 +22,18 @@ async fn main() -> std::io::Result<()> {
         .user_agent(cfg.geocoding_user_agent.clone())
         .build()
         .expect("http client");
+    let redis_client = cfg
+        .redis_url
+        .as_ref()
+        .and_then(|url| RedisClient::open(url.as_str()).ok());
+    let notifications = notifications::NotificationService::new(
+        cfg.fcm_server_key.clone(),
+        cfg.fcm_service_account_path.clone(),
+        cfg.fcm_project_id.clone(),
+        redis_client.clone(),
+        http_client.clone(),
+        cfg.notification_dedup_ttl_seconds,
+    );
     let state = web::Data::new(state::AppState {
         db: pool,
         jwt_secret: cfg.jwt_secret.clone(),
@@ -34,10 +46,9 @@ async fn main() -> std::io::Result<()> {
         app_base_url: cfg.app_base_url.clone(),
         avatar_upload_dir: cfg.avatar_upload_dir.clone(),
         avatar_base_url: cfg.avatar_base_url.clone(),
-        redis_client: cfg
-            .redis_url
-            .as_ref()
-            .and_then(|url| RedisClient::open(url.as_str()).ok()),
+        redis_client,
+        notifications,
+        fcm_project_id: cfg.fcm_project_id.clone(),
     });
 
     // Server
