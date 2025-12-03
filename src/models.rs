@@ -259,6 +259,27 @@ pub struct PaymentProviderPayload {
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct DeviceRegisterPayload {
+    /// Jeton FCM renvoyé par firebase_messaging
+    pub token: String,
+    /// Plateforme de l'appareil: ios, android ou web
+    pub platform: String,
+    /// Langue préférée (ex: fr-FR)
+    pub locale: Option<String>,
+    /// Version applicative pour diagnostiques
+    pub app_version: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct DeviceRefreshPayload {
+    pub old_token: String,
+    pub new_token: String,
+    pub platform: Option<String>,
+    pub locale: Option<String>,
+    pub app_version: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct PaymentProviderPatchPayload {
     pub provider_name: Option<String>,
     pub url_template: Option<String>,
