@@ -2,7 +2,7 @@ use actix_cors::Cors;
 use actix_files::Files;
 use actix_web::http::header::{AUTHORIZATION, CONTENT_TYPE};
 use actix_web::{App, HttpServer, middleware::Logger, web};
-use fiestaaa_back::{config, db, docs, notifications, routes, state};
+use fiestaaa_back::{cleanup, config, db, docs, notifications, routes, state};
 use redis::Client as RedisClient;
 use std::collections::HashSet;
 use utoipa::OpenApi;
@@ -17,6 +17,12 @@ async fn main() -> std::io::Result<()> {
     // Config + DB
     let cfg = config::AppConfig::from_env();
     let pool = db::connect_and_migrate(&cfg.database_url).await;
+
+    cleanup::CleanupService::new(pool.clone())
+        .with_cleanup_days(cfg.event_cleanup_days)
+        .with_interval_hours(cfg.event_cleanup_interval_hours)
+        .start();
+
     let admin_emails = cfg.admin_emails.iter().cloned().collect::<HashSet<_>>();
     let http_client = reqwest::Client::builder()
         .user_agent(cfg.geocoding_user_agent.clone())

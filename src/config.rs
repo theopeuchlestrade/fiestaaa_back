@@ -20,6 +20,8 @@ pub struct AppConfig {
     pub notification_dedup_ttl_seconds: u64,
     pub fcm_service_account_path: Option<String>,
     pub fcm_project_id: Option<String>,
+    pub event_cleanup_days: i64,
+    pub event_cleanup_interval_hours: u64,
 }
 
 impl AppConfig {
@@ -80,6 +82,14 @@ impl AppConfig {
         let fcm_project_id = std::env::var("FCM_PROJECT_ID")
             .ok()
             .filter(|v| !v.trim().is_empty());
+        let event_cleanup_days = std::env::var("EVENT_CLEANUP_DAYS")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(7);
+        let event_cleanup_interval_hours = std::env::var("EVENT_CLEANUP_INTERVAL_HOURS")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(1);
         Self {
             host,
             port,
@@ -100,6 +110,8 @@ impl AppConfig {
             notification_dedup_ttl_seconds,
             fcm_service_account_path,
             fcm_project_id,
+            event_cleanup_days,
+            event_cleanup_interval_hours,
         }
     }
 }
