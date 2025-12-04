@@ -55,6 +55,9 @@ async fn main() -> std::io::Result<()> {
         redis_client,
         notifications,
         fcm_project_id: cfg.fcm_project_id.clone(),
+        google_client_id: cfg.google_client_id.clone(),
+        google_android_client_id: cfg.google_android_client_id.clone(),
+        apple_service_id: cfg.apple_service_id.clone(),
     });
 
     // Server
