@@ -8,7 +8,8 @@ use crate::models::{
     HealthResponse, Invitation, InvitationPatchPayload, InvitationPayload, Item, ItemContribution,
     ItemPatchPayload, ItemPayload, LoginPayload, MeResponse, PaymentProvider,
     PaymentProviderPatchPayload, PaymentProviderPayload, RegisterPayload, StatusResponse,
-    TokenResponse,
+    TokenResponse, EventPollCreatePayload, EventPollVotePayload, PollView, PollOptionView,
+    PollOptionVoter,
 };
 
 #[derive(OpenApi)]
@@ -37,6 +38,10 @@ use crate::models::{
         crate::routes::events::delete_event_item,
         crate::routes::events::list_event_item_contributions,
         crate::routes::events::create_custom_event_item,
+        crate::routes::events::list_event_polls,
+        crate::routes::events::create_event_poll,
+        crate::routes::events::vote_event_poll,
+        crate::routes::events::delete_event_poll,
         crate::routes::invitations::list_event_invitations,
         crate::routes::invitations::create_invitation,
         crate::routes::invitations::delete_invitation,
@@ -82,6 +87,11 @@ use crate::models::{
             InvitationPayload,
             InvitationPatchPayload,
             ItemContribution,
+            EventPollCreatePayload,
+            EventPollVotePayload,
+            PollOptionView,
+            PollOptionVoter,
+            PollView,
             Friend,
             FriendSearchResult,
             FriendRequestPayload,

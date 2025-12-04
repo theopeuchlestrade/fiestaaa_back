@@ -241,6 +241,49 @@ pub struct ItemContribution {
     pub avatar_url: Option<String>,
 }
 
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct EventPollCreatePayload {
+    pub question: String,
+    pub options: Vec<String>,
+    pub duration_minutes: i64,
+    pub allow_multiple: Option<bool>,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct EventPollVotePayload {
+    pub option_ids: Vec<i64>,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct PollOptionVoter {
+    pub email: String,
+    pub handle: Option<String>,
+    pub avatar_url: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct PollOptionView {
+    pub option_id: i64,
+    pub label: String,
+    pub vote_count: i64,
+    pub voters: Vec<PollOptionVoter>,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct PollView {
+    pub poll_id: i64,
+    pub event_id: i64,
+    pub question: String,
+    pub allow_multiple: bool,
+    pub expires_at: chrono::DateTime<chrono::Utc>,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    pub created_by_email: Option<String>,
+    pub options: Vec<PollOptionView>,
+    pub my_votes: Vec<i64>,
+    pub total_votes: i64,
+    pub has_expired: bool,
+}
+
 #[derive(Debug, Serialize, Deserialize, ToSchema, FromRow)]
 pub struct PaymentProvider {
     pub provider_id: i32,
