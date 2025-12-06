@@ -1,0 +1,64 @@
+version: "3.9"
+services:
+  api:
+    build: ./fiestaaa_back
+    env_file: ./fiestaaa_back/.env
+    environment:
+      HOST: 0.0.0.0
+      PORT: 8080
+      DATABASE_URL: postgres://fiestaaa:<db_password>@db:5432/fiestaaa
+      REDIS_URL: redis://redis:6379
+      AVATAR_UPLOAD_DIR: /data/uploads/avatars
+      AVATAR_BASE_URL: https://api.example.com/media/avatars
+      FCM_SERVICE_ACCOUNT_PATH: /app/service-account.json
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    volumes:
+      - uploads_data:/data/uploads
+      - ./fiestaaa_back/service-account.json:/app/service-account.json:ro
+    ports:
+      - "8080:8080"
+    restart: unless-stopped
+
+  db:
+    image: postgres:18
+    environment:
+      POSTGRES_USER: fiestaaa
+      POSTGRES_PASSWORD: <db_password>
+      POSTGRES_DB: fiestaaa
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U fiestaaa"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  redis:
+    image: redis:8-alpine
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    restart: unless-stopped
+
+  traefik:
+    image: traefik:v3.1
+    command:
+      - --providers.docker=true
+      - --entrypoints.web.address=:80
+      - --entrypoints.websecure.address=:443
+      - --certificatesresolvers.le.acme.httpchallenge=true
+      - --certificatesresolvers.le.acme.httpchallenge.entrypoint=web
+      - --certificatesresolvers.le.acme.email=you@example.com
+      - --certificatesresolvers.le.acme.storage=/letsencrypt/acme.json
+    ports: ["80:80", "443:443"]
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./letsencrypt:/letsencrypt
+    restart: unless-stopped
+
+volumes:
+  pg_data:
+  uploads_data:
