@@ -5,16 +5,17 @@ use regex::Regex;
 use serde::Deserialize;
 use serde_json::json;
 use sqlx::{Error, PgPool, Row};
-use uuid::Uuid;
 use std::collections::{HashMap, HashSet};
+use uuid::Uuid;
 
 use crate::{
     auth::extract_claims_from_auth,
     models::{
         AddressSuggestion, ErrorResponse, Event, EventCustomItemPayload, EventItemAttachPayload,
         EventItemReservationPayload, EventItemView, EventPatchPayload, EventPayload,
-        ItemContribution, ShareClaimPayload, ShareClaimResponse, ShareTokenResponse,
-        StatusResponse, EventPollCreatePayload, EventPollVotePayload, PollOptionView, PollOptionVoter, PollView,
+        EventPollCreatePayload, EventPollVotePayload, ItemContribution, PollOptionView,
+        PollOptionVoter, PollView, ShareClaimPayload, ShareClaimResponse, ShareTokenResponse,
+        StatusResponse,
     },
     notifications::{event_member_user_ids, notify_users},
     realtime::publish_event,
@@ -1915,14 +1916,15 @@ pub async fn create_event_poll(
 
     if state.notifications.is_enabled() {
         if let Ok(members) = event_member_user_ids(&state.db, *event_id).await {
-            let event_name =
-                sqlx::query_scalar::<_, String>("SELECT name_event FROM events WHERE event_id = $1")
-                    .bind(*event_id)
-                    .fetch_optional(&state.db)
-                    .await
-                    .ok()
-                    .flatten()
-                    .unwrap_or_else(|| "Événement".into());
+            let event_name = sqlx::query_scalar::<_, String>(
+                "SELECT name_event FROM events WHERE event_id = $1",
+            )
+            .bind(*event_id)
+            .fetch_optional(&state.db)
+            .await
+            .ok()
+            .flatten()
+            .unwrap_or_else(|| "Événement".into());
             let sender = if claims.handle.trim().is_empty() {
                 claims.sub.as_str()
             } else {
@@ -2005,7 +2007,7 @@ pub async fn vote_event_poll(
             return HttpResponse::NotFound().json(ErrorResponse {
                 error: "poll_not_found".into(),
                 details: None,
-            })
+            });
         }
         Err(resp) => return resp,
     };
@@ -2048,12 +2050,11 @@ pub async fn vote_event_poll(
         });
     }
 
-    let valid_option_ids = sqlx::query_scalar::<_, i64>(
-        "SELECT option_id FROM event_poll_options WHERE poll_id = $1",
-    )
-    .bind(poll_id)
-    .fetch_all(&state.db)
-    .await;
+    let valid_option_ids =
+        sqlx::query_scalar::<_, i64>("SELECT option_id FROM event_poll_options WHERE poll_id = $1")
+            .bind(poll_id)
+            .fetch_all(&state.db)
+            .await;
 
     let valid_option_ids = match valid_option_ids {
         Ok(list) => list,
@@ -2073,12 +2074,11 @@ pub async fn vote_event_poll(
         Err(_) => return server_error(),
     };
 
-    if let Err(_) =
-        sqlx::query("DELETE FROM event_poll_votes WHERE poll_id = $1 AND user_id = $2")
-            .bind(poll_id)
-            .bind(user_id)
-            .execute(&mut *tx)
-            .await
+    if let Err(_) = sqlx::query("DELETE FROM event_poll_votes WHERE poll_id = $1 AND user_id = $2")
+        .bind(poll_id)
+        .bind(user_id)
+        .execute(&mut *tx)
+        .await
     {
         let _ = tx.rollback().await;
         return server_error();
@@ -2161,13 +2161,11 @@ pub async fn delete_event_poll(
         Err(resp) => return resp,
     };
 
-    let poll_row = sqlx::query(
-        "SELECT event_id, created_by FROM event_polls WHERE poll_id = $1",
-    )
-    .bind(poll_id)
-    .fetch_optional(&state.db)
-    .await
-    .map_err(|_| server_error());
+    let poll_row = sqlx::query("SELECT event_id, created_by FROM event_polls WHERE poll_id = $1")
+        .bind(poll_id)
+        .fetch_optional(&state.db)
+        .await
+        .map_err(|_| server_error());
 
     let poll_row = match poll_row {
         Ok(Some(row)) => row,
@@ -2175,7 +2173,7 @@ pub async fn delete_event_poll(
             return HttpResponse::NotFound().json(ErrorResponse {
                 error: "poll_not_found".into(),
                 details: None,
-            })
+            });
         }
         Err(resp) => return resp,
     };
@@ -2257,7 +2255,10 @@ async fn fetch_poll_views(
         return Ok(Vec::new());
     }
 
-    let poll_ids: Vec<i64> = poll_rows.iter().filter_map(|row| row.try_get("poll_id").ok()).collect();
+    let poll_ids: Vec<i64> = poll_rows
+        .iter()
+        .filter_map(|row| row.try_get("poll_id").ok())
+        .collect();
     let option_rows = sqlx::query(
         "SELECT option_id, poll_id, label, position
          FROM event_poll_options
@@ -2316,18 +2317,15 @@ async fn fetch_poll_views(
         let option_id: i64 = row.get("option_id");
         let label: String = row.get("label");
         let position: i32 = row.get("position");
-        options_by_poll
-            .entry(poll_id)
-            .or_default()
-            .push((
-                PollOptionView {
-                    option_id,
-                    label,
-                    vote_count: 0,
-                    voters: Vec::new(),
-                },
-                position,
-            ));
+        options_by_poll.entry(poll_id).or_default().push((
+            PollOptionView {
+                option_id,
+                label,
+                vote_count: 0,
+                voters: Vec::new(),
+            },
+            position,
+        ));
     }
 
     for vote_row in vote_rows {
@@ -2341,7 +2339,9 @@ async fn fetch_poll_views(
             }
         }
         if let Some(options) = options_by_poll.get_mut(&poll_id) {
-            if let Some((opt, _)) = options.iter_mut().find(|(opt, _)| opt.option_id == option_id)
+            if let Some((opt, _)) = options
+                .iter_mut()
+                .find(|(opt, _)| opt.option_id == option_id)
             {
                 opt.vote_count += 1;
                 opt.voters.push(PollOptionVoter {

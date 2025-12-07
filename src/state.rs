@@ -19,4 +19,7 @@ pub struct AppState {
     pub redis_client: Option<RedisClient>,
     pub notifications: NotificationService,
     pub fcm_project_id: Option<String>,
+    pub google_client_id: Option<String>,
+    pub google_android_client_id: Option<String>,
+    pub apple_service_id: Option<String>,
 }

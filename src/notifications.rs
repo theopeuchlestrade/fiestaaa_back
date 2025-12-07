@@ -107,7 +107,7 @@ impl NotificationService {
                     body,
                     data.clone(),
                 )
-                    .await;
+                .await;
             }
             return;
         }
@@ -203,25 +203,35 @@ impl NotificationService {
             }
         });
 
-        let resp = match self.http_client
+        let resp = match self
+            .http_client
             .post(url)
             .bearer_auth(access)
             .json(&payload)
             .send()
-            .await {
-                Ok(r) => r,
-                Err(err) => {
-                    warn!("failed to send FCM v1 request: {err}");
-                    return;
-                }
-            };
+            .await
+        {
+            Ok(r) => r,
+            Err(err) => {
+                warn!("failed to send FCM v1 request: {err}");
+                return;
+            }
+        };
 
         let status = resp.status();
         let body_txt = resp.text().await.unwrap_or_default();
         if status.is_client_error() || status.is_server_error() {
-            warn!("FCM v1 status {} body_snippet='{}'", status, body_txt.chars().take(200).collect::<String>());
+            warn!(
+                "FCM v1 status {} body_snippet='{}'",
+                status,
+                body_txt.chars().take(200).collect::<String>()
+            );
         } else {
-            debug!("FCM v1 status {} body_snippet='{}'", status, body_txt.chars().take(120).collect::<String>());
+            debug!(
+                "FCM v1 status {} body_snippet='{}'",
+                status,
+                body_txt.chars().take(120).collect::<String>()
+            );
         }
 
         if status == reqwest::StatusCode::NOT_FOUND
