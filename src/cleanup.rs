@@ -1,7 +1,7 @@
 use chrono::{Duration, Utc};
 use log::{error, info};
 use sqlx::{Pool, Postgres};
-use tokio::time::{interval, Duration as TokioDuration};
+use tokio::time::{Duration as TokioDuration, interval};
 
 const DEFAULT_CLEANUP_DAYS: i64 = 7;
 const DEFAULT_CLEANUP_INTERVAL_HOURS: u64 = 1;
@@ -50,7 +50,7 @@ impl CleanupService {
 
             loop {
                 interval.tick().await;
-                
+
                 if let Err(e) = cleanup_expired_events(&pool, cleanup_days).await {
                     error!("Erreur lors du nettoyage des événements: {}", e);
                 }
@@ -98,7 +98,7 @@ pub async fn cleanup_now(pool: &Pool<Postgres>, days: i64) -> Result<u64, sqlx::
     .await?;
 
     let deleted = result.rows_affected();
-    
+
     if deleted > 0 {
         info!(
             "Nettoyage manuel: {} événement(s) supprimé(s) (plus vieux que {} jours)",

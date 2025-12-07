@@ -22,6 +22,9 @@ pub struct AppConfig {
     pub fcm_project_id: Option<String>,
     pub event_cleanup_days: i64,
     pub event_cleanup_interval_hours: u64,
+    pub google_client_id: Option<String>,
+    pub google_android_client_id: Option<String>,
+    pub apple_service_id: Option<String>,
 }
 
 impl AppConfig {
@@ -90,6 +93,15 @@ impl AppConfig {
             .ok()
             .and_then(|v| v.parse().ok())
             .unwrap_or(1);
+        let google_client_id = std::env::var("FIESTAAA_GOOGLE_WEB_CLIENT_ID")
+            .ok()
+            .filter(|v| !v.trim().is_empty());
+        let google_android_client_id = std::env::var("FIESTAAA_GOOGLE_ANDROID_CLIENT_ID")
+            .ok()
+            .filter(|v| !v.trim().is_empty());
+        let apple_service_id = std::env::var("FIESTAAA_APPLE_SERVICE_ID")
+            .ok()
+            .filter(|v| !v.trim().is_empty());
         Self {
             host,
             port,
@@ -112,6 +124,9 @@ impl AppConfig {
             fcm_project_id,
             event_cleanup_days,
             event_cleanup_interval_hours,
+            google_client_id,
+            google_android_client_id,
+            apple_service_id,
         }
     }
 }
