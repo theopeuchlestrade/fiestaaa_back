@@ -36,6 +36,26 @@ pub struct StatusResponse {
     pub status: String,
 }
 
+#[derive(Deserialize, ToSchema)]
+pub struct OAuthPayload {
+    #[serde(rename = "idToken", alias = "id_token")]
+    pub id_token: Option<String>,
+    #[serde(rename = "accessToken", alias = "access_token")]
+    pub access_token: Option<String>,
+    pub email: Option<String>,
+    pub name: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct AppleClaims {
+    pub sub: String,
+    pub email: Option<String>,
+    pub email_verified: Option<serde_json::Value>,
+    pub exp: usize,
+    pub iss: String,
+    pub aud: String,
+}
+
 #[derive(Serialize, ToSchema)]
 pub struct ErrorResponse {
     pub error: String,

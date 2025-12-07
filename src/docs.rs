@@ -3,13 +3,13 @@ use utoipa::OpenApi;
 use crate::models::{
     AddressSuggestion, DeviceRefreshPayload, DeviceRegisterPayload, ErrorResponse, Event,
     EventCustomItemPayload, EventItemAttachPayload, EventItemReservationPayload, EventItemView,
-    EventPatchPayload, EventPayload, Friend, FriendRequest, FriendRequestActionPayload,
-    FriendRequestPayload, FriendSearchResult, HandleAvailabilityResponse, HandleUpdatePayload,
-    HealthResponse, Invitation, InvitationPatchPayload, InvitationPayload, Item, ItemContribution,
-    ItemPatchPayload, ItemPayload, LoginPayload, MeResponse, PaymentProvider,
-    PaymentProviderPatchPayload, PaymentProviderPayload, RegisterPayload, StatusResponse,
-    TokenResponse, EventPollCreatePayload, EventPollVotePayload, PollView, PollOptionView,
-    PollOptionVoter,
+    EventPatchPayload, EventPayload, EventPollCreatePayload, EventPollVotePayload, Friend,
+    FriendRequest, FriendRequestActionPayload, FriendRequestPayload, FriendSearchResult,
+    HandleAvailabilityResponse, HandleUpdatePayload, HealthResponse, Invitation,
+    InvitationPatchPayload, InvitationPayload, Item, ItemContribution, ItemPatchPayload,
+    ItemPayload, LoginPayload, MeResponse, PaymentProvider, PaymentProviderPatchPayload,
+    PaymentProviderPayload, PollOptionView, PollOptionVoter, PollView, RegisterPayload,
+    StatusResponse, TokenResponse,
 };
 
 #[derive(OpenApi)]
@@ -19,6 +19,7 @@ use crate::models::{
         crate::routes::root::me,
         crate::routes::auth::register,
         crate::routes::auth::login,
+        crate::routes::auth::oauth_login,
         crate::routes::health::health,
         crate::routes::events::get_event,
         crate::routes::items::list_items,
