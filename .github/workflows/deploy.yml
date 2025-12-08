@@ -11,19 +11,32 @@ jobs:
     permissions:
       contents: read
       packages: write
+    env:
+      IMAGE: ghcr.io/theopeuchlestrade/fiestaaa_back
+      TAG: ${{ github.sha }}
     steps:
       - uses: actions/checkout@v4
 
-      - name: Docker login GHCR (GITHUB_TOKEN)
-        run: echo "${{ github.token }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+      - name: Login GHCR
+        run: echo "${{ secrets.GHCR_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+
+      - name: Check if image exists
+        id: image_exists
+        run: |
+          if docker manifest inspect "$IMAGE:$TAG" >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Build image
+        if: steps.image_exists.outputs.exists == 'false'
         run: |
-          docker build -t ghcr.io/theopeuchlestrade/fiestaaa_back:${{ github.sha }} \
-                        -t ghcr.io/theopeuchlestrade/fiestaaa_back:latest .
+          docker build -t $IMAGE:$TAG -t $IMAGE:latest .
 
       - name: Push image
-        run: docker push ghcr.io/theopeuchlestrade/fiestaaa_back --all-tags
+        if: steps.image_exists.outputs.exists == 'false'
+        run: docker push $IMAGE --all-tags
 
       - name: Deploy to VPS
         uses: appleboy/ssh-action@v1.2.0
