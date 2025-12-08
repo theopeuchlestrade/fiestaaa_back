@@ -6,7 +6,6 @@ on:
 
 jobs:
   build-and-deploy:
-    environment: Production
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -44,6 +43,7 @@ jobs:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
+          port: ${{ secrets.VPS_PORT }}
           script: |
             cd ~/apps/fiestaaa
             echo "${GHCR_TOKEN}" | docker login ghcr.io -u "${GHCR_USERNAME}" --password-stdin
