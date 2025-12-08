@@ -3,6 +3,13 @@
 .env.*
 !.env.example
 api-keys-*.csv
-api-keys-*.csv 
-/uploads/avatars
+/uploads/**
+!/uploads/.gitkeep
 service-account.json
+service-account*.json
+*.pem
+*.key
+*.p12
+*.p8
+*.der
+*.crt
