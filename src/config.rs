@@ -25,6 +25,7 @@ pub struct AppConfig {
     pub google_client_id: Option<String>,
     pub google_android_client_id: Option<String>,
     pub apple_service_id: Option<String>,
+    pub cors_allowed_origins: Vec<String>,
 }
 
 impl AppConfig {
@@ -35,10 +36,13 @@ impl AppConfig {
             .ok()
             .and_then(|v| v.parse().ok())
             .unwrap_or(8080);
-        let database_url = std::env::var("DATABASE_URL")
-            .unwrap_or_else(|_| "postgres://postgres:postgres@localhost:5432/fiestaaa".into());
-        let jwt_secret =
-            std::env::var("JWT_SECRET").unwrap_or_else(|_| "dev_secret_change_me".into());
+        let database_url = std::env::var("DATABASE_URL").unwrap_or_else(|_| {
+            "postgres://postgres:postgres@localhost:5432/fiestaaa".into()
+        });
+        let jwt_secret = std::env::var("JWT_SECRET").unwrap_or_default();
+        if jwt_secret.len() < 32 {
+            panic!("JWT_SECRET doit être défini et contenir au moins 32 caractères");
+        }
         let admin_emails_raw = std::env::var("ADMIN_EMAILS").unwrap_or_default();
         let admin_emails = admin_emails_raw
             .split(',')
@@ -102,6 +106,16 @@ impl AppConfig {
         let apple_service_id = std::env::var("FIESTAAA_APPLE_SERVICE_ID")
             .ok()
             .filter(|v| !v.trim().is_empty());
+        let cors_allowed_origins = std::env::var("CORS_ALLOWED_ORIGINS")
+            .ok()
+            .map(|v| {
+                v.split(',')
+                    .map(|s| s.trim())
+                    .filter(|s| !s.is_empty())
+                    .map(|s| s.to_string())
+                    .collect()
+            })
+            .unwrap_or_default();
         Self {
             host,
             port,
@@ -127,6 +141,7 @@ impl AppConfig {
             google_client_id,
             google_android_client_id,
             apple_service_id,
+            cors_allowed_origins,
         }
     }
 }

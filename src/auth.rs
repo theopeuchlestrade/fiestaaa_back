@@ -9,6 +9,7 @@ use jsonwebtoken::{
 };
 use rand_core::OsRng;
 use sqlx::{Pool, Postgres};
+use uuid::Uuid;
 
 use crate::{
     handles::{looks_like_email, normalize_handle},
@@ -39,6 +40,29 @@ pub fn verify_password(hash: &str, password: &str) -> bool {
     } else {
         false
     }
+}
+
+pub fn validate_password_strength(password: &str) -> Result<(), &'static str> {
+    if password.len() < 12 {
+        return Err("le mot de passe doit contenir au moins 12 caractères");
+    }
+    let has_upper = password.chars().any(|c| c.is_uppercase());
+    let has_lower = password.chars().any(|c| c.is_lowercase());
+    let has_digit = password.chars().any(|c| c.is_ascii_digit());
+    let has_special = password
+        .chars()
+        .any(|c| !c.is_ascii_alphanumeric() && !c.is_whitespace());
+    if !(has_upper && has_lower && has_digit && has_special) {
+        return Err("inclure une majuscule, une minuscule, un chiffre et un caractère spécial");
+    }
+    if password.chars().any(|c| c.is_control()) {
+        return Err("les caractères de contrôle ne sont pas autorisés");
+    }
+    Ok(())
+}
+
+pub fn random_password_token() -> String {
+    format!("oauth-{}", Uuid::new_v4())
 }
 
 #[derive(Debug, Clone, sqlx::FromRow)]

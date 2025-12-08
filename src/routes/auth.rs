@@ -3,7 +3,10 @@ use actix_web::{HttpResponse, Responder, post, web};
 use sqlx::Error;
 
 use crate::{
-    auth::{encode_jwt, fetch_user_auth, hash_password, now_ts, verify_password},
+    auth::{
+        encode_jwt, fetch_user_auth, hash_password, now_ts, random_password_token,
+        validate_password_strength, verify_password,
+    },
     handles::{generate_unique_handle, handle_available, is_valid_handle, normalize_handle},
     models::{
         Claims, ErrorResponse, LoginPayload, OAuthPayload, RegisterPayload, StatusResponse,
@@ -42,10 +45,16 @@ pub async fn register(
         .as_ref()
         .map(|raw| normalize_handle(raw).normalized);
 
-    if email.is_empty() || password.len() < 8 {
+    if email.is_empty() {
         return HttpResponse::BadRequest().json(ErrorResponse {
             error: "invalid_payload".into(),
-            details: Some("email required, password >= 8 chars".into()),
+            details: Some("email requis".into()),
+        });
+    }
+    if let Err(reason) = validate_password_strength(password) {
+        return HttpResponse::BadRequest().json(ErrorResponse {
+            error: "weak_password".into(),
+            details: Some(reason.into()),
         });
     }
 
@@ -263,7 +272,7 @@ async fn oauth_google(state: web::Data<AppState>, payload: OAuthPayload) -> Http
                     });
                 }
             };
-            let pwd = format!("google-oauth-{}", now_ts());
+            let pwd = random_password_token();
             let hash = match hash_password(&pwd) {
                 Ok(h) => h,
                 Err(_) => {
@@ -434,7 +443,7 @@ async fn oauth_apple(state: web::Data<AppState>, payload: OAuthPayload) -> HttpR
                     });
                 }
             };
-            let pwd = format!("apple-oauth-{}", now_ts());
+            let pwd = random_password_token();
             let hash = match hash_password(&pwd) {
                 Ok(h) => h,
                 Err(_) => {
