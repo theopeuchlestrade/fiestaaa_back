@@ -1,38 +1,33 @@
 version: "3.9"
+
 services:
-  api:
-    build: ./fiestaaa_back
-    env_file: ./fiestaaa_back/.env
-    environment:
-      HOST: 0.0.0.0
-      PORT: 8080
-      DATABASE_URL: postgres://fiestaaa:<db_password>@db:5432/fiestaaa
-      REDIS_URL: redis://redis:6379
-      AVATAR_UPLOAD_DIR: /data/uploads/avatars
-      AVATAR_BASE_URL: https://api.example.com/media/avatars
-      FCM_SERVICE_ACCOUNT_PATH: /app/service-account.json
-    depends_on:
-      db:
-        condition: service_healthy
-      redis:
-        condition: service_started
+  traefik:
+    image: traefik:v3.5
+    command:
+      - --providers.docker=true
+      - --entrypoints.web.address=:80
+      - --entrypoints.websecure.address=:443
+      - --certificatesresolvers.le.acme.httpchallenge=true
+      - --certificatesresolvers.le.acme.httpchallenge.entrypoint=web
+      - --certificatesresolvers.le.acme.email=contact@fiestaaa.app
+      - --certificatesresolvers.le.acme.storage=/letsencrypt/acme.json
+    ports: ["80:80", "443:443"]
     volumes:
-      - uploads_data:/data/uploads
-      - ./fiestaaa_back/service-account.json:/app/service-account.json:ro
-    ports:
-      - "8080:8080"
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./traefik/letsencrypt:/letsencrypt
     restart: unless-stopped
 
   db:
     image: postgres:18
+    env_file: .env
     environment:
-      POSTGRES_USER: fiestaaa
-      POSTGRES_PASSWORD: <db_password>
-      POSTGRES_DB: fiestaaa
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
     volumes:
-      - pg_data:/var/lib/postgresql/data
+      - ./data/postgres:/var/lib/postgresql
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U fiestaaa"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -43,22 +38,42 @@ services:
     command: ["redis-server", "--save", "", "--appendonly", "no"]
     restart: unless-stopped
 
-  traefik:
-    image: traefik:v3.1
-    command:
-      - --providers.docker=true
-      - --entrypoints.web.address=:80
-      - --entrypoints.websecure.address=:443
-      - --certificatesresolvers.le.acme.httpchallenge=true
-      - --certificatesresolvers.le.acme.httpchallenge.entrypoint=web
-      - --certificatesresolvers.le.acme.email=you@example.com
-      - --certificatesresolvers.le.acme.storage=/letsencrypt/acme.json
-    ports: ["80:80", "443:443"]
+  api:
+    image: ghcr.io/theopeuchlestrade/fiestaaa_back:latest
+    env_file: .env
+    environment:
+      HOST: 0.0.0.0
+      PORT: 8080
+      DATABASE_URL: ${DATABASE_URL}
+      REDIS_URL: ${REDIS_URL}
+      AVATAR_UPLOAD_DIR: /data/uploads/avatars
+      AVATAR_BASE_URL: https://api.fiestaaa.app/media/avatars
+      FCM_SERVICE_ACCOUNT_PATH: /app/service-account.json
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-      - ./letsencrypt:/letsencrypt
+      - ./data/uploads:/data/uploads
+      - ./backend/service-account.json:/app/service-account.json:ro
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.api.rule=Host(`api.fiestaaa.app`)
+      - traefik.http.routers.api.entrypoints=websecure
+      - traefik.http.routers.api.tls.certresolver=le
+      - traefik.http.services.api.loadbalancer.server.port=8080
     restart: unless-stopped
 
-volumes:
-  pg_data:
-  uploads_data:
+  front:
+    image: ghcr.io/theopeuchlestrade/fiestaaa_front:latest
+    env_file: .env
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.front.rule=Host(`fiestaaa.app`)
+      - traefik.http.routers.front.entrypoints=websecure
+      - traefik.http.routers.front.tls.certresolver=le
+      - traefik.http.services.front.loadbalancer.server.port=80 # adapte si front écoute ailleurs
+    depends_on:
+      - api
+    restart: unless-stopped

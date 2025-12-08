@@ -62,11 +62,18 @@ async fn main() -> std::io::Result<()> {
 
     // Server
     HttpServer::new(move || {
-        let cors = Cors::default()
-            .allow_any_origin()
+        let mut cors = Cors::default()
             .allowed_methods(vec!["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"])
             .allowed_headers(vec![AUTHORIZATION, CONTENT_TYPE])
             .max_age(3600);
+        if cfg.cors_allowed_origins.is_empty() {
+            log::warn!("CORS_ALLOWED_ORIGINS non défini, toutes les origines sont autorisées");
+            cors = cors.allow_any_origin();
+        } else {
+            for origin in &cfg.cors_allowed_origins {
+                cors = cors.allowed_origin(origin);
+            }
+        }
 
         App::new()
             .app_data(state.clone())
