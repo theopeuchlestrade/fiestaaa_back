@@ -18,36 +18,36 @@ jobs:
 
       - name: Check required secrets
         env:
-          VPS_HOST: ${{ secrets.VPS_HOST }}
-          VPS_USER: ${{ secrets.VPS_USER }}
-          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
-          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
-          REDIS_URL: ${{ secrets.REDIS_URL }}
-          JWT_SECRET: ${{ secrets.JWT_SECRET }}
           APP_BASE_URL: ${{ secrets.APP_BASE_URL }}
           AVATAR_BASE_URL: ${{ secrets.AVATAR_BASE_URL }}
-          CORS_ALLOWED_ORIGINS: ${{ secrets.CORS_ALLOWED_ORIGINS }}
-          POSTGRES_USER: ${{ secrets.POSTGRES_USER }}
-          POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
-          POSTGRES_DB: ${{ secrets.POSTGRES_DB }}
-          INVITATION_EMAIL_SENDER: ${{ secrets.INVITATION_EMAIL_SENDER }}
-          INVITATION_EMAIL_API_KEY: ${{ secrets.INVITATION_EMAIL_API_KEY }}
           AVATAR_UPLOAD_DIR: ${{ secrets.AVATAR_UPLOAD_DIR }}
-          FCM_SERVER_KEY: ${{ secrets.FCM_SERVER_KEY }}
-          FIESTAAA_FCM_VAPID_KEY: ${{ secrets.FIESTAAA_FCM_VAPID_KEY }}
-          FCM_SERVICE_ACCOUNT_PATH: ${{ secrets.FCM_SERVICE_ACCOUNT_PATH }}
+          CORS_ALLOWED_ORIGINS: ${{ secrets.CORS_ALLOWED_ORIGINS }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
           FCM_PROJECT_ID: ${{ secrets.FCM_PROJECT_ID }}
-          NOTIFICATION_DEDUP_TTL_SECONDS: ${{ secrets.NOTIFICATION_DEDUP_TTL_SECONDS }}
-          FIESTAAA_GOOGLE_WEB_CLIENT_ID: ${{ secrets.FIESTAAA_GOOGLE_WEB_CLIENT_ID }}
-          FIESTAAA_APPLE_SERVICE_ID: ${{ secrets.FIESTAAA_APPLE_SERVICE_ID }}
+          FCM_SERVICE_ACCOUNT_PATH: ${{ secrets.FCM_SERVICE_ACCOUNT_PATH }}
+          FCM_SERVER_KEY: ${{ secrets.FCM_SERVER_KEY }}
           FIESTAAA_APPLE_REDIRECT_URI: ${{ secrets.FIESTAAA_APPLE_REDIRECT_URI }}
+          FIESTAAA_APPLE_SERVICE_ID: ${{ secrets.FIESTAAA_APPLE_SERVICE_ID }}
+          FIESTAAA_FCM_VAPID_KEY: ${{ secrets.FIESTAAA_FCM_VAPID_KEY }}
+          FIESTAAA_GOOGLE_WEB_CLIENT_ID: ${{ secrets.FIESTAAA_GOOGLE_WEB_CLIENT_ID }}
+          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
+          INVITATION_EMAIL_API_KEY: ${{ secrets.INVITATION_EMAIL_API_KEY }}
+          INVITATION_EMAIL_SENDER: ${{ secrets.INVITATION_EMAIL_SENDER }}
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+          NOTIFICATION_DEDUP_TTL_SECONDS: ${{ secrets.NOTIFICATION_DEDUP_TTL_SECONDS }}
+          POSTGRES_DB: ${{ secrets.POSTGRES_DB }}
+          POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
+          POSTGRES_USER: ${{ secrets.POSTGRES_USER }}
+          REDIS_URL: ${{ secrets.REDIS_URL }}
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+          VPS_USER: ${{ secrets.VPS_USER }}
         run: |
           missing=0
           for var in VPS_HOST VPS_USER VPS_SSH_KEY GHCR_TOKEN; do
             if [ -z "${!var}" ]; then echo "::error::$var manquant"; missing=1; fi
           done
-          for var in DATABASE_URL REDIS_URL JWT_SECRET APP_BASE_URL AVATAR_BASE_URL AVATAR_UPLOAD_DIR CORS_ALLOWED_ORIGINS POSTGRES_USER POSTGRES_PASSWORD POSTGRES_DB INVITATION_EMAIL_SENDER INVITATION_EMAIL_API_KEY FCM_SERVER_KEY FIESTAAA_FCM_VAPID_KEY FCM_SERVICE_ACCOUNT_PATH FCM_PROJECT_ID NOTIFICATION_DEDUP_TTL_SECONDS FIESTAAA_GOOGLE_WEB_CLIENT_ID; do
+          for var in APP_BASE_URL AVATAR_BASE_URL AVATAR_UPLOAD_DIR CORS_ALLOWED_ORIGINS DATABASE_URL FCM_PROJECT_ID FCM_SERVER_KEY FCM_SERVICE_ACCOUNT_PATH FIESTAAA_APPLE_REDIRECT_URI FIESTAAA_APPLE_SERVICE_ID FIESTAAA_FCM_VAPID_KEY FIESTAAA_GOOGLE_WEB_CLIENT_ID INVITATION_EMAIL_API_KEY INVITATION_EMAIL_SENDER JWT_SECRET NOTIFICATION_DEDUP_TTL_SECONDS POSTGRES_DB POSTGRES_PASSWORD POSTGRES_USER REDIS_URL; do
             if [ -z "${!var}" ]; then echo "::error::$var manquant pour .env"; missing=1; fi
           done
           if [ "$missing" -ne 0 ]; then exit 1; fi
@@ -84,26 +84,26 @@ jobs:
             cd ~/apps/fiestaaa
             # Génère un .env à partir des secrets GitHub pour le runtime docker compose
             cat > .env <<'EOF'
-            DATABASE_URL=${DATABASE_URL}
-            REDIS_URL=${REDIS_URL}
-            JWT_SECRET=${JWT_SECRET}
             APP_BASE_URL=${APP_BASE_URL}
             AVATAR_BASE_URL=${AVATAR_BASE_URL}
             AVATAR_UPLOAD_DIR=${AVATAR_UPLOAD_DIR}
             CORS_ALLOWED_ORIGINS=${CORS_ALLOWED_ORIGINS}
-            INVITATION_EMAIL_SENDER=${INVITATION_EMAIL_SENDER}
-            INVITATION_EMAIL_API_KEY=${INVITATION_EMAIL_API_KEY}
-            FCM_SERVER_KEY=${FCM_SERVER_KEY}
-            FIESTAAA_FCM_VAPID_KEY=${FIESTAAA_FCM_VAPID_KEY}
-            FCM_SERVICE_ACCOUNT_PATH=${FCM_SERVICE_ACCOUNT_PATH}
+            DATABASE_URL=${DATABASE_URL}
             FCM_PROJECT_ID=${FCM_PROJECT_ID}
-            NOTIFICATION_DEDUP_TTL_SECONDS=${NOTIFICATION_DEDUP_TTL_SECONDS}
-            FIESTAAA_GOOGLE_WEB_CLIENT_ID=${FIESTAAA_GOOGLE_WEB_CLIENT_ID}
-            FIESTAAA_APPLE_SERVICE_ID=${FIESTAAA_APPLE_SERVICE_ID}
+            FCM_SERVICE_ACCOUNT_PATH=${FCM_SERVICE_ACCOUNT_PATH}
+            FCM_SERVER_KEY=${FCM_SERVER_KEY}
             FIESTAAA_APPLE_REDIRECT_URI=${FIESTAAA_APPLE_REDIRECT_URI}
-            POSTGRES_USER=${POSTGRES_USER}
-            POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+            FIESTAAA_APPLE_SERVICE_ID=${FIESTAAA_APPLE_SERVICE_ID}
+            FIESTAAA_FCM_VAPID_KEY=${FIESTAAA_FCM_VAPID_KEY}
+            FIESTAAA_GOOGLE_WEB_CLIENT_ID=${FIESTAAA_GOOGLE_WEB_CLIENT_ID}
+            INVITATION_EMAIL_API_KEY=${INVITATION_EMAIL_API_KEY}
+            INVITATION_EMAIL_SENDER=${INVITATION_EMAIL_SENDER}
+            JWT_SECRET=${JWT_SECRET}
+            NOTIFICATION_DEDUP_TTL_SECONDS=${NOTIFICATION_DEDUP_TTL_SECONDS}
             POSTGRES_DB=${POSTGRES_DB}
+            POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+            POSTGRES_USER=${POSTGRES_USER}
+            REDIS_URL=${REDIS_URL}
             EOF
             echo "${GHCR_TOKEN}" | docker login ghcr.io -u "${GHCR_USERNAME}" --password-stdin
             docker compose pull api
@@ -111,23 +111,23 @@ jobs:
         env:
           GHCR_USERNAME: theopeuchlestrade
           GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}  # PAT read:packages pour le pull
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
-          REDIS_URL: ${{ secrets.REDIS_URL }}
-          JWT_SECRET: ${{ secrets.JWT_SECRET }}
           APP_BASE_URL: ${{ secrets.APP_BASE_URL }}
           AVATAR_BASE_URL: ${{ secrets.AVATAR_BASE_URL }}
           AVATAR_UPLOAD_DIR: ${{ secrets.AVATAR_UPLOAD_DIR }}
           CORS_ALLOWED_ORIGINS: ${{ secrets.CORS_ALLOWED_ORIGINS }}
-          POSTGRES_USER: ${{ secrets.POSTGRES_USER }}
-          POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
-          POSTGRES_DB: ${{ secrets.POSTGRES_DB }}
-          INVITATION_EMAIL_SENDER: ${{ secrets.INVITATION_EMAIL_SENDER }}
-          INVITATION_EMAIL_API_KEY: ${{ secrets.INVITATION_EMAIL_API_KEY }}
-          FCM_SERVER_KEY: ${{ secrets.FCM_SERVER_KEY }}
-          FIESTAAA_FCM_VAPID_KEY: ${{ secrets.FIESTAAA_FCM_VAPID_KEY }}
-          FCM_SERVICE_ACCOUNT_PATH: ${{ secrets.FCM_SERVICE_ACCOUNT_PATH }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
           FCM_PROJECT_ID: ${{ secrets.FCM_PROJECT_ID }}
-          NOTIFICATION_DEDUP_TTL_SECONDS: ${{ secrets.NOTIFICATION_DEDUP_TTL_SECONDS }}
-          FIESTAAA_GOOGLE_WEB_CLIENT_ID: ${{ secrets.FIESTAAA_GOOGLE_WEB_CLIENT_ID }}
-          FIESTAAA_APPLE_SERVICE_ID: ${{ secrets.FIESTAAA_APPLE_SERVICE_ID }}
+          FCM_SERVICE_ACCOUNT_PATH: ${{ secrets.FCM_SERVICE_ACCOUNT_PATH }}
+          FCM_SERVER_KEY: ${{ secrets.FCM_SERVER_KEY }}
           FIESTAAA_APPLE_REDIRECT_URI: ${{ secrets.FIESTAAA_APPLE_REDIRECT_URI }}
+          FIESTAAA_APPLE_SERVICE_ID: ${{ secrets.FIESTAAA_APPLE_SERVICE_ID }}
+          FIESTAAA_FCM_VAPID_KEY: ${{ secrets.FIESTAAA_FCM_VAPID_KEY }}
+          FIESTAAA_GOOGLE_WEB_CLIENT_ID: ${{ secrets.FIESTAAA_GOOGLE_WEB_CLIENT_ID }}
+          INVITATION_EMAIL_API_KEY: ${{ secrets.INVITATION_EMAIL_API_KEY }}
+          INVITATION_EMAIL_SENDER: ${{ secrets.INVITATION_EMAIL_SENDER }}
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+          NOTIFICATION_DEDUP_TTL_SECONDS: ${{ secrets.NOTIFICATION_DEDUP_TTL_SECONDS }}
+          POSTGRES_DB: ${{ secrets.POSTGRES_DB }}
+          POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
+          POSTGRES_USER: ${{ secrets.POSTGRES_USER }}
+          REDIS_URL: ${{ secrets.REDIS_URL }}
