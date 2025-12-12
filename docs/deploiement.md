@@ -141,7 +141,6 @@ Depuis `~/apps/fiestaaa` :
 docker compose pull        # récupère les images ghcr.io/theopeuchlestrade/fiestaaa_back et fiestaaa_front
 docker compose up -d       # lance traefik, db, redis, api, front
 docker compose ps          # vérifie les statuts
-# Si seul docker-compose est disponible (pas Compose V2), remplacer `docker compose` par `docker-compose`
 docker compose logs -f api # debug si besoin
 ```
 

@@ -21,12 +21,11 @@ if [[ -f "$ENV_FILE" ]]; then
   set +a
 fi
 
-# Compose command helper
+# Compose command (Compose V2 requis)
 compose_cmd="docker compose"
 if ! docker compose version >/dev/null 2>&1; then
-  if command -v docker-compose >/dev/null 2>&1; then
-    compose_cmd="docker-compose"
-  fi
+  echo "docker compose introuvable. Installez le plugin Compose V2 (docker-compose-plugin) et relancez." >&2
+  exit 1
 fi
 
 # Construit une URL si DATABASE_URL n'est pas fournie
