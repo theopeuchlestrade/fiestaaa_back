@@ -128,6 +128,7 @@ Depuis `~/apps/fiestaaa` :
 docker compose pull        # récupère les images ghcr.io/theopeuchlestrade/fiestaaa_back et fiestaaa_front
 docker compose up -d       # lance traefik, db, redis, api, front
 docker compose ps          # vérifie les statuts
+# Si seul docker-compose est disponible (pas Compose V2), remplacer `docker compose` par `docker-compose`
 docker compose logs -f api # debug si besoin
 ```
 
@@ -141,8 +142,8 @@ Workflow : `fiestaaa_back/.github/workflows/deploy.yml`
   3. Build l'image `ghcr.io/theopeuchlestrade/fiestaaa_back:${{ github.sha }}` + `latest` (sauf si déjà présente).
   4. Push de l'image sur GHCR.
   5. Connexion SSH au VPS (appleboy/ssh-action) puis :
-     - Génère `.env` sur le serveur avec les secrets.
-     - `docker compose pull api && docker compose up -d api` (le reste de la stack doit déjà être présent grâce au compose prod).
+     - Génère `.env` sur le serveur avec les secrets (here-doc non quoté pour expanser les variables côté runner).
+     - `docker compose pull api && docker compose up -d --no-deps api` (le reste de la stack doit déjà être présent grâce au compose prod).
 
 ### Secrets à ajouter dans GitHub (Settings > Secrets and variables > Actions)
 
@@ -187,7 +188,7 @@ Nom | Description
 
 - L'image attendue par le compose prod est `ghcr.io/theopeuchlestrade/fiestaaa_front:latest` (bundle Flutter web servi par Nginx via `fiestaaa_front/Dockerfile`).
 - Workflow GitHub : `fiestaaa_front/.github/workflows/deploy.yml`
-  - Étapes : vérifie les secrets ➜ login GHCR ➜ build + push image (tags `${{ github.sha }}` + `latest`) ➜ SSH VPS ➜ `docker compose pull front && docker compose up -d front`.
+  - Étapes : vérifie les secrets ➜ login GHCR ➜ build + push image (tags `${{ github.sha }}` + `latest`) ➜ SSH VPS ➜ `docker compose pull front && docker compose up -d --no-deps front`.
   - `~/apps/fiestaaa/frontend` : dossier optionnel (pas de volume monté). Vous pouvez le créer pour héberger d'éventuels overrides Nginx ou archives, mais le conteneur front est autonome.
 - Secrets à créer sur le repo `fiestaaa_front` (Settings > Secrets and variables > Actions) :
   - Accès VPS / registre : `VPS_HOST`, `VPS_PORT` (optionnel), `VPS_USER`, `VPS_SSH_KEY`, `GHCR_TOKEN` (PAT avec write/read:packages).
