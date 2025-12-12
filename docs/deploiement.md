@@ -57,21 +57,22 @@ graph TD
    ```bash
    sudo apt update
    sudo apt upgrade
-   sudo apt install docker.io docker-compose-plugin  # Compose V2 (requis)
-   # Si docker-compose v1 (python) est déjà installé, le retirer pour éviter le bug "KeyError: 'ContainerConfig'"
-   sudo apt purge -y docker-compose || true
-   sudo usermod -aG docker ${USER}  # puis reconnectez-vous
-   ```
+  sudo apt install docker.io docker-compose-plugin  # Compose V2 (requis)
+  # Si docker-compose v1 (python) est déjà installé, le retirer pour éviter le bug "KeyError: 'ContainerConfig'"
+  sudo apt purge -y docker-compose || true
+  sudo usermod -aG docker ${USER}  # puis reconnectez-vous
+  ```
    > Si `docker-compose-plugin` n'existe pas dans vos dépôts (ex. images cloud minimales), ajoutez le repo officiel Docker :  
    > ```
    > sudo apt-get update
    > sudo apt-get install -y ca-certificates curl gnupg
    > sudo install -m 0755 -d /etc/apt/keyrings
    > curl -fsSL https://download.docker.com/linux/$(. /etc/os-release && echo "$ID")/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
-   > echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/$(. /etc/os-release && echo "$ID") $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | sudo tee /etc/apt/sources.list.d/docker.list >/dev/null
-   > sudo apt-get update
-   > sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
-   > ```
+  > echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/$(. /etc/os-release && echo "$ID") $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | sudo tee /etc/apt/sources.list.d/docker.list >/dev/null
+  > sudo apt-get update
+  > sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+  > ```
+   > Note : récupérez l'API version du démon Docker (`docker version --format '{{.Server.APIVersion}}'`, ex. `1.52`) et, si besoin, ajoutez-la dans `~/apps/fiestaaa/.env` via `echo "DOCKER_API_VERSION=<valeur>" >> ~/apps/fiestaaa/.env` pour aligner Traefik.
 3. **Utilisateur de déploiement (recommandé)**
    ```bash
    sudo adduser deploy
