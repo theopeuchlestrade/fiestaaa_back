@@ -81,6 +81,11 @@ jobs:
           key: ${{ secrets.VPS_SSH_KEY }}
           port: ${{ secrets.VPS_PORT || 22 }}
           script: |
+            set -euo pipefail
+            if [ -z "${VPS_USER:-}" ] || [ -z "${VPS_HOST:-}" ]; then
+              echo "VPS_USER ou VPS_HOST manquant" >&2
+              exit 1
+            fi
             cd ~/apps/fiestaaa
             # Génère un .env à partir des secrets GitHub pour le runtime docker compose
             cat > .env <<'EOF'
@@ -106,8 +111,17 @@ jobs:
             REDIS_URL=${REDIS_URL}
             EOF
             echo "${GHCR_TOKEN}" | docker login ghcr.io -u "${GHCR_USERNAME}" --password-stdin
-            docker compose pull api
-            docker compose up -d api
+            compose_cmd="docker compose"
+            if ! docker compose version >/dev/null 2>&1; then
+              if command -v docker-compose >/dev/null 2>&1; then
+                compose_cmd="docker-compose"
+              else
+                echo "docker compose/docker-compose introuvable sur le VPS" >&2
+                exit 1
+              fi
+            fi
+            ${compose_cmd} pull api
+            ${compose_cmd} up -d api
         env:
           GHCR_USERNAME: theopeuchlestrade
           GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}  # PAT read:packages pour le pull
