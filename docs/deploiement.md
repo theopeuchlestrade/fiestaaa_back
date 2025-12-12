@@ -182,7 +182,7 @@ Nom | Description
 `FCM_PROJECT_ID` | ID du projet Firebase
 `NOTIFICATION_DEDUP_TTL_SECONDS` | TTL de déduplication des notifications (ex. 300)
 `FIESTAAA_GOOGLE_WEB_CLIENT_ID` | Client ID Google OAuth web
-`FIESTAAA_APPLE_SERVICE_ID` / `FIESTAAA_APPLE_REDIRECT_URI` | OAuth Apple (optionnel)
+`FIESTAAA_APPLE_SERVICE_ID` / `FIESTAAA_APPLE_REDIRECT_URI` | OAuth Apple (web) — requis si vous voulez afficher le bouton Apple (transmis dans le `.env` généré)
 `ADMIN_EMAILS` | (optionnel) Liste d'emails admin séparés par des virgules
 
 > Les valeurs front (VAPID, FCM project, client Google) sont partagées : renseignez les mêmes secrets dans le repo `fiestaaa_front` pour la build du bundle web.
@@ -204,7 +204,7 @@ Nom | Description
   - `~/apps/fiestaaa/frontend` : dossier optionnel (pas de volume monté). Vous pouvez le créer pour héberger d'éventuels overrides Nginx ou archives, mais le conteneur front est autonome.
 - Secrets à créer sur le repo `fiestaaa_front` (Settings > Secrets and variables > Actions) :
   - Accès VPS / registre : `VPS_HOST`, `VPS_PORT` (optionnel), `VPS_USER`, `VPS_SSH_KEY`, `GHCR_TOKEN` (PAT avec write/read:packages).
-  - Dart defines / Firebase : `FIESTAAA_API_BASE_URL`, `FIESTAAA_GOOGLE_WEB_CLIENT_ID`, `FIESTAAA_APPLE_SERVICE_ID`, `FIESTAAA_APPLE_REDIRECT_URI`, `FIESTAAA_FCM_VAPID_KEY`, `FIREBASE_PROJECT_ID`, `FIREBASE_STORAGE_BUCKET`, `FIREBASE_MESSAGING_SENDER_ID`, `FIREBASE_WEB_API_KEY`, `FIREBASE_WEB_APP_ID`, optionnels `FIREBASE_WEB_MEASUREMENT_ID`, `FIREBASE_AUTH_DOMAIN` (sinon `${project}.firebaseapp.com`).
+  - Dart defines / Firebase / OAuth : `FIESTAAA_API_BASE_URL`, `FIESTAAA_GOOGLE_WEB_CLIENT_ID`, `FIESTAAA_APPLE_SERVICE_ID`, `FIESTAAA_APPLE_REDIRECT_URI`, `FIESTAAA_FCM_VAPID_KEY`, `FIREBASE_PROJECT_ID`, `FIREBASE_STORAGE_BUCKET`, `FIREBASE_MESSAGING_SENDER_ID`, `FIREBASE_WEB_API_KEY`, `FIREBASE_WEB_APP_ID`, optionnels `FIREBASE_WEB_MEASUREMENT_ID`, `FIREBASE_AUTH_DOMAIN` (sinon `${project}.firebaseapp.com`).
   - Partage de secrets avec le backend : `FIESTAAA_FCM_VAPID_KEY`, `FIESTAAA_GOOGLE_WEB_CLIENT_ID`, `FIREBASE_*`/`FCM_PROJECT_ID` doivent correspondre aux valeurs du backend pour que les notifications et OAuth fonctionnent.
 - Les valeurs ci-dessus sont injectées au build (visibles dans le bundle web, normal pour un front public).
 - Déploiement : le `docker-compose.yml` déjà en place contient le service `front`, aucune config supplémentaire côté VPS.
