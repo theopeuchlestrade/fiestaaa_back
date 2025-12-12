@@ -2,7 +2,7 @@ version: "3.9"
 
 services:
   traefik:
-    image: traefik:v3.5
+    image: traefik:v3.6
     command:
       - --providers.docker=true
       - --entrypoints.web.address=:80
@@ -11,6 +11,9 @@ services:
       - --certificatesresolvers.le.acme.httpchallenge.entrypoint=web
       - --certificatesresolvers.le.acme.email=contact@fiestaaa.app
       - --certificatesresolvers.le.acme.storage=/letsencrypt/acme.json
+    environment:
+      - DOCKER_HOST=unix:///var/run/docker.sock
+      - DOCKER_API_VERSION=${DOCKER_API_VERSION:-1.52}
     ports: ["80:80", "443:443"]
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
