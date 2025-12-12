@@ -1,0 +1,25 @@
+# VCS / IDE
+.git
+.github
+.idea
+.vscode
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+**/service-account*.json
+api-keys-*.csv
+*.pem
+*.p12
+*.p8
+*.key
+*.der
+*.crt
+
+# Build artifacts and runtime data
+target
+uploads
+docker-compose.yml
+docker-compose.prod.yml
+.docker-config
