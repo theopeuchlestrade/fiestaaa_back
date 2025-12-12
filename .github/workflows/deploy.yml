@@ -89,7 +89,8 @@ jobs:
             fi
             cd ~/apps/fiestaaa
             # Génère un .env à partir des secrets GitHub pour le runtime docker compose
-            cat > .env <<'EOF'
+            # Pas de quotes sur EOF afin d'expanser les variables côté runner et éviter les valeurs littérales ${VAR}
+            cat > .env <<EOF
             APP_BASE_URL=${APP_BASE_URL}
             AVATAR_BASE_URL=${AVATAR_BASE_URL}
             AVATAR_UPLOAD_DIR=${AVATAR_UPLOAD_DIR}
@@ -122,7 +123,8 @@ jobs:
               fi
             fi
             ${compose_cmd} pull api
-            ${compose_cmd} up -d api
+            # Ne touche pas aux dépendances (db/redis) pour éviter les recréations inutiles et bugs docker-compose v1
+            ${compose_cmd} up -d --no-deps api
         env:
           GHCR_USERNAME: theopeuchlestrade
           GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}  # PAT read:packages pour le pull
