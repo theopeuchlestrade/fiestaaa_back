@@ -182,7 +182,7 @@ Nom | Description
 
 ### Validation
 - Push sur `main` ➜ vérifier que le job "Build and Deploy" passe au vert.
-- Sur le VPS : `docker compose ps` puis tester les URLs `https://fiestaaa.app` et `https://api.fiestaaa.app/health` (ou équivalent) après le déploiement.
+- Sur le VPS : `docker compose ps` puis tester les URLs `https://fiestaaa.app` et `https://api.fiestaaa.app/health` après le déploiement.
 
 ## 5) Frontend (fiestaaa_front)
 
@@ -196,6 +196,30 @@ Nom | Description
   - Partage de secrets avec le backend : `FIESTAAA_FCM_VAPID_KEY`, `FIESTAAA_GOOGLE_WEB_CLIENT_ID`, `FIREBASE_*`/`FCM_PROJECT_ID` doivent correspondre aux valeurs du backend pour que les notifications et OAuth fonctionnent.
 - Les valeurs ci-dessus sont injectées au build (visibles dans le bundle web, normal pour un front public).
 - Déploiement : le `docker-compose.yml` déjà en place contient le service `front`, aucune config supplémentaire côté VPS.
+
+## 6) Vérifications runtime
+
+- Santé API : `curl -vk https://api.fiestaaa.app/health` (passe par Traefik) ou `docker compose exec api curl -f http://localhost:8080/health`.
+- Healthcheck base : `docker compose exec db pg_isready -U ${POSTGRES_USER}`.
+- CORS : autorisations côté API via `CORS_ALLOWED_ORIGINS` (`https://fiestaaa.app,https://www.fiestaaa.app` en prod).
+- Stack up : `docker compose ps` (api doit être Up, db healthy, redis Up, traefik Up).
+
+### Stats rapides (sans Prometheus)
+
+Un script simple est disponible : `scripts/db_stats.sh`.
+
+Depuis le VPS :
+```bash
+cd ~/apps/fiestaaa
+chmod +x scripts/db_stats.sh  # une fois pour toutes si besoin
+./scripts/db_stats.sh
+```
+
+Le script charge `.env`, construit l’URL Postgres (`DATABASE_URL` ou `POSTGRES_*`), puis remonte :
+- Comptes : utilisateurs, événements, invitations (par statut), check-ins, devices actifs.
+- Répartition des invitations par statut.
+- Répartition des devices actifs par plateforme.
+- Nouveaux utilisateurs par jour (14 derniers jours).
 
 ## 6) Checklists rapides
 
