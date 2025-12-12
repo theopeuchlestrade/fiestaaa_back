@@ -23,3 +23,7 @@ uploads
 docker-compose.yml
 docker-compose.prod.yml
 .docker-config
+
+# Local tooling / docs (non utilisés dans l'image)
+scripts
+docs
