@@ -113,6 +113,8 @@ touch ~/apps/fiestaaa/traefik/letsencrypt/acme.json && chmod 600 ~/apps/fiestaaa
   POSTGRES_DB=...
   DATABASE_URL=postgres://<user>:<pass>@db:5432/<db>
   REDIS_URL=redis://redis:6379
+  # Important : dans le réseau Docker Compose, utilisez le hostname du service
+  # Redis ("redis") et non localhost ; 6379 est le port par défaut.
   # API
   JWT_SECRET=...
   APP_BASE_URL=https://fiestaaa.app
@@ -168,7 +170,7 @@ Nom | Description
 `VPS_SSH_KEY` | Contenu de la clé privée `deploy_key` (sans passphrase)
 `GHCR_TOKEN` | PAT GitHub avec `write:packages` (push) et `read:packages` (pull côté VPS)
 `DATABASE_URL` | URL Postgres utilisée par l'API (ex. `postgres://<user>:<pass>@db:5432/<db>`)
-`REDIS_URL` | URL Redis (ex. `redis://redis:6379`)
+`REDIS_URL` | URL Redis (ex. `redis://redis:6379`, ne pas utiliser `localhost` dans Docker)
 `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB` | Variables Postgres utilisées par le service `db`
 `APP_BASE_URL` | URL publique du front (ex. `https://fiestaaa.app`)
 `CORS_ALLOWED_ORIGINS` | Liste des origines autorisées (séparées par virgules)
