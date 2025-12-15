@@ -345,12 +345,19 @@ async fn oauth_google(state: web::Data<AppState>, payload: OAuthPayload) -> Http
 }
 
 async fn oauth_apple(state: web::Data<AppState>, payload: OAuthPayload) -> HttpResponse {
-    let Some(service_id) = state.apple_service_id.as_ref() else {
+    let mut allowed_aud = Vec::new();
+    if let Some(service_id) = state.apple_service_id.as_ref() {
+        allowed_aud.push(service_id.as_str());
+    }
+    if let Some(app_id) = state.apple_app_id.as_ref() {
+        allowed_aud.push(app_id.as_str());
+    }
+    if allowed_aud.is_empty() {
         return HttpResponse::InternalServerError().json(ErrorResponse {
             error: "oauth_not_configured".into(),
-            details: Some("FIESTAAA_APPLE_SERVICE_ID manquant".into()),
+            details: Some("FIESTAAA_APPLE_SERVICE_ID ou FIESTAAA_APPLE_APP_ID manquant".into()),
         });
-    };
+    }
     let id_token = match payload
         .id_token
         .as_ref()
@@ -400,7 +407,7 @@ async fn oauth_apple(state: web::Data<AppState>, payload: OAuthPayload) -> HttpR
     };
 
     let mut validation = jsonwebtoken::Validation::new(jsonwebtoken::Algorithm::RS256);
-    validation.set_audience(&[service_id.as_str()]);
+    validation.set_audience(&allowed_aud);
     validation.set_issuer(&["https://appleid.apple.com"]);
 
     let claims = match jsonwebtoken::decode::<crate::models::AppleClaims>(
