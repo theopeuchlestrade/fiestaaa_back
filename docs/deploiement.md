@@ -122,7 +122,7 @@ touch ~/apps/fiestaaa/traefik/letsencrypt/acme.json && chmod 600 ~/apps/fiestaaa
   CORS_ALLOWED_ORIGINS=https://fiestaaa.app,https://www.fiestaaa.app
   # Email / push (adapter selon besoins)
   INVITATION_EMAIL_SENDER=Fiestaaa <no-reply@fiestaaa.app>
-  INVITATION_EMAIL_API_KEY=...
+  RESEND_API_KEY=...
   FCM_SERVER_KEY=...
   FIESTAAA_FCM_VAPID_KEY=...
   FCM_PROJECT_ID=...
@@ -177,7 +177,7 @@ Nom | Description
 `AVATAR_BASE_URL` | URL publique des avatars (ex. `https://api.fiestaaa.app/media/avatars`)
 `AVATAR_UPLOAD_DIR` | Chemin des uploads dans le conteneur API (ex. `/data/uploads/avatars`)
 `INVITATION_EMAIL_SENDER` | Expéditeur des emails d'invitations
-`INVITATION_EMAIL_API_KEY` | Clé d'email (ou `RESEND_API_KEY`)
+`RESEND_API_KEY` | Clé d'email Resend
 `FCM_SERVER_KEY` | Clé serveur FCM (notifications)
 `FIESTAAA_FCM_VAPID_KEY` | VAPID public key (web push) — réutilisée par le front
 `FCM_SERVICE_ACCOUNT_PATH` | Chemin vers la clé de service (ex. `/app/service-account.json`)
