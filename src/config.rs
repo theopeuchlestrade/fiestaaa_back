@@ -24,6 +24,7 @@ pub struct AppConfig {
     pub event_cleanup_interval_hours: u64,
     pub google_client_id: Option<String>,
     pub google_android_client_id: Option<String>,
+    pub apple_app_id: Option<String>,
     pub apple_service_id: Option<String>,
     pub cors_allowed_origins: Vec<String>,
 }
@@ -103,6 +104,9 @@ impl AppConfig {
         let google_android_client_id = std::env::var("FIESTAAA_GOOGLE_ANDROID_CLIENT_ID")
             .ok()
             .filter(|v| !v.trim().is_empty());
+        let apple_app_id = std::env::var("FIESTAAA_APPLE_APP_ID")
+            .ok()
+            .filter(|v| !v.trim().is_empty());
         let apple_service_id = std::env::var("FIESTAAA_APPLE_SERVICE_ID")
             .ok()
             .filter(|v| !v.trim().is_empty());
@@ -140,6 +144,7 @@ impl AppConfig {
             event_cleanup_interval_hours,
             google_client_id,
             google_android_client_id,
+            apple_app_id,
             apple_service_id,
             cors_allowed_origins,
         }
