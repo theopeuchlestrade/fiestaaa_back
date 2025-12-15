@@ -318,6 +318,15 @@ fn build_share_link(base_url: &str, token: &Uuid) -> String {
     }
 }
 
+fn escape_html(input: &str) -> String {
+    input
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&#39;")
+}
+
 async fn send_invitation_email(
     state: &AppState,
     to_email: &str,
@@ -353,19 +362,81 @@ async fn send_invitation_email(
         }
     };
 
+    let date_label = event.date.format("%d/%m/%Y").to_string();
+    let time_label = event.start_time.format("%H:%M").to_string();
     let subject = format!("{owner_email} t'invite à \"{}\" sur Fiestaaa", event.name);
     let body = format!(
-        "Salut !\n\n{owner_email} t'invite à participer à \"{}\".\nDate : {}\nHeure : {}\n\nClique sur ce lien unique pour rejoindre l'événement : {share_link}\nCe lien te permettra de créer un compte si nécessaire et d'accepter l'invitation.\n\nÀ bientôt,\nL'équipe Fiestaaa",
-        event.name,
-        event.date.format("%d/%m/%Y"),
-        event.start_time.format("%H:%M")
+        "Salut !\n\n{owner_email} t'invite à rejoindre \"{event_name}\" sur Fiestaaa.\nFiestaaa rassemble tes invités, les infos pratiques et le suivi des réponses en un seul endroit.\n\nÉvénement : {event_name}\nDate : {date_label}\nHeure : {time_label}\nLien unique : {share_link}\n\nCe lien te permet de créer un compte si besoin et de confirmer ta présence.\n\nÀ très vite,\nL'équipe Fiestaaa",
+        owner_email = owner_email,
+        event_name = event.name,
+        date_label = date_label,
+        time_label = time_label,
+        share_link = share_link
+    );
+    let html_body = format!(
+        r#"<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Invitation à {event_name} — Fiestaaa</title>
+</head>
+<body style="margin:0;padding:0;background:#f1f5f9;font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#0f172a;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="padding:30px 0;background:linear-gradient(135deg,#fef3c7,#e0f2fe);">
+    <tr>
+      <td align="center">
+        <table role="presentation" width="640" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:18px;overflow:hidden;box-shadow:0 20px 40px rgba(15,23,42,0.15);text-align:left;">
+          <tr>
+            <td style="background:linear-gradient(120deg,#0ea5e9,#6366f1);padding:18px 26px;color:#0b1224;font-weight:700;font-size:16px;letter-spacing:0.4px;">
+              Fiestaaa
+              <div style="font-size:13px;font-weight:500;color:rgba(11,18,36,0.85);margin-top:4px;">Organise tes soirées, centralise les infos, garde la liste des invités.</div>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:26px 28px 18px;">
+              <p style="margin:0 0 10px;font-size:22px;font-weight:700;">Invitation à <span style="color:#0ea5e9;">{event_name}</span></p>
+              <p style="margin:0 0 18px;color:#334155;font-size:15px;">{owner_email_html} t'a envoyé cette invitation via Fiestaaa, l'app qui garde toutes les infos de l'événement au même endroit.</p>
+              <div style="padding:14px 16px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:14px;margin-bottom:18px;">
+                <div style="font-size:16px;font-weight:700;color:#0f172a;">{event_name}</div>
+                <div style="font-size:14px;color:#475569;margin-top:4px;">{date_label} • {time_label}</div>
+                <div style="font-size:14px;color:#475569;margin-top:2px;">Organisé par {owner_email_html}</div>
+              </div>
+              <p style="margin:0 0 12px;color:#334155;font-size:15px;">Rejoins l'événement, confirme ta présence et retrouve toutes les infos utiles.</p>
+              <a href="{share_link_html}" style="display:inline-block;padding:14px 22px;background:linear-gradient(120deg,#0ea5e9,#6366f1);color:#ffffff;text-decoration:none;font-weight:700;border-radius:12px;">Rejoindre l'événement</a>
+              <p style="margin:12px 0 0;color:#475569;font-size:13px;">Lien unique : crée un compte si nécessaire puis accepte l'invitation.</p>
+              <p style="margin:16px 0 6px;font-size:14px;font-weight:700;color:#0f172a;">Fiestaaa en 3 points :</p>
+              <ul style="margin:0 0 10px;padding-left:18px;color:#475569;line-height:1.6;font-size:14px;">
+                <li>Centralise les infos pratiques de la soirée et les dernières updates.</li>
+                <li>Invite tout le monde via un lien unique, même sans compte.</li>
+                <li>Suis qui vient et garde les échanges au même endroit.</li>
+              </ul>
+              <p style="margin:12px 0 0;font-size:13px;color:#64748b;">Si le bouton ne s'affiche pas, copie-colle ce lien : <a href="{share_link_html}" style="color:#0ea5e9;font-weight:600;">{share_link_html}</a></p>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:16px 28px 22px;border-top:1px solid #e2e8f0;background:#f8fafc;color:#64748b;font-size:12px;">
+              À bientôt sur Fiestaaa.
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>"#,
+        event_name = escape_html(&event.name),
+        owner_email_html = escape_html(owner_email),
+        date_label = date_label,
+        time_label = time_label,
+        share_link_html = escape_html(share_link),
     );
 
     let payload = json!({
         "from": sender,
         "to": [to_email],
         "subject": subject,
-        "text": body
+        "text": body,
+        "html": html_body
     });
 
     let res = state
