@@ -1,4 +1,22 @@
 use dotenvy::dotenv;
+use log::warn;
+
+fn load_resend_api_key() -> Option<String> {
+    if let Ok(value) = std::env::var("RESEND_API_KEY") {
+        let trimmed = value.trim();
+        if trimmed.is_empty() {
+            return None;
+        }
+        if !trimmed.starts_with("re_") {
+            warn!(
+                "RESEND_API_KEY est defini mais ne ressemble pas a une cle Resend (prefixe re_) ; ignore"
+            );
+            return None;
+        }
+        return Some(trimmed.to_string());
+    }
+    None
+}
 
 pub struct AppConfig {
     pub host: String,
@@ -37,9 +55,8 @@ impl AppConfig {
             .ok()
             .and_then(|v| v.parse().ok())
             .unwrap_or(8080);
-        let database_url = std::env::var("DATABASE_URL").unwrap_or_else(|_| {
-            "postgres://postgres:postgres@localhost:5432/fiestaaa".into()
-        });
+        let database_url = std::env::var("DATABASE_URL")
+            .unwrap_or_else(|_| "postgres://postgres:postgres@localhost:5432/fiestaaa".into());
         let jwt_secret = std::env::var("JWT_SECRET").unwrap_or_default();
         if jwt_secret.len() < 32 {
             panic!("JWT_SECRET doit être défini et contenir au moins 32 caractères");
@@ -61,10 +78,7 @@ impl AppConfig {
         let invitation_email_sender = std::env::var("INVITATION_EMAIL_SENDER")
             .ok()
             .filter(|v| !v.trim().is_empty());
-        let invitation_email_api_key = std::env::var("INVITATION_EMAIL_API_KEY")
-            .or_else(|_| std::env::var("RESEND_API_KEY"))
-            .ok()
-            .filter(|v| !v.trim().is_empty());
+        let invitation_email_api_key = load_resend_api_key();
         let app_base_url =
             std::env::var("APP_BASE_URL").unwrap_or_else(|_| "https://fiestaaa.app".into());
         let avatar_upload_dir =

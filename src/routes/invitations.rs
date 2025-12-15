@@ -343,12 +343,12 @@ async fn send_invitation_email(
         Some(value) => value,
         None => {
             warn!(
-                "Invitation email not sent: INVITATION_EMAIL_API_KEY missing (target: {})",
+                "Invitation email not sent: RESEND_API_KEY missing (target: {})",
                 to_email
             );
             return Err(HttpResponse::ServiceUnavailable().json(ErrorResponse {
                 error: "email_not_configured".into(),
-                details: Some("INVITATION_EMAIL_API_KEY manquant".into()),
+                details: Some("RESEND_API_KEY manquant".into()),
             }));
         }
     };

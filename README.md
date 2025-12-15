@@ -10,8 +10,8 @@ Quick dev workflow using Docker Compose for both Postgres and the Rust API.
 - Copy `.env.example` to `.env` and adjust as needed. The compose file sets
   `DATABASE_URL=postgres://postgres:postgres@db:5432/fiestaaa` for the API container.
 - Optionally define `ADMIN_EMAILS` (comma-separated, lower/upper case ignored) to restrict admin endpoints like `/items` to specific accounts.
-- For invitation emails to unregistered guests, set `APP_BASE_URL` (used to build the share link),
-  `INVITATION_EMAIL_SENDER`, and `INVITATION_EMAIL_API_KEY` (or `RESEND_API_KEY`) to point to your email provider.
+- For invitation emails to unregistered guests, set `APP_BASE_URL` (used to build the share link) to your front URL
+  (ex: `http://localhost:5001` in dev), plus `INVITATION_EMAIL_SENDER` and `RESEND_API_KEY`.
 
 ## Run
 - `docker compose up --build`
