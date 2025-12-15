@@ -128,9 +128,14 @@ impl AppConfig {
             .ok()
             .map(|v| {
                 v.split(',')
-                    .map(|s| s.trim())
-                    .filter(|s| !s.is_empty())
-                    .map(|s| s.to_string())
+                    .filter_map(|s| {
+                        let normalized = s.trim().trim_end_matches('/');
+                        if normalized.is_empty() {
+                            None
+                        } else {
+                            Some(normalized.to_string())
+                        }
+                    })
                     .collect()
             })
             .unwrap_or_default();
