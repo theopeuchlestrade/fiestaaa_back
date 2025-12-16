@@ -231,8 +231,10 @@ async fn oauth_google(state: web::Data<AppState>, payload: OAuthPayload) -> Http
         }
     };
 
+    // tokeninfo returns `aud` for id_tokens and `audience` for access_tokens.
     let aud = token_info
         .get("aud")
+        .or_else(|| token_info.get("audience"))
         .and_then(|v| v.as_str())
         .unwrap_or_default();
     if !allowed_aud.iter().any(|id| *id == aud) {
