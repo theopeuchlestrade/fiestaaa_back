@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 
 use actix_web::web;
-use fiestaaa_back::state::AppState;
+use fiestaaa_back::{notifications::NotificationService, state::AppState};
 use once_cell::sync::Lazy;
 use sqlx::{PgPool, postgres::PgPoolOptions};
 use tokio::sync::Mutex;
@@ -46,6 +46,14 @@ pub fn build_state(pool: PgPool, secret: &str, admin_emails: &[&str]) -> web::Da
         .user_agent("fiestaaa-backend-tests")
         .build()
         .expect("http client");
+    let notifications = NotificationService::new(
+        None,
+        None,
+        None,
+        None,
+        http_client.clone(),
+        300,
+    );
 
     web::Data::new(AppState {
         db: pool,
@@ -57,5 +65,14 @@ pub fn build_state(pool: PgPool, secret: &str, admin_emails: &[&str]) -> web::Da
         invitation_email_sender: None,
         invitation_email_api_key: None,
         app_base_url: "http://localhost:3000".into(),
+        avatar_upload_dir: "./uploads/avatars".into(),
+        avatar_base_url: "http://localhost:8080/media/avatars".into(),
+        redis_client: None,
+        notifications,
+        fcm_project_id: None,
+        google_client_id: None,
+        google_android_client_id: None,
+        apple_app_id: None,
+        apple_service_id: None,
     })
 }

@@ -12,9 +12,16 @@ use fiestaaa_back::{
 use sqlx::PgPool;
 
 fn admin_token(secret: &str, email: &str) -> Option<String> {
+    let handle = email
+        .split('@')
+        .next()
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or("user")
+        .to_string();
     let claims = Claims {
         sub: email.to_string(),
         exp: (now_ts() + 3600) as usize,
+        handle,
     };
     encode_jwt(&claims, secret).ok()
 }
@@ -73,6 +80,7 @@ async fn create_item_requires_authentication() -> Result<(), Box<dyn Error>> {
                 type_id,
                 name_item: "Soda".to_string(),
                 max_quantity: 10,
+                unit_label: "unités".to_string(),
             })
             .to_request(),
     )
@@ -107,6 +115,7 @@ async fn create_item_rejects_non_admin() -> Result<(), Box<dyn Error>> {
                 type_id,
                 name_item: "Soda".to_string(),
                 max_quantity: 10,
+                unit_label: "unités".to_string(),
             })
             .to_request(),
     )
@@ -143,6 +152,7 @@ async fn items_crud_flow() -> Result<(), Box<dyn Error>> {
                 type_id,
                 name_item: "Soda".to_string(),
                 max_quantity: 10,
+                unit_label: "unités".to_string(),
             })
             .to_request(),
     )
@@ -171,6 +181,7 @@ async fn items_crud_flow() -> Result<(), Box<dyn Error>> {
                 type_id: other_type_id,
                 name_item: "Burger".to_string(),
                 max_quantity: 5,
+                unit_label: "unités".to_string(),
             })
             .to_request(),
     )
@@ -190,6 +201,7 @@ async fn items_crud_flow() -> Result<(), Box<dyn Error>> {
                 type_id: None,
                 name_item: Some("Burger Deluxe".to_string()),
                 max_quantity: Some(7),
+                unit_label: None,
             })
             .to_request(),
     )
@@ -243,6 +255,7 @@ async fn create_item_rejects_unknown_type() -> Result<(), Box<dyn Error>> {
                 type_id: 9999,
                 name_item: "Ghost".to_string(),
                 max_quantity: 1,
+                unit_label: "unités".to_string(),
             })
             .to_request(),
     )
