@@ -13,9 +13,16 @@ use fiestaaa_back::{
 use sqlx::PgPool;
 
 fn admin_token(secret: &str, email: &str) -> Option<String> {
+    let handle = email
+        .split('@')
+        .next()
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or("user")
+        .to_string();
     let claims = Claims {
         sub: email.to_string(),
         exp: (now_ts() + 3600) as usize,
+        handle,
     };
     encode_jwt(&claims, secret).ok()
 }
@@ -73,8 +80,7 @@ async fn invitations_crud_flow() -> Result<(), Box<dyn Error>> {
             .uri(&format!("/events/{}/invitations", event_id))
             .insert_header(("Authorization", format!("Bearer {}", owner_token.clone())))
             .set_json(&InvitationPayload {
-                event_id,
-                email: invitee_email.into(),
+                identifier: invitee_email.into(),
                 status: None,
             })
             .to_request(),
