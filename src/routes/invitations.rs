@@ -617,14 +617,14 @@ pub async fn list_event_invitations(
     get,
     path = "/events/{event_id}/invitations/suggestions",
     tag = "invitations",
-    request_body = InvitationSuggestionQuery,
     responses(
         (status = 200, description = "Suggestions d'invitations", body = [InvitationSuggestion]),
         (status = 403, description = "Non autorisé", body = ErrorResponse),
         (status = 404, description = "Événement introuvable", body = ErrorResponse)
     ),
     params(
-        ("event_id" = i64, Path, description = "Identifiant de l'événement")
+        ("event_id" = i64, Path, description = "Identifiant de l'événement"),
+        ("q" = Option<String>, Query, description = "Filtre (email ou handle)")
     )
 )]
 #[get("/events/{event_id}/invitations/suggestions")]

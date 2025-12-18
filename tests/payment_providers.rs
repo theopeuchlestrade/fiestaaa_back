@@ -11,9 +11,16 @@ use fiestaaa_back::{
 };
 
 fn admin_token(secret: &str, email: &str) -> Option<String> {
+    let handle = email
+        .split('@')
+        .next()
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or("user")
+        .to_string();
     let claims = Claims {
         sub: email.to_string(),
         exp: (now_ts() + 3600) as usize,
+        handle,
     };
     encode_jwt(&claims, secret).ok()
 }
@@ -65,6 +72,7 @@ async fn create_payment_provider_requires_authentication() -> Result<(), Box<dyn
             .set_json(&PaymentProviderPayload {
                 provider_name: "Stripe".to_string(),
                 url_template: "https://checkout.stripe.com/{identifier}".to_string(),
+                validation_regex: None,
                 is_active: None,
             })
             .to_request(),
@@ -98,6 +106,7 @@ async fn create_payment_provider_rejects_non_admin() -> Result<(), Box<dyn Error
             .set_json(&PaymentProviderPayload {
                 provider_name: "Stripe".to_string(),
                 url_template: "https://checkout.stripe.com/{identifier}".to_string(),
+                validation_regex: None,
                 is_active: None,
             })
             .to_request(),
@@ -132,6 +141,7 @@ async fn payment_providers_crud_flow() -> Result<(), Box<dyn Error>> {
             .set_json(&PaymentProviderPayload {
                 provider_name: "Stripe".to_string(),
                 url_template: "https://checkout.stripe.com/{identifier}".to_string(),
+                validation_regex: None,
                 is_active: Some(true),
             })
             .to_request(),
@@ -163,6 +173,7 @@ async fn payment_providers_crud_flow() -> Result<(), Box<dyn Error>> {
             .set_json(&PaymentProviderPayload {
                 provider_name: "Stripe Pro".to_string(),
                 url_template: "https://pro.stripe.com/{identifier}".to_string(),
+                validation_regex: None,
                 is_active: Some(true),
             })
             .to_request(),
@@ -182,6 +193,7 @@ async fn payment_providers_crud_flow() -> Result<(), Box<dyn Error>> {
             .set_json(&PaymentProviderPatchPayload {
                 provider_name: Some("Stripe Premium".to_string()),
                 url_template: None,
+                validation_regex: None,
                 is_active: Some(false),
             })
             .to_request(),
@@ -236,6 +248,7 @@ async fn create_payment_provider_validates_url_template() -> Result<(), Box<dyn 
             .set_json(&PaymentProviderPayload {
                 provider_name: "Invalid".to_string(),
                 url_template: "https://example.com/no-placeholder".to_string(),
+                validation_regex: None,
                 is_active: None,
             })
             .to_request(),
@@ -270,6 +283,7 @@ async fn create_payment_provider_prevents_duplicates() -> Result<(), Box<dyn Err
             .set_json(&PaymentProviderPayload {
                 provider_name: "Stripe".to_string(),
                 url_template: "https://checkout.stripe.com/{identifier}".to_string(),
+                validation_regex: None,
                 is_active: None,
             })
             .to_request(),
@@ -286,6 +300,7 @@ async fn create_payment_provider_prevents_duplicates() -> Result<(), Box<dyn Err
             .set_json(&PaymentProviderPayload {
                 provider_name: "Stripe".to_string(),
                 url_template: "https://different.url/{identifier}".to_string(),
+                validation_regex: None,
                 is_active: None,
             })
             .to_request(),

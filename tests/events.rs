@@ -15,9 +15,16 @@ use fiestaaa_back::{
 use sqlx::PgPool;
 
 fn admin_token(secret: &str, email: &str) -> Option<String> {
+    let handle = email
+        .split('@')
+        .next()
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or("user")
+        .to_string();
     let claims = Claims {
         sub: email.to_string(),
         exp: (now_ts() + 3600) as usize,
+        handle,
     };
     encode_jwt(&claims, secret).ok()
 }
@@ -118,6 +125,7 @@ async fn create_event_requires_authentication() -> Result<(), Box<dyn Error>> {
                 payment_provider_id: None,
                 payment_identifier: None,
                 payment_requested_amount: None,
+                payment_per_person: None,
             })
             .to_request(),
     )
@@ -159,6 +167,7 @@ async fn create_event_allows_authenticated_user() -> Result<(), Box<dyn Error>> 
                 payment_provider_id: None,
                 payment_identifier: None,
                 payment_requested_amount: None,
+                payment_per_person: None,
             })
             .to_request(),
     )
@@ -203,6 +212,7 @@ async fn events_crud_flow() -> Result<(), Box<dyn Error>> {
                 payment_provider_id: Some(provider_id),
                 payment_identifier: Some("PARTY2024".to_string()),
                 payment_requested_amount: None,
+                payment_per_person: None,
             })
             .to_request(),
     )
@@ -235,12 +245,14 @@ async fn events_crud_flow() -> Result<(), Box<dyn Error>> {
                 description: "The BIGGEST party of the summer".to_string(),
                 date_event: NaiveDate::from_ymd_opt(2024, 7, 2).unwrap(),
                 start_time: NaiveTime::from_hms_opt(21, 0, 0).unwrap(),
+                invitation_deadline: None,
                 address: "456 Party Avenue".to_string(),
                 latitude: None,
                 longitude: None,
                 payment_provider_id: Some(provider_id),
                 payment_identifier: Some("MEGAPARTY2024".to_string()),
                 payment_requested_amount: None,
+                payment_per_person: None,
             })
             .to_request(),
     )
@@ -262,12 +274,14 @@ async fn events_crud_flow() -> Result<(), Box<dyn Error>> {
                 description: None,
                 date_event: None,
                 start_time: Some(NaiveTime::from_hms_opt(22, 0, 0).unwrap()),
+                invitation_deadline: None,
                 address: None,
                 latitude: None,
                 longitude: None,
                 payment_provider_id: None,
                 payment_identifier: None,
                 payment_requested_amount: None,
+                payment_per_person: None,
             })
             .to_request(),
     )
@@ -345,6 +359,7 @@ async fn event_items_reservation_flow() -> Result<(), Box<dyn Error>> {
                 payment_provider_id: None,
                 payment_identifier: None,
                 payment_requested_amount: None,
+                payment_per_person: None,
             })
             .to_request(),
     )
@@ -506,6 +521,7 @@ async fn create_event_rejects_unknown_payment_provider() -> Result<(), Box<dyn E
                 payment_provider_id: Some(9999),
                 payment_identifier: Some("INVALID".to_string()),
                 payment_requested_amount: None,
+                payment_per_person: None,
             })
             .to_request(),
     )
@@ -549,6 +565,7 @@ async fn event_validates_empty_fields() -> Result<(), Box<dyn Error>> {
                 payment_provider_id: None,
                 payment_identifier: None,
                 payment_requested_amount: None,
+                payment_per_person: None,
             })
             .to_request(),
     )
@@ -573,6 +590,7 @@ async fn event_validates_empty_fields() -> Result<(), Box<dyn Error>> {
                 payment_provider_id: None,
                 payment_identifier: None,
                 payment_requested_amount: None,
+                payment_per_person: None,
             })
             .to_request(),
     )
@@ -597,6 +615,7 @@ async fn event_validates_empty_fields() -> Result<(), Box<dyn Error>> {
                 payment_provider_id: None,
                 payment_identifier: None,
                 payment_requested_amount: None,
+                payment_per_person: None,
             })
             .to_request(),
     )
