@@ -26,7 +26,6 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(items::update_item)
         .service(items::delete_item)
         .service(invitations::list_event_invitations)
-        .service(invitations::suggest_invitations)
         .service(invitations::create_invitation)
         .service(invitations::delete_invitation)
         .service(invitations::list_my_invitations)
