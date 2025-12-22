@@ -1,5 +1,5 @@
 use actix_multipart::Multipart;
-use actix_web::{HttpRequest, HttpResponse, Responder, get, patch, post, web};
+use actix_web::{HttpRequest, HttpResponse, Responder, delete, get, patch, post, web};
 use futures_util::StreamExt;
 use sqlx::Row;
 use uuid::Uuid;
@@ -7,7 +7,7 @@ use uuid::Uuid;
 use crate::{
     auth::extract_claims_from_auth,
     handles::{handle_available, is_valid_handle, normalize_handle},
-    models::{ErrorResponse, HandleAvailabilityResponse, HandleUpdatePayload, MeResponse},
+    models::{ErrorResponse, HandleAvailabilityResponse, HandleUpdatePayload, MeResponse, StatusResponse},
     state::AppState,
 };
 
@@ -266,6 +266,50 @@ pub async fn upload_avatar(
         Err(_) => HttpResponse::InternalServerError().json(ErrorResponse {
             error: "db_error".into(),
             details: None,
+        }),
+    }
+}
+
+#[utoipa::path(
+    delete,
+    path = "/me",
+    tag = "users",
+    responses(
+        (status = 200, description = "Compte supprimé avec succès", body = StatusResponse),
+        (status = 401, description = "Authentification requise", body = ErrorResponse),
+        (status = 404, description = "Utilisateur introuvable", body = ErrorResponse),
+        (status = 500, description = "Erreur serveur", body = ErrorResponse)
+    )
+)]
+#[delete("/me")]
+pub async fn delete_account(
+    state: web::Data<AppState>,
+    req: HttpRequest,
+) -> impl Responder {
+    let claims = match extract_claims_from_auth(&req, &state.jwt_secret) {
+        Ok(c) => c,
+        Err(resp) => return resp,
+    };
+
+    // Supprimer l'utilisateur (les CASCADE s'occupent des données liées)
+    let res = sqlx::query("DELETE FROM users WHERE lower(email) = lower($1)")
+        .bind(&claims.sub)
+        .execute(&state.db)
+        .await;
+
+    match res {
+        Ok(result) if result.rows_affected() > 0 => {
+            HttpResponse::Ok().json(StatusResponse {
+                status: "account_deleted".into(),
+            })
+        }
+        Ok(_) => HttpResponse::NotFound().json(ErrorResponse {
+            error: "user_not_found".into(),
+            details: None,
+        }),
+        Err(_) => HttpResponse::InternalServerError().json(ErrorResponse {
+            error: "db_error".into(),
+            details: Some("Impossible de supprimer le compte".into()),
         }),
     }
 }
