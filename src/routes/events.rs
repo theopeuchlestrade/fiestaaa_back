@@ -18,7 +18,7 @@ use crate::{
         StatusResponse,
     },
     notifications::{event_member_user_ids, notify_users},
-    realtime::publish_event,
+    realtime::{event_types, publish_event, publish_global},
     state::AppState,
 };
 
@@ -540,10 +540,13 @@ pub async fn create_event(
 
     match res {
         Ok(event) => {
-            publish_event(
+            publish_global(
                 &state.redis_client,
-                event.event_id,
-                &json!({"type": "event_updated", "event_id": event.event_id, "event": &event}),
+                &json!({
+                    "type": event_types::EVENTS_CHANGED,
+                    "action": "created",
+                    "event_id": event.event_id,
+                }),
             )
             .await;
             HttpResponse::Created().json(event)
@@ -651,7 +654,16 @@ pub async fn replace_event(
             publish_event(
                 &state.redis_client,
                 event.event_id,
-                &json!({"type": "event_updated", "event_id": event.event_id, "event": &event}),
+                &json!({"type": event_types::EVENT_UPDATED, "event_id": event.event_id}),
+            )
+            .await;
+            publish_global(
+                &state.redis_client,
+                &json!({
+                    "type": event_types::EVENTS_CHANGED,
+                    "action": "updated",
+                    "event_id": event.event_id,
+                }),
             )
             .await;
             HttpResponse::Ok().json(event)
@@ -814,6 +826,21 @@ pub async fn update_event(
     match res {
         Ok(Some(event)) => {
             notify_event_members(state.get_ref(), &event, &updated_fields).await;
+            publish_event(
+                &state.redis_client,
+                event.event_id,
+                &json!({"type": event_types::EVENT_UPDATED, "event_id": event.event_id}),
+            )
+            .await;
+            publish_global(
+                &state.redis_client,
+                &json!({
+                    "type": event_types::EVENTS_CHANGED,
+                    "action": "updated",
+                    "event_id": event.event_id,
+                }),
+            )
+            .await;
             HttpResponse::Ok().json(event)
         }
         Ok(None) => HttpResponse::NotFound().json(ErrorResponse {
@@ -867,9 +894,26 @@ pub async fn delete_event(
             error: "event_not_found".into(),
             details: None,
         }),
-        Ok(_) => HttpResponse::Ok().json(StatusResponse {
-            status: "deleted".into(),
-        }),
+        Ok(_) => {
+            publish_event(
+                &state.redis_client,
+                *event_id,
+                &json!({"type": event_types::EVENT_DELETED, "event_id": *event_id}),
+            )
+            .await;
+            publish_global(
+                &state.redis_client,
+                &json!({
+                    "type": event_types::EVENTS_CHANGED,
+                    "action": "deleted",
+                    "event_id": *event_id,
+                }),
+            )
+            .await;
+            HttpResponse::Ok().json(StatusResponse {
+                status: "deleted".into(),
+            })
+        }
         Err(_) => HttpResponse::InternalServerError().json(ErrorResponse {
             error: "db_error".into(),
             details: None,
@@ -1049,7 +1093,7 @@ pub async fn claim_share_link(
     };
 
     // Ensure an invitation exists, but let the user choose their response later.
-    if let Err(_) = sqlx::query(
+    let invitation_inserted = match sqlx::query(
         "INSERT INTO invitations (event_id, user_id, status)
          VALUES ($1, $2, 'Waiting')
          ON CONFLICT (event_id, user_id) DO NOTHING",
@@ -1059,8 +1103,9 @@ pub async fn claim_share_link(
     .execute(&mut *tx)
     .await
     {
-        return server_error();
-    }
+        Ok(result) => result.rows_affected() > 0,
+        Err(_) => return server_error(),
+    };
 
     let update_res = sqlx::query(
         "UPDATE event_share_tokens SET used_at = NOW(), used_by_email = $1 WHERE token = $2",
@@ -1076,6 +1121,32 @@ pub async fn claim_share_link(
 
     if tx.commit().await.is_err() {
         return server_error();
+    }
+
+    if invitation_inserted {
+        publish_event(
+            &state.redis_client,
+            event.event_id,
+            &json!({
+                "type": event_types::EVENT_INVITATIONS_CHANGED,
+                "event_id": event.event_id,
+                "action": "created",
+                "status": "Waiting",
+                "email": claims.sub.clone(),
+            }),
+        )
+        .await;
+        publish_global(
+            &state.redis_client,
+            &json!({
+                "type": event_types::INVITATIONS_CHANGED,
+                "event_id": event.event_id,
+                "action": "created",
+                "status": "Waiting",
+                "email": claims.sub,
+            }),
+        )
+        .await;
     }
 
     HttpResponse::Ok().json(ShareClaimResponse { event })
@@ -1251,7 +1322,11 @@ pub async fn attach_event_item(
                     publish_event(
                         &state.redis_client,
                         ev,
-                        &json!({"type": "items_changed", "event_id": ev, "item_id": item}),
+                        &json!({
+                            "type": event_types::EVENT_ITEMS_CHANGED,
+                            "event_id": ev,
+                            "item_id": item
+                        }),
                     )
                     .await;
                     HttpResponse::Ok().json(view)
@@ -1439,7 +1514,11 @@ pub async fn create_custom_event_item(
             publish_event(
                 &state.redis_client,
                 ev_id,
-                &json!({"type": "items_changed", "event_id": ev_id, "item_id": item_id}),
+                &json!({
+                    "type": event_types::EVENT_ITEMS_CHANGED,
+                    "event_id": ev_id,
+                    "item_id": item_id
+                }),
             )
             .await;
             HttpResponse::Ok().json(view)
@@ -1599,7 +1678,11 @@ pub async fn reserve_event_item(
             publish_event(
                 &state.redis_client,
                 event_id,
-                &json!({"type": "items_changed", "event_id": event_id, "item_id": item_id}),
+                &json!({
+                    "type": event_types::EVENT_ITEMS_CHANGED,
+                    "event_id": event_id,
+                    "item_id": item_id
+                }),
             )
             .await;
             return HttpResponse::Ok().json(view);
@@ -1718,7 +1801,11 @@ pub async fn delete_event_item(
     publish_event(
         &state.redis_client,
         event_id,
-        &json!({"type": "items_changed", "event_id": event_id, "item_id": item_id}),
+        &json!({
+            "type": event_types::EVENT_ITEMS_CHANGED,
+            "event_id": event_id,
+            "item_id": item_id
+        }),
     )
     .await;
 
@@ -1910,7 +1997,11 @@ pub async fn create_event_poll(
     publish_event(
         &state.redis_client,
         *event_id,
-        &json!({"type": "polls_changed", "event_id": *event_id, "poll_id": poll_id}),
+        &json!({
+            "type": event_types::EVENT_POLLS_CHANGED,
+            "event_id": *event_id,
+            "poll_id": poll_id
+        }),
     )
     .await;
 
@@ -2118,7 +2209,11 @@ pub async fn vote_event_poll(
     publish_event(
         &state.redis_client,
         event_id,
-        &json!({"type": "polls_changed", "event_id": event_id, "poll_id": poll_id}),
+        &json!({
+            "type": event_types::EVENT_POLLS_CHANGED,
+            "event_id": event_id,
+            "poll_id": poll_id
+        }),
     )
     .await;
 
@@ -2218,7 +2313,12 @@ pub async fn delete_event_poll(
             publish_event(
                 &state.redis_client,
                 event_id,
-                &json!({"type": "polls_changed", "event_id": event_id, "poll_id": poll_id, "deleted": true}),
+                &json!({
+                    "type": event_types::EVENT_POLLS_CHANGED,
+                    "event_id": event_id,
+                    "poll_id": poll_id,
+                    "deleted": true
+                }),
             )
             .await;
             HttpResponse::Ok().json(StatusResponse {

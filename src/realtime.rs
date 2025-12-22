@@ -20,6 +20,18 @@ use crate::{
 
 const GLOBAL_CHANNEL: &str = "fiestaaa:global";
 
+pub mod event_types {
+    pub const EVENTS_CHANGED: &str = "events.changed";
+    pub const EVENT_UPDATED: &str = "event.updated";
+    pub const EVENT_DELETED: &str = "event.deleted";
+    pub const EVENT_ITEMS_CHANGED: &str = "event.items.changed";
+    pub const EVENT_POLLS_CHANGED: &str = "event.polls.changed";
+    pub const EVENT_INVITATIONS_CHANGED: &str = "event.invitations.changed";
+    pub const INVITATIONS_CHANGED: &str = "invitations.changed";
+    pub const FRIEND_REQUESTS_CHANGED: &str = "friend_requests.changed";
+    pub const FRIENDSHIPS_CHANGED: &str = "friendships.changed";
+}
+
 pub fn global_channel() -> &'static str {
     GLOBAL_CHANNEL
 }
