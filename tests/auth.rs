@@ -204,3 +204,161 @@ async fn login_rejects_invalid_credentials() -> Result<(), Box<dyn Error>> {
 
     Ok(())
 }
+
+#[tokio::test]
+async fn delete_account_removes_user() -> Result<(), Box<dyn Error>> {
+    let Some(pool) = obtain_pool().await else {
+        eprintln!("Skipping auth tests: DATABASE_URL or TEST_DATABASE_URL not set");
+        return Ok(());
+    };
+    let _guard = DB_LOCK.lock().await;
+    reset_tables(&pool, &["users"]).await?;
+
+    let secret = "secret";
+    let state = build_state(pool.clone(), secret, &[]);
+    let mut app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
+
+    let email = "delete-me@example.com";
+    let password = "MyStr0ng!Pass#2025";
+
+    let register_resp = test::call_service(
+        &mut app,
+        test::TestRequest::post()
+            .uri("/auth/register")
+            .set_json(&serde_json::json!({ "email": email, "password": password }))
+            .to_request(),
+    )
+    .await;
+    assert_eq!(register_resp.status(), StatusCode::CREATED);
+
+    let login_resp = test::call_service(
+        &mut app,
+        test::TestRequest::post()
+            .uri("/auth/login")
+            .set_json(&serde_json::json!({ "email": email, "password": password }))
+            .to_request(),
+    )
+    .await;
+    assert_eq!(login_resp.status(), StatusCode::OK);
+
+    let login_json: Value = test::read_body_json(login_resp).await;
+    let token = login_json
+        .get("token")
+        .and_then(|v| v.as_str())
+        .expect("token in response");
+
+    let count_before: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM users")
+        .fetch_one(&pool)
+        .await?;
+    assert_eq!(count_before.0, 1);
+
+    let delete_resp = test::call_service(
+        &mut app,
+        test::TestRequest::delete()
+            .uri("/me")
+            .insert_header(("Authorization", format!("Bearer {}", token)))
+            .to_request(),
+    )
+    .await;
+    assert_eq!(delete_resp.status(), StatusCode::OK);
+
+    let delete_json: Value = test::read_body_json(delete_resp).await;
+    assert_eq!(delete_json.get("status").and_then(|v| v.as_str()), Some("account_deleted"));
+
+    let count_after: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM users")
+        .fetch_one(&pool)
+        .await?;
+    assert_eq!(count_after.0, 0);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn delete_account_requires_auth() -> Result<(), Box<dyn Error>> {
+    let Some(pool) = obtain_pool().await else {
+        eprintln!("Skipping auth tests: DATABASE_URL or TEST_DATABASE_URL not set");
+        return Ok(());
+    };
+    let _guard = DB_LOCK.lock().await;
+    reset_tables(&pool, &["users"]).await?;
+
+    let state = build_state(pool.clone(), "secret", &[]);
+    let mut app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
+
+    let no_header_resp = test::call_service(
+        &mut app,
+        test::TestRequest::delete().uri("/me").to_request(),
+    )
+    .await;
+    assert_eq!(no_header_resp.status(), StatusCode::UNAUTHORIZED);
+
+    let invalid_token_resp = test::call_service(
+        &mut app,
+        test::TestRequest::delete()
+            .uri("/me")
+            .insert_header(("Authorization", "Bearer invalid.token.here"))
+            .to_request(),
+    )
+    .await;
+    assert_eq!(invalid_token_resp.status(), StatusCode::UNAUTHORIZED);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn delete_account_returns_404_for_missing_user() -> Result<(), Box<dyn Error>> {
+    let Some(pool) = obtain_pool().await else {
+        eprintln!("Skipping auth tests: DATABASE_URL or TEST_DATABASE_URL not set");
+        return Ok(());
+    };
+    let _guard = DB_LOCK.lock().await;
+    reset_tables(&pool, &["users"]).await?;
+
+    let secret = "secret";
+    let state = build_state(pool.clone(), secret, &[]);
+    let mut app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
+
+    let email = "ghost@example.com";
+    let password = "MyStr0ng!Pass#2025";
+
+    let register_resp = test::call_service(
+        &mut app,
+        test::TestRequest::post()
+            .uri("/auth/register")
+            .set_json(&serde_json::json!({ "email": email, "password": password }))
+            .to_request(),
+    )
+    .await;
+    assert_eq!(register_resp.status(), StatusCode::CREATED);
+
+    let login_resp = test::call_service(
+        &mut app,
+        test::TestRequest::post()
+            .uri("/auth/login")
+            .set_json(&serde_json::json!({ "email": email, "password": password }))
+            .to_request(),
+    )
+    .await;
+    let login_json: Value = test::read_body_json(login_resp).await;
+    let token = login_json
+        .get("token")
+        .and_then(|v| v.as_str())
+        .expect("token");
+
+    sqlx::query("DELETE FROM users WHERE lower(email) = lower($1)")
+        .bind(email)
+        .execute(&pool)
+        .await?;
+
+    let delete_resp = test::call_service(
+        &mut app,
+        test::TestRequest::delete()
+            .uri("/me")
+            .insert_header(("Authorization", format!("Bearer {}", token)))
+            .to_request(),
+    )
+    .await;
+    assert_eq!(delete_resp.status(), StatusCode::NOT_FOUND);
+
+    Ok(())
+}
