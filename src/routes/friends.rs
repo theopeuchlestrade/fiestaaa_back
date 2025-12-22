@@ -11,7 +11,7 @@ use crate::{
         FriendSearchResult, StatusResponse,
     },
     notifications::notify_users,
-    realtime::publish_global,
+    realtime::{event_types, publish_global},
     state::AppState,
 };
 
@@ -401,7 +401,12 @@ pub async fn create_friend_request(
             .await;
             publish_global(
                 &state.redis_client,
-                &serde_json::json!({"type": "friend_request_updated"}),
+                &serde_json::json!({
+                    "type": event_types::FRIEND_REQUESTS_CHANGED,
+                    "action": "created",
+                    "request_id": req.id,
+                    "status": req.status.clone(),
+                }),
             )
             .await;
             HttpResponse::Created().json(req)
@@ -605,9 +610,25 @@ pub async fn respond_friend_request(
             .await;
             publish_global(
                 &state.redis_client,
-                &serde_json::json!({"type": "friend_request_updated"}),
+                &serde_json::json!({
+                    "type": event_types::FRIEND_REQUESTS_CHANGED,
+                    "action": "updated",
+                    "request_id": req.id,
+                    "status": target_status,
+                }),
             )
             .await;
+            if target_status == "Accepted" {
+                publish_global(
+                    &state.redis_client,
+                    &serde_json::json!({
+                        "type": event_types::FRIENDSHIPS_CHANGED,
+                        "action": "created",
+                        "user_emails": [req.sender_email.clone(), req.receiver_email.clone()],
+                    }),
+                )
+                .await;
+            }
             HttpResponse::Ok().json(req)
         }
         Err(resp) => resp,
@@ -651,9 +672,20 @@ pub async fn delete_friend(
             error: "friend_not_found".into(),
             details: None,
         }),
-        Ok(_) => HttpResponse::Ok().json(StatusResponse {
-            status: "deleted".into(),
-        }),
+        Ok(_) => {
+            publish_global(
+                &state.redis_client,
+                &serde_json::json!({
+                    "type": event_types::FRIENDSHIPS_CHANGED,
+                    "action": "deleted",
+                    "user_emails": [user.email, target.email],
+                }),
+            )
+            .await;
+            HttpResponse::Ok().json(StatusResponse {
+                status: "deleted".into(),
+            })
+        }
         Err(_) => db_error(),
     }
 }
