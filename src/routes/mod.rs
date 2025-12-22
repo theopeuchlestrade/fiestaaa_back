@@ -36,6 +36,7 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(users::check_handle_availability)
         .service(users::update_handle)
         .service(users::upload_avatar)
+        .service(users::delete_account)
         .service(events::get_event)
         .service(events::list_events)
         .service(events::create_event)
