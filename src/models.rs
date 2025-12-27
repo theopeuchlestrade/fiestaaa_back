@@ -142,7 +142,7 @@ pub struct EventPatchPayload {
     pub description: Option<String>,
     pub date_event: Option<chrono::NaiveDate>,
     pub start_time: Option<chrono::NaiveTime>,
-    pub invitation_deadline: Option<chrono::NaiveDate>,
+    pub invitation_deadline: Option<Option<chrono::NaiveDate>>,
     pub address: Option<String>,
     pub latitude: Option<f64>,
     pub longitude: Option<f64>,

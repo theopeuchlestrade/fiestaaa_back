@@ -526,10 +526,13 @@ async fn insert_invitation_for_user(
     db: &sqlx::PgPool,
     event_id: i64,
     user: &UserIdentity,
-) -> Result<Invitation, sqlx::Error> {
+) -> Result<Option<Invitation>, sqlx::Error> {
     sqlx::query_as::<_, Invitation>(
         "INSERT INTO invitations (event_id, user_id, status)
          VALUES ($1, $2, 'Waiting')
+         ON CONFLICT (event_id, user_id)
+         DO UPDATE SET status = 'Waiting', date_invi = NOW()
+         WHERE invitations.status = 'Expired'
          RETURNING event_id, $3 AS email, $4 AS handle, $5 AS avatar_url, status, date_invi,
                    (SELECT name_event FROM events WHERE event_id = $1) AS event_name",
     )
@@ -538,7 +541,7 @@ async fn insert_invitation_for_user(
     .bind(&user.email)
     .bind(&user.handle)
     .bind(&user.avatar_url)
-    .fetch_one(db)
+    .fetch_optional(db)
     .await
 }
 
@@ -679,7 +682,7 @@ pub async fn create_invitation(
 
             if let Some(user) = user {
                 match insert_invitation_for_user(&state.db, *event_id, &user).await {
-                    Ok(inv) => {
+                    Ok(Some(inv)) => {
                         publish_event(
                             &state.redis_client,
                             *event_id,
@@ -726,6 +729,12 @@ pub async fn create_invitation(
                         )
                         .await;
                         HttpResponse::Created().json(inv)
+                    }
+                    Ok(None) => {
+                        HttpResponse::Conflict().json(ErrorResponse {
+                            error: "invitation_exists".into(),
+                            details: None,
+                        })
                     }
                     Err(sqlx::Error::Database(db_err))
                         if db_err.code().as_deref() == Some("23505") =>
@@ -757,7 +766,7 @@ pub async fn create_invitation(
 
             match user {
                 Some(user) => match insert_invitation_for_user(&state.db, *event_id, &user).await {
-                    Ok(inv) => {
+                    Ok(Some(inv)) => {
                         publish_event(
                             &state.redis_client,
                             *event_id,
@@ -804,6 +813,12 @@ pub async fn create_invitation(
                         )
                         .await;
                         HttpResponse::Created().json(inv)
+                    }
+                    Ok(None) => {
+                        HttpResponse::Conflict().json(ErrorResponse {
+                            error: "invitation_exists".into(),
+                            details: None,
+                        })
                     }
                     Err(sqlx::Error::Database(db_err))
                         if db_err.code().as_deref() == Some("23505") =>
