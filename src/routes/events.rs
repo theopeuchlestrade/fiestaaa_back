@@ -732,6 +732,9 @@ pub async fn update_event(
     if payload.address.is_some() || payload.latitude.is_some() || payload.longitude.is_some() {
         updated_fields.push("location");
     }
+    if payload.invitation_deadline.is_some() {
+        updated_fields.push("deadline");
+    }
     if payload
         .name_event
         .as_ref()
@@ -785,10 +788,19 @@ pub async fn update_event(
             .unwrap_or(current_payment_per_person)
     };
     let target_date_event = payload.date_event.unwrap_or(current_date_event);
-    let target_deadline = payload.invitation_deadline.or(current_invitation_deadline);
+    let invitation_deadline_update = payload.invitation_deadline.clone();
+    let target_deadline = invitation_deadline_update
+        .clone()
+        .unwrap_or(current_invitation_deadline);
     if let Err(resp) = validate_invitation_deadline(target_deadline, target_date_event) {
         return resp;
     }
+
+    let (invitation_deadline_set, invitation_deadline_value) =
+        match invitation_deadline_update {
+            Some(value) => (true, value),
+            None => (false, None),
+        };
 
     let res = sqlx::query_as::<_, Event>(
         "UPDATE events
@@ -796,22 +808,23 @@ pub async fn update_event(
              description = COALESCE($2, description),
              date_event = COALESCE($3, date_event),
              start_time = COALESCE($4, start_time),
-             invitation_deadline = COALESCE($5, invitation_deadline),
-             address = COALESCE($6, address),
-             latitude = COALESCE($7, latitude),
-             longitude = COALESCE($8, longitude),
-             payment_provider_id = COALESCE($9, payment_provider_id),
-             payment_identifier = COALESCE($10, payment_identifier),
-             payment_requested_amount = COALESCE($11, payment_requested_amount),
-             payment_per_person = $12
-         WHERE event_id = $13
+             invitation_deadline = CASE WHEN $5 THEN $6 ELSE invitation_deadline END,
+             address = COALESCE($7, address),
+             latitude = COALESCE($8, latitude),
+             longitude = COALESCE($9, longitude),
+             payment_provider_id = COALESCE($10, payment_provider_id),
+             payment_identifier = COALESCE($11, payment_identifier),
+             payment_requested_amount = COALESCE($12, payment_requested_amount),
+             payment_per_person = $13
+         WHERE event_id = $14
          RETURNING event_id, name_event, description, date_event, start_time, invitation_deadline, address, latitude, longitude, payment_provider_id, payment_identifier, payment_requested_amount, payment_per_person, owner_email",
     )
     .bind(payload.name_event.as_ref().map(|v| v.trim()).filter(|v| !v.is_empty()))
     .bind(payload.description.as_ref().map(|v| v.trim()).filter(|v| !v.is_empty()))
     .bind(payload.date_event)
     .bind(payload.start_time)
-    .bind(payload.invitation_deadline)
+    .bind(invitation_deadline_set)
+    .bind(invitation_deadline_value)
     .bind(payload.address.as_ref().map(|v| v.trim()).filter(|v| !v.is_empty()))
     .bind(payload.latitude)
     .bind(payload.longitude)
