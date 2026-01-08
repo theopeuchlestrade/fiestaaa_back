@@ -90,6 +90,36 @@ graph TD
    sudo ufw allow 80,443/tcp
    sudo ufw enable
    ```
+6. **Fail2ban (protection brute-force SSH)**
+   ```bash
+   sudo apt install -y fail2ban
+   sudo systemctl enable --now fail2ban
+   ```
+   Configuration de base (adapter `ignoreip` et le port SSH si besoin) :
+   ```bash
+   sudo tee /etc/fail2ban/jail.local >/dev/null <<'EOF'
+   [DEFAULT]
+   bantime = 1h
+   findtime = 10m
+   maxretry = 5
+   ignoreip = 127.0.0.1/8 ::1 <votre_ip_fixee>
+
+   [sshd]
+   enabled = true
+   port = ssh
+   backend = systemd
+   banaction = ufw
+   EOF
+   sudo systemctl restart fail2ban
+   ```
+   `ignoreip` est la liste des IPs/réseaux jamais bannis (séparés par des espaces). Ajoutez votre IP publique/VPN d'administration, et évitez `0.0.0.0/0` qui désactive la protection.
+   Vérifications utiles :
+   ```bash
+   sudo fail2ban-client status
+   sudo fail2ban-client status sshd
+   sudo tail -f /var/log/fail2ban.log
+   ```
+   Si vous utilisez un port SSH non standard, remplacez `port = ssh` par le port réel (et ouvrez-le dans UFW).
 
 ## 2) Préparer l'arborescence sur le VPS
 
