@@ -192,10 +192,15 @@ async fn oauth_google(state: web::Data<AppState>, payload: OAuthPayload) -> Http
     if let Some(android_id) = state.google_android_client_id.as_ref() {
         allowed_aud.push(android_id.as_str());
     }
+    if let Some(ios_id) = state.google_ios_client_id.as_ref() {
+        allowed_aud.push(ios_id.as_str());
+    }
     if allowed_aud.is_empty() {
         return HttpResponse::InternalServerError().json(ErrorResponse {
             error: "oauth_not_configured".into(),
-            details: Some("FIESTAAA_GOOGLE_WEB_CLIENT_ID manquant".into()),
+            details: Some(
+                "aucun FIESTAAA_GOOGLE_*_CLIENT_ID defini (WEB/ANDROID/IOS)".into(),
+            ),
         });
     }
 
