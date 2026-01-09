@@ -214,6 +214,8 @@ Nom | Description
 `FCM_PROJECT_ID` | ID du projet Firebase
 `NOTIFICATION_DEDUP_TTL_SECONDS` | TTL de déduplication des notifications (ex. 300)
 `FIESTAAA_GOOGLE_WEB_CLIENT_ID` | Client ID Google OAuth web
+`FIESTAAA_GOOGLE_ANDROID_CLIENT_ID` | Client ID Google OAuth Android
+`FIESTAAA_GOOGLE_IOS_CLIENT_ID` | Client ID Google OAuth iOS
 `FIESTAAA_APPLE_APP_ID` | Bundle ID iOS/macOS pour vérifier les tokens Apple natifs
 `FIESTAAA_APPLE_SERVICE_ID` / `FIESTAAA_APPLE_REDIRECT_URI` | OAuth Apple (web) — requis si vous voulez afficher le bouton Apple (transmis dans le `.env` généré)
 `ADMIN_EMAILS` | (optionnel) Liste d'emails admin séparés par des virgules
