@@ -57,6 +57,7 @@ async fn main() -> std::io::Result<()> {
         fcm_project_id: cfg.fcm_project_id.clone(),
         google_client_id: cfg.google_client_id.clone(),
         google_android_client_id: cfg.google_android_client_id.clone(),
+        google_ios_client_id: cfg.google_ios_client_id.clone(),
         apple_app_id: cfg.apple_app_id.clone(),
         apple_service_id: cfg.apple_service_id.clone(),
     });
