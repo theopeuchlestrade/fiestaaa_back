@@ -57,7 +57,7 @@ services:
         condition: service_started
     volumes:
       - ./data/uploads:/data/uploads
-      - ./backend/service-account.json:/app/service-account.json:ro
+      - ./data/service-account.json:/app/service-account.json:ro
     labels:
       - traefik.enable=true
       - traefik.http.routers.api.rule=Host(`api.fiestaaa.app`)
