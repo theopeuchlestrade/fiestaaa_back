@@ -3,6 +3,7 @@ use sqlx::Error;
 
 use crate::{
     auth::extract_claims_from_auth,
+    metrics::AppMetrics,
     models::{ErrorResponse, Item, ItemPatchPayload, ItemPayload, StatusResponse},
     state::AppState,
 };
@@ -64,9 +65,11 @@ pub async fn list_items(state: web::Data<AppState>) -> impl Responder {
 #[post("/items")]
 pub async fn create_item(
     state: web::Data<AppState>,
+    metrics: web::Data<AppMetrics>,
     req: HttpRequest,
     payload: web::Json<ItemPayload>,
 ) -> impl Responder {
+    metrics.item_creations_total.inc();
     if let Err(resp) = ensure_admin(&req, state.get_ref()) {
         return resp;
     }

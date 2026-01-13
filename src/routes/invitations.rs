@@ -8,6 +8,7 @@ use uuid::Uuid;
 use crate::{
     auth::extract_claims_from_auth,
     handles::{is_valid_handle, looks_like_email, normalize_handle},
+    metrics::AppMetrics,
     models::{
         ErrorResponse, Invitation, InvitationPatchPayload, InvitationPayload,
         StatusResponse,
@@ -627,10 +628,12 @@ pub async fn list_event_invitations(
 #[post("/events/{event_id}/invitations")]
 pub async fn create_invitation(
     state: web::Data<AppState>,
+    metrics: web::Data<AppMetrics>,
     req: HttpRequest,
     event_id: web::Path<i64>,
     payload: web::Json<InvitationPayload>,
 ) -> impl Responder {
+    metrics.invitation_creations_total.inc();
     if let Err(resp) = ensure_invitation_deadline_schema(&state.db).await {
         return resp;
     }

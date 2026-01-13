@@ -8,6 +8,7 @@ use crate::{
         validate_password_strength, verify_password,
     },
     handles::{generate_unique_handle, handle_available, is_valid_handle, normalize_handle},
+    metrics::AppMetrics,
     models::{
         Claims, ErrorResponse, LoginPayload, OAuthPayload, RegisterPayload, StatusResponse,
         TokenResponse,
@@ -36,8 +37,10 @@ pub struct OAuthPath {
 #[post("/auth/register")]
 pub async fn register(
     state: web::Data<AppState>,
+    metrics: web::Data<AppMetrics>,
     payload: web::Json<RegisterPayload>,
 ) -> impl Responder {
+    metrics.authentication_attempts_total.inc();
     let email = payload.email.trim().to_lowercase();
     let password = payload.password.trim();
     let requested_handle = payload
@@ -111,9 +114,12 @@ pub async fn register(
         .await;
 
     match res {
-        Ok(_) => HttpResponse::Created().json(StatusResponse {
-            status: "ok".into(),
-        }),
+        Ok(_) => {
+            metrics.authentication_success_total.inc();
+            HttpResponse::Created().json(StatusResponse {
+                status: "ok".into(),
+            })
+        }
         Err(e) => match e {
             Error::Database(db_err) if db_err.code().as_deref() == Some("23505") => {
                 let constraint = db_err.constraint().unwrap_or_default();
@@ -122,15 +128,19 @@ pub async fn register(
                 } else {
                     "email_taken"
                 };
+                metrics.authentication_failure_total.inc();
                 HttpResponse::Conflict().json(ErrorResponse {
                     error: error.into(),
                     details: None,
                 })
             }
-            _ => HttpResponse::InternalServerError().json(ErrorResponse {
-                error: "db_error".into(),
-                details: None,
-            }),
+            _ => {
+                metrics.authentication_failure_total.inc();
+                HttpResponse::InternalServerError().json(ErrorResponse {
+                    error: "db_error".into(),
+                    details: None,
+                })
+            }
         },
     }
 }
@@ -153,13 +163,14 @@ pub async fn register(
 #[post("/auth/oauth/{provider}")]
 pub async fn oauth_login(
     state: web::Data<AppState>,
+    metrics: web::Data<AppMetrics>,
     path: web::Path<OAuthPath>,
     payload: web::Json<OAuthPayload>,
 ) -> HttpResponse {
     let provider = path.into_inner().provider.to_lowercase();
     match provider.as_str() {
-        "google" => oauth_google(state, payload.into_inner()).await,
-        "apple" => oauth_apple(state, payload.into_inner()).await,
+        "google" => oauth_google(state, metrics, payload.into_inner()).await,
+        "apple" => oauth_apple(state, metrics, payload.into_inner()).await,
         _ => HttpResponse::BadRequest().json(ErrorResponse {
             error: "unsupported_provider".into(),
             details: Some("provider must be 'google' ou 'apple'".into()),
@@ -167,7 +178,8 @@ pub async fn oauth_login(
     }
 }
 
-async fn oauth_google(state: web::Data<AppState>, payload: OAuthPayload) -> HttpResponse {
+async fn oauth_google(state: web::Data<AppState>, metrics: web::Data<AppMetrics>, payload: OAuthPayload) -> HttpResponse {
+    metrics.authentication_attempts_total.inc();
     let id_token = payload
         .id_token
         .as_ref()
@@ -337,21 +349,28 @@ async fn oauth_google(state: web::Data<AppState>, payload: OAuthPayload) -> Http
     };
 
     match encode_jwt(&claims, &state.jwt_secret) {
-        Ok(token) => HttpResponse::Ok()
-            .insert_header((CONTENT_TYPE, "application/json"))
-            .json(TokenResponse {
-                token,
-                email,
-                handle,
-            }),
-        Err(_) => HttpResponse::InternalServerError().json(ErrorResponse {
-            error: "token_creation_failed".into(),
-            details: None,
-        }),
+        Ok(token) => {
+            metrics.authentication_success_total.inc();
+            HttpResponse::Ok()
+                .insert_header((CONTENT_TYPE, "application/json"))
+                .json(TokenResponse {
+                    token,
+                    email,
+                    handle,
+                })
+        }
+        Err(_) => {
+            metrics.authentication_failure_total.inc();
+            HttpResponse::InternalServerError().json(ErrorResponse {
+                error: "token_creation_failed".into(),
+                details: None,
+            })
+        },
     }
 }
 
-async fn oauth_apple(state: web::Data<AppState>, payload: OAuthPayload) -> HttpResponse {
+async fn oauth_apple(state: web::Data<AppState>, metrics: web::Data<AppMetrics>, payload: OAuthPayload) -> HttpResponse {
+    metrics.authentication_attempts_total.inc();
     let mut allowed_aud = Vec::new();
     if let Some(service_id) = state.apple_service_id.as_ref() {
         allowed_aud.push(service_id.as_str());
@@ -513,17 +532,23 @@ async fn oauth_apple(state: web::Data<AppState>, payload: OAuthPayload) -> HttpR
     };
 
     match encode_jwt(&claims, &state.jwt_secret) {
-        Ok(token) => HttpResponse::Ok()
-            .insert_header((CONTENT_TYPE, "application/json"))
-            .json(TokenResponse {
-                token,
-                email,
-                handle,
-            }),
-        Err(_) => HttpResponse::InternalServerError().json(ErrorResponse {
-            error: "token_creation_failed".into(),
-            details: None,
-        }),
+        Ok(token) => {
+            metrics.authentication_success_total.inc();
+            HttpResponse::Ok()
+                .insert_header((CONTENT_TYPE, "application/json"))
+                .json(TokenResponse {
+                    token,
+                    email,
+                    handle,
+                })
+        }
+        Err(_) => {
+            metrics.authentication_failure_total.inc();
+            HttpResponse::InternalServerError().json(ErrorResponse {
+                error: "token_creation_failed".into(),
+                details: None,
+            })
+        },
     }
 }
 
@@ -565,16 +590,24 @@ async fn fetch_apple_decoding_key(
     )
 )]
 #[post("/auth/login")]
-pub async fn login(state: web::Data<AppState>, payload: web::Json<LoginPayload>) -> impl Responder {
+pub async fn login(
+    state: web::Data<AppState>,
+    metrics: web::Data<AppMetrics>,
+    payload: web::Json<LoginPayload>,
+) -> impl Responder {
+    metrics.authentication_attempts_total.inc();
+    
     let auth_row = match fetch_user_auth(&state.db, &payload.identifier).await {
         Ok(Some(row)) => row,
         Ok(None) => {
+            metrics.authentication_failure_total.inc();
             return HttpResponse::Unauthorized().json(ErrorResponse {
                 error: "invalid_credentials".into(),
                 details: None,
             });
         }
         Err(_) => {
+            metrics.authentication_failure_total.inc();
             return HttpResponse::InternalServerError().json(ErrorResponse {
                 error: "db_error".into(),
                 details: None,
@@ -583,12 +616,15 @@ pub async fn login(state: web::Data<AppState>, payload: web::Json<LoginPayload>)
     };
 
     if !verify_password(&auth_row.password_hash, &payload.password) {
+        metrics.authentication_failure_total.inc();
         return HttpResponse::Unauthorized().json(ErrorResponse {
             error: "invalid_credentials".into(),
             details: None,
         });
     }
 
+    metrics.authentication_success_total.inc();
+    
     let exp = (now_ts() + 24 * 3600) as usize;
     let claims = Claims {
         sub: auth_row.email.clone(),
@@ -604,9 +640,12 @@ pub async fn login(state: web::Data<AppState>, payload: web::Json<LoginPayload>)
                 email: auth_row.email,
                 handle: auth_row.handle,
             }),
-        Err(_) => HttpResponse::InternalServerError().json(ErrorResponse {
-            error: "token_creation_failed".into(),
-            details: None,
-        }),
+        Err(_) => {
+            metrics.authentication_failure_total.inc();
+            HttpResponse::InternalServerError().json(ErrorResponse {
+                error: "token_creation_failed".into(),
+                details: None,
+            })
+        },
     }
 }

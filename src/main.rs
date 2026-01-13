@@ -2,7 +2,8 @@ use actix_cors::Cors;
 use actix_files::Files;
 use actix_web::http::header::{AUTHORIZATION, CONTENT_TYPE};
 use actix_web::{App, HttpServer, middleware::Logger, web};
-use fiestaaa_back::{cleanup, config, db, docs, notifications, routes, state};
+use fiestaaa_back::{cleanup, config, db, docs, metrics::AppMetrics, notifications, routes, state};
+use prometheus::{Encoder, TextEncoder};
 use redis::Client as RedisClient;
 use std::collections::HashSet;
 use utoipa::OpenApi;
@@ -40,6 +41,8 @@ async fn main() -> std::io::Result<()> {
         http_client.clone(),
         cfg.notification_dedup_ttl_seconds,
     );
+    let metrics = web::Data::new(AppMetrics::new());
+    
     let state = web::Data::new(state::AppState {
         db: pool,
         jwt_secret: cfg.jwt_secret.clone(),
@@ -79,12 +82,24 @@ async fn main() -> std::io::Result<()> {
 
         App::new()
             .app_data(state.clone())
+            .app_data(metrics.clone())
             .wrap(Logger::default())
             .wrap(cors)
             .configure(routes::configure)
             .service(Files::new("/media/avatars", &cfg.avatar_upload_dir).prefer_utf8(true))
             .service(
                 SwaggerUi::new("/docs/{_:.*}").url("/docs/openapi.json", docs::ApiDoc::openapi()),
+            )
+            .service(
+                web::resource("/metrics")
+                    .to(|metrics: web::Data<AppMetrics>| async move {
+                        let encoder = TextEncoder::new();
+                        let mut buffer = vec![];
+                        encoder.encode(&metrics.registry.gather(), &mut buffer).unwrap();
+                        actix_web::HttpResponse::Ok()
+                            .content_type("text/plain")
+                            .body(String::from_utf8(buffer).unwrap())
+                    }),
             )
     })
     .bind(format!("{}:{}", cfg.host, cfg.port))?

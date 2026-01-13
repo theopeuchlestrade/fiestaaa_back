@@ -10,6 +10,7 @@ use uuid::Uuid;
 
 use crate::{
     auth::extract_claims_from_auth,
+    metrics::AppMetrics,
     models::{
         AddressSuggestion, ErrorResponse, Event, EventCustomItemPayload, EventItemAttachPayload,
         EventItemReservationPayload, EventItemView, EventPatchPayload, EventPayload,
@@ -469,9 +470,11 @@ pub async fn list_events(state: web::Data<AppState>, req: HttpRequest) -> impl R
 #[post("/events")]
 pub async fn create_event(
     state: web::Data<AppState>,
+    metrics: web::Data<AppMetrics>,
     req: HttpRequest,
     payload: web::Json<EventPayload>,
 ) -> impl Responder {
+    metrics.event_creations_total.inc();
     if let Err(resp) = ensure_invitation_deadline_schema(&state.db).await {
         return resp;
     }

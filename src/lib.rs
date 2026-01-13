@@ -4,6 +4,7 @@ pub mod config;
 pub mod db;
 pub mod docs;
 pub mod handles;
+pub mod metrics;
 pub mod models;
 pub mod notifications;
 pub mod realtime;
