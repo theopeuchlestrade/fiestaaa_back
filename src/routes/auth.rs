@@ -49,12 +49,14 @@ pub async fn register(
         .map(|raw| normalize_handle(raw).normalized);
 
     if email.is_empty() {
+        metrics.authentication_failure_total.inc();
         return HttpResponse::BadRequest().json(ErrorResponse {
             error: "invalid_payload".into(),
             details: Some("email requis".into()),
         });
     }
     if let Err(reason) = validate_password_strength(password) {
+        metrics.authentication_failure_total.inc();
         return HttpResponse::BadRequest().json(ErrorResponse {
             error: "weak_password".into(),
             details: Some(reason.into()),
@@ -64,6 +66,7 @@ pub async fn register(
     let handle = match requested_handle {
         Some(ref h) => {
             if !is_valid_handle(h) {
+                metrics.authentication_failure_total.inc();
                 return HttpResponse::BadRequest().json(ErrorResponse {
                     error: "invalid_handle".into(),
                     details: Some("format attendu: 4-32 chars [a-z0-9._-]".into()),
@@ -72,12 +75,14 @@ pub async fn register(
             match handle_available(&state.db, h).await {
                 Ok(true) => h.clone(),
                 Ok(false) => {
+                    metrics.authentication_failure_total.inc();
                     return HttpResponse::Conflict().json(ErrorResponse {
                         error: "handle_taken".into(),
                         details: None,
                     });
                 }
                 Err(_) => {
+                    metrics.authentication_failure_total.inc();
                     return HttpResponse::InternalServerError().json(ErrorResponse {
                         error: "db_error".into(),
                         details: None,
@@ -88,6 +93,7 @@ pub async fn register(
         None => match generate_unique_handle(&state.db).await {
             Ok(h) => h,
             Err(_) => {
+                metrics.authentication_failure_total.inc();
                 return HttpResponse::InternalServerError().json(ErrorResponse {
                     error: "handle_generation_failed".into(),
                     details: None,
@@ -99,6 +105,7 @@ pub async fn register(
     let hash = match hash_password(password) {
         Ok(h) => h,
         Err(_) => {
+            metrics.authentication_failure_total.inc();
             return HttpResponse::InternalServerError().json(ErrorResponse {
                 error: "hash_failed".into(),
                 details: None,
@@ -171,10 +178,14 @@ pub async fn oauth_login(
     match provider.as_str() {
         "google" => oauth_google(state, metrics, payload.into_inner()).await,
         "apple" => oauth_apple(state, metrics, payload.into_inner()).await,
-        _ => HttpResponse::BadRequest().json(ErrorResponse {
-            error: "unsupported_provider".into(),
-            details: Some("provider must be 'google' ou 'apple'".into()),
-        }),
+        _ => {
+            metrics.authentication_attempts_total.inc();
+            metrics.authentication_failure_total.inc();
+            HttpResponse::BadRequest().json(ErrorResponse {
+                error: "unsupported_provider".into(),
+                details: Some("provider must be 'google' ou 'apple'".into()),
+            })
+        }
     }
 }
 
@@ -191,6 +202,7 @@ async fn oauth_google(state: web::Data<AppState>, metrics: web::Data<AppMetrics>
         .map(|s| s.trim())
         .filter(|s| !s.is_empty());
     if id_token.is_none() && access_token.is_none() {
+        metrics.authentication_failure_total.inc();
         return HttpResponse::BadRequest().json(ErrorResponse {
             error: "invalid_payload".into(),
             details: Some("idToken ou accessToken requis".into()),
@@ -208,6 +220,7 @@ async fn oauth_google(state: web::Data<AppState>, metrics: web::Data<AppMetrics>
         allowed_aud.push(ios_id.as_str());
     }
     if allowed_aud.is_empty() {
+        metrics.authentication_failure_total.inc();
         return HttpResponse::InternalServerError().json(ErrorResponse {
             error: "oauth_not_configured".into(),
             details: Some(
@@ -234,6 +247,7 @@ async fn oauth_google(state: web::Data<AppState>, metrics: web::Data<AppMetrics>
         Ok(resp) if resp.status().is_success() => match resp.json::<serde_json::Value>().await {
             Ok(v) => v,
             Err(_) => {
+                metrics.authentication_failure_total.inc();
                 return HttpResponse::Unauthorized().json(ErrorResponse {
                     error: "invalid_token".into(),
                     details: Some("Réponse Google invalide".into()),
@@ -241,6 +255,7 @@ async fn oauth_google(state: web::Data<AppState>, metrics: web::Data<AppMetrics>
             }
         },
         _ => {
+            metrics.authentication_failure_total.inc();
             return HttpResponse::Unauthorized().json(ErrorResponse {
                 error: "invalid_token".into(),
                 details: Some("Échec vérification Google".into()),
@@ -255,6 +270,7 @@ async fn oauth_google(state: web::Data<AppState>, metrics: web::Data<AppMetrics>
         .and_then(|v| v.as_str())
         .unwrap_or_default();
     if !allowed_aud.iter().any(|id| *id == aud) {
+        metrics.authentication_failure_total.inc();
         return HttpResponse::Unauthorized().json(ErrorResponse {
             error: "invalid_token".into(),
             details: Some("aud mismatch".into()),
@@ -266,6 +282,7 @@ async fn oauth_google(state: web::Data<AppState>, metrics: web::Data<AppMetrics>
         .and_then(|v| v.as_str())
         .or_else(|| payload.email.as_deref());
     if email.is_none() {
+        metrics.authentication_failure_total.inc();
         return HttpResponse::Unauthorized().json(ErrorResponse {
             error: "email_required".into(),
             details: Some("Email manquant dans le token".into()),
@@ -285,6 +302,7 @@ async fn oauth_google(state: web::Data<AppState>, metrics: web::Data<AppMetrics>
             let new_handle = match generate_unique_handle(&state.db).await {
                 Ok(h) => h,
                 Err(_) => {
+                    metrics.authentication_failure_total.inc();
                     return HttpResponse::InternalServerError().json(ErrorResponse {
                         error: "handle_generation_failed".into(),
                         details: None,
@@ -295,6 +313,7 @@ async fn oauth_google(state: web::Data<AppState>, metrics: web::Data<AppMetrics>
             let hash = match hash_password(&pwd) {
                 Ok(h) => h,
                 Err(_) => {
+                    metrics.authentication_failure_total.inc();
                     return HttpResponse::InternalServerError().json(ErrorResponse {
                         error: "hash_failed".into(),
                         details: None,
@@ -325,6 +344,7 @@ async fn oauth_google(state: web::Data<AppState>, metrics: web::Data<AppMetrics>
                         existing.unwrap_or(new_handle)
                     }
                     _ => {
+                        metrics.authentication_failure_total.inc();
                         return HttpResponse::InternalServerError().json(ErrorResponse {
                             error: "db_error".into(),
                             details: None,
@@ -334,6 +354,7 @@ async fn oauth_google(state: web::Data<AppState>, metrics: web::Data<AppMetrics>
             }
         }
         Err(_) => {
+            metrics.authentication_failure_total.inc();
             return HttpResponse::InternalServerError().json(ErrorResponse {
                 error: "db_error".into(),
                 details: None,
@@ -379,6 +400,7 @@ async fn oauth_apple(state: web::Data<AppState>, metrics: web::Data<AppMetrics>,
         allowed_aud.push(app_id.as_str());
     }
     if allowed_aud.is_empty() {
+        metrics.authentication_failure_total.inc();
         return HttpResponse::InternalServerError().json(ErrorResponse {
             error: "oauth_not_configured".into(),
             details: Some("FIESTAAA_APPLE_SERVICE_ID ou FIESTAAA_APPLE_APP_ID manquant".into()),
@@ -392,6 +414,7 @@ async fn oauth_apple(state: web::Data<AppState>, metrics: web::Data<AppMetrics>,
     {
         Some(v) => v,
         None => {
+            metrics.authentication_failure_total.inc();
             return HttpResponse::BadRequest().json(ErrorResponse {
                 error: "invalid_payload".into(),
                 details: Some("idToken requis".into()),
@@ -402,6 +425,7 @@ async fn oauth_apple(state: web::Data<AppState>, metrics: web::Data<AppMetrics>,
     let header = match jsonwebtoken::decode_header(id_token) {
         Ok(h) => h,
         Err(_) => {
+            metrics.authentication_failure_total.inc();
             return HttpResponse::Unauthorized().json(ErrorResponse {
                 error: "invalid_token".into(),
                 details: Some("Header Apple invalide".into()),
@@ -411,6 +435,7 @@ async fn oauth_apple(state: web::Data<AppState>, metrics: web::Data<AppMetrics>,
     let kid = match header.kid {
         Some(k) => k,
         None => {
+            metrics.authentication_failure_total.inc();
             return HttpResponse::Unauthorized().json(ErrorResponse {
                 error: "invalid_token".into(),
                 details: Some("kid manquant".into()),
@@ -419,6 +444,7 @@ async fn oauth_apple(state: web::Data<AppState>, metrics: web::Data<AppMetrics>,
     };
     let alg = header.alg;
     if alg != jsonwebtoken::Algorithm::RS256 {
+        metrics.authentication_failure_total.inc();
         return HttpResponse::Unauthorized().json(ErrorResponse {
             error: "invalid_token".into(),
             details: Some("alg non supporté".into()),
@@ -426,6 +452,7 @@ async fn oauth_apple(state: web::Data<AppState>, metrics: web::Data<AppMetrics>,
     }
 
     let Some(decoding_key) = fetch_apple_decoding_key(&state, &kid).await else {
+        metrics.authentication_failure_total.inc();
         return HttpResponse::Unauthorized().json(ErrorResponse {
             error: "invalid_token".into(),
             details: Some("clé Apple introuvable".into()),
@@ -443,6 +470,7 @@ async fn oauth_apple(state: web::Data<AppState>, metrics: web::Data<AppMetrics>,
     ) {
         Ok(data) => data.claims,
         Err(_) => {
+            metrics.authentication_failure_total.inc();
             return HttpResponse::Unauthorized().json(ErrorResponse {
                 error: "invalid_token".into(),
                 details: Some("JWT Apple invalide".into()),
@@ -452,6 +480,7 @@ async fn oauth_apple(state: web::Data<AppState>, metrics: web::Data<AppMetrics>,
 
     let email = claims.email.or(payload.email).map(|e| e.to_lowercase());
     let Some(email) = email else {
+        metrics.authentication_failure_total.inc();
         return HttpResponse::Unauthorized().json(ErrorResponse {
             error: "email_required".into(),
             details: Some("Email absent du token Apple".into()),
@@ -470,6 +499,7 @@ async fn oauth_apple(state: web::Data<AppState>, metrics: web::Data<AppMetrics>,
             let new_handle = match generate_unique_handle(&state.db).await {
                 Ok(h) => h,
                 Err(_) => {
+                    metrics.authentication_failure_total.inc();
                     return HttpResponse::InternalServerError().json(ErrorResponse {
                         error: "handle_generation_failed".into(),
                         details: None,
@@ -480,6 +510,7 @@ async fn oauth_apple(state: web::Data<AppState>, metrics: web::Data<AppMetrics>,
             let hash = match hash_password(&pwd) {
                 Ok(h) => h,
                 Err(_) => {
+                    metrics.authentication_failure_total.inc();
                     return HttpResponse::InternalServerError().json(ErrorResponse {
                         error: "hash_failed".into(),
                         details: None,
@@ -508,6 +539,7 @@ async fn oauth_apple(state: web::Data<AppState>, metrics: web::Data<AppMetrics>,
                         existing.unwrap_or(new_handle)
                     }
                     _ => {
+                        metrics.authentication_failure_total.inc();
                         return HttpResponse::InternalServerError().json(ErrorResponse {
                             error: "db_error".into(),
                             details: None,
@@ -517,6 +549,7 @@ async fn oauth_apple(state: web::Data<AppState>, metrics: web::Data<AppMetrics>,
             }
         }
         Err(_) => {
+            metrics.authentication_failure_total.inc();
             return HttpResponse::InternalServerError().json(ErrorResponse {
                 error: "db_error".into(),
                 details: None,
@@ -623,8 +656,6 @@ pub async fn login(
         });
     }
 
-    metrics.authentication_success_total.inc();
-    
     let exp = (now_ts() + 24 * 3600) as usize;
     let claims = Claims {
         sub: auth_row.email.clone(),
@@ -633,13 +664,16 @@ pub async fn login(
     };
 
     match encode_jwt(&claims, &state.jwt_secret) {
-        Ok(token) => HttpResponse::Ok()
-            .insert_header((CONTENT_TYPE, "application/json"))
-            .json(TokenResponse {
-                token,
-                email: auth_row.email,
-                handle: auth_row.handle,
-            }),
+        Ok(token) => {
+            metrics.authentication_success_total.inc();
+            HttpResponse::Ok()
+                .insert_header((CONTENT_TYPE, "application/json"))
+                .json(TokenResponse {
+                    token,
+                    email: auth_row.email,
+                    handle: auth_row.handle,
+                })
+        }
         Err(_) => {
             metrics.authentication_failure_total.inc();
             HttpResponse::InternalServerError().json(ErrorResponse {

@@ -633,7 +633,6 @@ pub async fn create_invitation(
     event_id: web::Path<i64>,
     payload: web::Json<InvitationPayload>,
 ) -> impl Responder {
-    metrics.invitation_creations_total.inc();
     if let Err(resp) = ensure_invitation_deadline_schema(&state.db).await {
         return resp;
     }
@@ -686,6 +685,7 @@ pub async fn create_invitation(
             if let Some(user) = user {
                 match insert_invitation_for_user(&state.db, *event_id, &user).await {
                     Ok(Some(inv)) => {
+                        metrics.invitation_creations_total.inc();
                         publish_event(
                             &state.redis_client,
                             *event_id,
@@ -756,7 +756,10 @@ pub async fn create_invitation(
                 match invite_unregistered_user(state.get_ref(), *event_id, &email, &owner_email)
                     .await
                 {
-                    Ok(resp) => resp,
+                    Ok(resp) => {
+                        metrics.invitation_creations_total.inc();
+                        resp
+                    }
                     Err(resp) => resp,
                 }
             }
@@ -770,6 +773,7 @@ pub async fn create_invitation(
             match user {
                 Some(user) => match insert_invitation_for_user(&state.db, *event_id, &user).await {
                     Ok(Some(inv)) => {
+                        metrics.invitation_creations_total.inc();
                         publish_event(
                             &state.redis_client,
                             *event_id,

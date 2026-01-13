@@ -69,7 +69,6 @@ pub async fn create_item(
     req: HttpRequest,
     payload: web::Json<ItemPayload>,
 ) -> impl Responder {
-    metrics.item_creations_total.inc();
     if let Err(resp) = ensure_admin(&req, state.get_ref()) {
         return resp;
     }
@@ -98,7 +97,10 @@ pub async fn create_item(
     .await;
 
     match res {
-        Ok(item) => HttpResponse::Created().json(item),
+        Ok(item) => {
+            metrics.item_creations_total.inc();
+            HttpResponse::Created().json(item)
+        }
         Err(Error::Database(db_err)) if db_err.code().as_deref() == Some("23503") => {
             HttpResponse::BadRequest().json(ErrorResponse {
                 error: "unknown_type_id".into(),

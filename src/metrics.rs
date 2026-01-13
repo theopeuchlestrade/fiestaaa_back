@@ -1,4 +1,8 @@
-use prometheus::{IntCounter, IntGauge, HistogramVec, Registry};
+use actix_web::dev::{Service, ServiceRequest, ServiceResponse, Transform};
+use actix_web::Error;
+use futures_util::future::{ok, LocalBoxFuture, Ready};
+use prometheus::{HistogramVec, IntCounter, IntGauge, Registry};
+use std::task::{Context, Poll};
 use std::time::Instant;
 
 pub struct AppMetrics {
@@ -159,5 +163,72 @@ impl AppMetrics {
             .with_label_values(&[operation])
             .observe(duration);
         result
+    }
+}
+
+pub struct MetricsMiddleware;
+
+pub struct MetricsMiddlewareService<S> {
+    service: S,
+}
+
+impl<S, B> Transform<S, ServiceRequest> for MetricsMiddleware
+where
+    S: Service<ServiceRequest, Response = ServiceResponse<B>, Error = Error> + 'static,
+    B: 'static,
+{
+    type Response = ServiceResponse<B>;
+    type Error = Error;
+    type Transform = MetricsMiddlewareService<S>;
+    type InitError = ();
+    type Future = Ready<Result<Self::Transform, Self::InitError>>;
+
+    fn new_transform(&self, service: S) -> Self::Future {
+        ok(MetricsMiddlewareService { service })
+    }
+}
+
+impl<S, B> Service<ServiceRequest> for MetricsMiddlewareService<S>
+where
+    S: Service<ServiceRequest, Response = ServiceResponse<B>, Error = Error> + 'static,
+    B: 'static,
+{
+    type Response = ServiceResponse<B>;
+    type Error = Error;
+    type Future = LocalBoxFuture<'static, Result<Self::Response, Self::Error>>;
+
+    fn poll_ready(&self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        self.service.poll_ready(cx)
+    }
+
+    fn call(&self, req: ServiceRequest) -> Self::Future {
+        let method = req.method().as_str().to_owned();
+        let path_fallback = req.path().to_owned();
+        let metrics = req.app_data::<actix_web::web::Data<AppMetrics>>().cloned();
+        if let Some(metrics) = metrics.as_ref() {
+            metrics.active_connections.inc();
+        }
+        let start = Instant::now();
+        let fut = self.service.call(req);
+
+        Box::pin(async move {
+            let result = fut.await;
+            let duration = start.elapsed().as_secs_f64();
+            if let Some(metrics) = metrics.as_ref() {
+                let path = result
+                    .as_ref()
+                    .ok()
+                    .and_then(|res| res.request().match_pattern())
+                    .map(|pattern| pattern.to_string())
+                    .unwrap_or(path_fallback);
+                metrics.http_requests_total.inc();
+                metrics
+                    .http_request_duration_seconds
+                    .with_label_values(&[method.as_str(), path.as_str()])
+                    .observe(duration);
+                metrics.active_connections.dec();
+            }
+            result
+        })
     }
 }

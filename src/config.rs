@@ -46,6 +46,7 @@ pub struct AppConfig {
     pub apple_app_id: Option<String>,
     pub apple_service_id: Option<String>,
     pub cors_allowed_origins: Vec<String>,
+    pub metrics_token: Option<String>,
 }
 
 impl AppConfig {
@@ -143,6 +144,9 @@ impl AppConfig {
                     .collect()
             })
             .unwrap_or_default();
+        let metrics_token = std::env::var("METRICS_TOKEN")
+            .ok()
+            .filter(|v| !v.trim().is_empty());
         Self {
             host,
             port,
@@ -171,6 +175,7 @@ impl AppConfig {
             apple_app_id,
             apple_service_id,
             cors_allowed_origins,
+            metrics_token,
         }
     }
 }

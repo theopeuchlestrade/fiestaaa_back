@@ -474,7 +474,6 @@ pub async fn create_event(
     req: HttpRequest,
     payload: web::Json<EventPayload>,
 ) -> impl Responder {
-    metrics.event_creations_total.inc();
     if let Err(resp) = ensure_invitation_deadline_schema(&state.db).await {
         return resp;
     }
@@ -543,6 +542,7 @@ pub async fn create_event(
 
     match res {
         Ok(event) => {
+            metrics.event_creations_total.inc();
             publish_global(
                 &state.redis_client,
                 &json!({

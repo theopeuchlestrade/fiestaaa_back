@@ -150,6 +150,7 @@ touch ~/apps/fiestaaa/traefik/letsencrypt/acme.json && chmod 600 ~/apps/fiestaaa
   APP_BASE_URL=https://fiestaaa.app
   AVATAR_BASE_URL=https://api.fiestaaa.app/media/avatars
   CORS_ALLOWED_ORIGINS=https://fiestaaa.app,https://www.fiestaaa.app
+  METRICS_TOKEN=... # protège /metrics (Prometheus)
   # Email / push (adapter selon besoins)
   INVITATION_EMAIL_SENDER=Fiestaaa <no-reply@fiestaaa.app>
   RESEND_API_KEY=...
@@ -157,6 +158,8 @@ touch ~/apps/fiestaaa/traefik/letsencrypt/acme.json && chmod 600 ~/apps/fiestaaa
   FIESTAAA_FCM_VAPID_KEY=...
   FCM_PROJECT_ID=...
   FCM_SERVICE_ACCOUNT_PATH=/app/service-account.json
+  # Monitoring (optionnel)
+  GRAFANA_ADMIN_PASSWORD=...
   EOF
   ```
 
@@ -206,6 +209,7 @@ Nom | Description
 `CORS_ALLOWED_ORIGINS` | Liste des origines autorisées (séparées par virgules)
 `AVATAR_BASE_URL` | URL publique des avatars (ex. `https://api.fiestaaa.app/media/avatars`)
 `AVATAR_UPLOAD_DIR` | Chemin des uploads dans le conteneur API (ex. `/data/uploads/avatars`)
+`METRICS_TOKEN` | Token pour protéger `/metrics` (Prometheus doit l'envoyer en Bearer)
 `INVITATION_EMAIL_SENDER` | Expéditeur des emails d'invitations
 `RESEND_API_KEY` | Clé d'email Resend
 `FCM_SERVER_KEY` | Clé serveur FCM (notifications)
@@ -219,8 +223,11 @@ Nom | Description
 `FIESTAAA_APPLE_APP_ID` | Bundle ID iOS/macOS pour vérifier les tokens Apple natifs
 `FIESTAAA_APPLE_SERVICE_ID` / `FIESTAAA_APPLE_REDIRECT_URI` | OAuth Apple (web) — requis si vous voulez afficher le bouton Apple (transmis dans le `.env` généré)
 `ADMIN_EMAILS` | (optionnel) Liste d'emails admin séparés par des virgules
+`GRAFANA_ADMIN_PASSWORD` | (optionnel) Mot de passe Grafana si vous déployez la stack monitoring
 
 > Les valeurs front (VAPID, FCM project, client Google) sont partagées : renseignez les mêmes secrets dans le repo `fiestaaa_front` pour la build du bundle web.
+> Si vous activez `METRICS_TOKEN`, ajoutez-le aussi dans le `.env` généré par le workflow (`fiestaaa_back/.github/workflows/deploy.yml`) ou exportez-le côté VPS.
+> `GRAFANA_ADMIN_PASSWORD` n'est utilisé que par la stack monitoring (pas par l'API).
 
 ### Attendus côté VPS pour que la CI fonctionne
 - Le répertoire cible (`~/apps/fiestaaa`) contient `docker-compose.yml` (copie de `docker-compose.prod.yml`) et les dossiers `data/`, `traefik/`, `backend/`.
@@ -244,9 +251,55 @@ Nom | Description
 - Les valeurs ci-dessus sont injectées au build (visibles dans le bundle web, normal pour un front public).
 - Déploiement : le `docker-compose.yml` déjà en place contient le service `front`, aucune config supplémentaire côté VPS.
 
-## 6) Vérifications runtime
+## 6) Monitoring (Prometheus/Grafana)
+
+La stack monitoring est fournie dans `fiestaaa_back/docker-compose.monitoring.yml` avec un dashboard Grafana provisionné.
+
+### Installation sur le VPS (exemple)
+```bash
+mkdir -p ~/apps/fiestaaa-monitoring
+cp fiestaaa_back/docker-compose.monitoring.yml ~/apps/fiestaaa-monitoring/docker-compose.yml
+cp fiestaaa_back/prometheus.yml ~/apps/fiestaaa-monitoring/prometheus.yml
+cp -R fiestaaa_back/grafana ~/apps/fiestaaa-monitoring/grafana
+```
+
+### Variables requises
+- `METRICS_TOKEN` : protège `/metrics` côté API (Prometheus doit l'envoyer en Bearer).
+- `GRAFANA_ADMIN_PASSWORD` : mot de passe admin Grafana (requis par le compose monitoring).
+
+Si la stack monitoring utilise le même `.env` que la prod (`~/apps/fiestaaa/.env`), ajoutez-y ces variables. Sinon exportez-les avant `docker compose up`.
+
+### Accès aux métriques API
+Le `prometheus.yml` par défaut scrape `host.docker.internal:8080` et inclut un `bearer_token`.
+
+Option A (simple) : exposez l'API en loopback pour Prometheus (pas d'exposition publique) :
+```yaml
+services:
+  api:
+    ports:
+      - "127.0.0.1:8080:8080"
+```
+Puis laissez `targets: ['host.docker.internal:8080']`.
+
+Option B (réseau partagé) : créez un réseau Docker externe commun, attachez-y les deux compose et ciblez `api:8080` dans `prometheus.yml`.
+
+### Lancement + accès
+```bash
+cd ~/apps/fiestaaa-monitoring
+docker compose up -d
+```
+- Prometheus: `http://127.0.0.1:9090`
+- Grafana: `http://127.0.0.1:3000` (user `admin`, password `GRAFANA_ADMIN_PASSWORD`)
+
+Sur un VPS, utilisez un tunnel SSH pour accéder aux ports locaux :
+```bash
+ssh -L 3000:127.0.0.1:3000 -L 9090:127.0.0.1:9090 <user>@<ip>
+```
+
+## 7) Vérifications runtime
 
 - Santé API : `curl -vk https://api.fiestaaa.app/health` (passe par Traefik) ou `docker compose exec api curl -f http://localhost:8080/health`.
+- Metrics API : `curl -H "Authorization: Bearer $METRICS_TOKEN" http://127.0.0.1:8080/metrics`
 - Healthcheck base : `docker compose exec db pg_isready -U ${POSTGRES_USER}`.
 - CORS : autorisations côté API via `CORS_ALLOWED_ORIGINS` (`https://fiestaaa.app,https://www.fiestaaa.app` en prod).
 - Stack up : `docker compose ps` (api doit être Up, db healthy, redis Up, traefik Up).
@@ -268,7 +321,7 @@ Le script charge `.env`, construit l’URL Postgres (`DATABASE_URL` ou `POSTGRES
 - Répartition des devices actifs par plateforme.
 - Nouveaux utilisateurs par jour (14 derniers jours).
 
-## 6) Checklists rapides
+## 8) Checklists rapides
 
 ### MEP VPS (infra)
 - [ ] IP/DNS validés (`fiestaaa.app`, `api.fiestaaa.app` ➜ VPS)

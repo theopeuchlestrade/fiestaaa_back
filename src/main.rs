@@ -1,8 +1,17 @@
 use actix_cors::Cors;
 use actix_files::Files;
 use actix_web::http::header::{AUTHORIZATION, CONTENT_TYPE};
-use actix_web::{App, HttpServer, middleware::Logger, web};
-use fiestaaa_back::{cleanup, config, db, docs, metrics::AppMetrics, notifications, routes, state};
+use actix_web::{App, HttpRequest, HttpServer, middleware::Logger, web};
+use fiestaaa_back::{
+    cleanup,
+    config,
+    db,
+    docs,
+    metrics::{AppMetrics, MetricsMiddleware},
+    notifications,
+    routes,
+    state,
+};
 use prometheus::{Encoder, TextEncoder};
 use redis::Client as RedisClient;
 use std::collections::HashSet;
@@ -85,6 +94,7 @@ async fn main() -> std::io::Result<()> {
             .app_data(metrics.clone())
             .wrap(Logger::default())
             .wrap(cors)
+            .wrap(MetricsMiddleware)
             .configure(routes::configure)
             .service(Files::new("/media/avatars", &cfg.avatar_upload_dir).prefer_utf8(true))
             .service(
@@ -92,13 +102,36 @@ async fn main() -> std::io::Result<()> {
             )
             .service(
                 web::resource("/metrics")
-                    .to(|metrics: web::Data<AppMetrics>| async move {
-                        let encoder = TextEncoder::new();
-                        let mut buffer = vec![];
-                        encoder.encode(&metrics.registry.gather(), &mut buffer).unwrap();
-                        actix_web::HttpResponse::Ok()
-                            .content_type("text/plain")
-                            .body(String::from_utf8(buffer).unwrap())
+                    .to({
+                        let metrics_token = cfg.metrics_token.clone();
+                        move |req: HttpRequest, metrics: web::Data<AppMetrics>| {
+                            let metrics_token = metrics_token.clone();
+                            async move {
+                                if let Some(token) = metrics_token.as_deref() {
+                                    let header = req
+                                        .headers()
+                                        .get(AUTHORIZATION)
+                                        .and_then(|value| value.to_str().ok());
+                                    let authorized = header
+                                        .and_then(|value| value.strip_prefix("Bearer "))
+                                        .is_some_and(|value| value == token)
+                                        || req
+                                            .headers()
+                                            .get("X-Metrics-Token")
+                                            .and_then(|value| value.to_str().ok())
+                                            .is_some_and(|value| value == token);
+                                    if !authorized {
+                                        return actix_web::HttpResponse::Unauthorized().finish();
+                                    }
+                                }
+                                let encoder = TextEncoder::new();
+                                let mut buffer = vec![];
+                                encoder.encode(&metrics.registry.gather(), &mut buffer).unwrap();
+                                actix_web::HttpResponse::Ok()
+                                    .content_type(encoder.format_type())
+                                    .body(String::from_utf8(buffer).unwrap())
+                            }
+                        }
                     }),
             )
     })

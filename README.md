@@ -12,6 +12,7 @@ Quick dev workflow using Docker Compose for both Postgres and the Rust API.
 - Optionally define `ADMIN_EMAILS` (comma-separated, lower/upper case ignored) to restrict admin endpoints like `/items` to specific accounts.
 - For invitation emails to unregistered guests, set `APP_BASE_URL` (used to build the share link) to your front URL
   (ex: `http://localhost:5001` in dev), plus `INVITATION_EMAIL_SENDER` and `RESEND_API_KEY`.
+- Monitoring: set `METRICS_TOKEN` to protect `/metrics`, and `GRAFANA_ADMIN_PASSWORD` for Grafana (required by the monitoring compose).
 
 ## Run
 - `docker compose up --build`
@@ -27,6 +28,17 @@ Quick dev workflow using Docker Compose for both Postgres and the Rust API.
 - The API container mounts the project directory; code changes rebuild on next run.
 - If you prefer local cargo run, start only DB: `docker compose up -d db`, and keep
   `DATABASE_URL=postgres://postgres:postgres@localhost:5432/fiestaaa` in `.env`.
+
+## Monitoring (Prometheus/Grafana)
+- Make sure the API is running on `:8080` and that `METRICS_TOKEN` matches the `bearer_token` in `prometheus.yml`.
+- Start the stack: `docker compose -f docker-compose.monitoring.yml up -d`
+- Prometheus: http://127.0.0.1:9090
+- Grafana: http://127.0.0.1:3000 (user `admin`, password from `GRAFANA_ADMIN_PASSWORD`)
+- `/metrics` requires a token when `METRICS_TOKEN` is set:
+  ```bash
+  curl -H "Authorization: Bearer $METRICS_TOKEN" http://127.0.0.1:8080/metrics
+  ```
+- If you change the token, update `prometheus.yml` accordingly.
 
 ## Tests
 - Run tests with Docker (recommended): `docker compose run --rm api cargo test`
