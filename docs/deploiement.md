@@ -226,7 +226,7 @@ Nom | Description
 `GRAFANA_ADMIN_PASSWORD` | (optionnel) Mot de passe Grafana si vous déployez la stack monitoring
 
 > Les valeurs front (VAPID, FCM project, client Google) sont partagées : renseignez les mêmes secrets dans le repo `fiestaaa_front` pour la build du bundle web.
-> Si vous activez `METRICS_TOKEN`, ajoutez-le aussi dans le `.env` généré par le workflow (`fiestaaa_back/.github/workflows/deploy.yml`) ou exportez-le côté VPS.
+> Si vous activez `METRICS_TOKEN`, ajoutez-le dans les secrets GitHub : le workflow générera `.env` et écrira `secrets/metrics_token` sur le VPS.
 > `GRAFANA_ADMIN_PASSWORD` n'est utilisé que par la stack monitoring (pas par l'API).
 
 ### Attendus côté VPS pour que la CI fonctionne
@@ -253,50 +253,90 @@ Nom | Description
 
 ## 6) Monitoring (Prometheus/Grafana)
 
-La stack monitoring est fournie dans `fiestaaa_back/docker-compose.monitoring.yml` avec un dashboard Grafana provisionné.
+La stack monitoring prod est fournie dans `fiestaaa_back/docker-compose.prod.monitoring.yml` avec dashboard Grafana provisionné, règles d'alerting et Alertmanager.
 
-### Installation sur le VPS (exemple)
+Fichiers impliqués :
+- `docker-compose.prod.monitoring.yml`
+- `prometheus.prod.yml`
+- `alert_rules.yml`
+- `alertmanager.yml`
+- `grafana/` (datasource + dashboard)
+
+### Installation sur le VPS (stack unique recommandée)
 ```bash
-mkdir -p ~/apps/fiestaaa-monitoring
-cp fiestaaa_back/docker-compose.monitoring.yml ~/apps/fiestaaa-monitoring/docker-compose.yml
-cp fiestaaa_back/prometheus.yml ~/apps/fiestaaa-monitoring/prometheus.yml
-cp -R fiestaaa_back/grafana ~/apps/fiestaaa-monitoring/grafana
+mkdir -p ~/apps/fiestaaa/secrets
+cp fiestaaa_back/docker-compose.prod.monitoring.yml ~/apps/fiestaaa/docker-compose.monitoring.yml
+cp fiestaaa_back/prometheus.prod.yml ~/apps/fiestaaa/prometheus.prod.yml
+cp fiestaaa_back/alert_rules.yml ~/apps/fiestaaa/alert_rules.yml
+cp fiestaaa_back/alertmanager.yml ~/apps/fiestaaa/alertmanager.yml
+cp -R fiestaaa_back/grafana ~/apps/fiestaaa/grafana
+printf "%s" "$METRICS_TOKEN" > ~/apps/fiestaaa/secrets/metrics_token
+```
+
+Lancement (prod + monitoring en réseau partagé) :
+```bash
+cd ~/apps/fiestaaa
+docker compose -f docker-compose.yml -f docker-compose.monitoring.yml up -d
 ```
 
 ### Variables requises
-- `METRICS_TOKEN` : protège `/metrics` côté API (Prometheus doit l'envoyer en Bearer).
+- `METRICS_TOKEN` : protège `/metrics` côté API (Prometheus lit `secrets/metrics_token`).
 - `GRAFANA_ADMIN_PASSWORD` : mot de passe admin Grafana (requis par le compose monitoring).
 
 Si la stack monitoring utilise le même `.env` que la prod (`~/apps/fiestaaa/.env`), ajoutez-y ces variables. Sinon exportez-les avant `docker compose up`.
 
 ### Accès aux métriques API
-Le `prometheus.yml` par défaut scrape `host.docker.internal:8080` et inclut un `bearer_token`.
-
-Option A (simple) : exposez l'API en loopback pour Prometheus (pas d'exposition publique) :
-```yaml
-services:
-  api:
-    ports:
-      - "127.0.0.1:8080:8080"
-```
-Puis laissez `targets: ['host.docker.internal:8080']`.
-
-Option B (réseau partagé) : créez un réseau Docker externe commun, attachez-y les deux compose et ciblez `api:8080` dans `prometheus.yml`.
+En stack unique, `prometheus.prod.yml` scrape `api:8080` (réseau Compose) et utilise `bearer_token_file`.
+Si vous préférez une stack monitoring séparée, utilisez `fiestaaa_back/docker-compose.monitoring.yml` + `fiestaaa_back/prometheus.yml` (targets `host.docker.internal:8080`) et fournissez aussi `secrets/metrics_token`.
 
 ### Lancement + accès
-```bash
-cd ~/apps/fiestaaa-monitoring
-docker compose up -d
-```
 - Prometheus: `http://127.0.0.1:9090`
 - Grafana: `http://127.0.0.1:3000` (user `admin`, password `GRAFANA_ADMIN_PASSWORD`)
+- Alertmanager: `http://127.0.0.1:9093`
 
 Sur un VPS, utilisez un tunnel SSH pour accéder aux ports locaux :
 ```bash
-ssh -L 3000:127.0.0.1:3000 -L 9090:127.0.0.1:9090 <user>@<ip>
+ssh -L 3000:127.0.0.1:3000 -L 9090:127.0.0.1:9090 -L 9093:127.0.0.1:9093 <user>@<ip>
 ```
 
-## 7) Vérifications runtime
+## 7) Alerting minimal (Prometheus + Alertmanager)
+
+Les règles par défaut sont dans `alert_rules.yml` et Alertmanager est configuré en no-op dans `alertmanager.yml`.
+Pour activer l'email, remplacez le receiver dans `route` par `email` et complétez le bloc `email_configs`.
+
+Vérification rapide :
+```bash
+curl -s http://127.0.0.1:9093/api/v2/status | jq '.config.route.receiver'
+```
+
+## 8) Plan de backup (Postgres)
+
+Objectif : un dump quotidien + rétention + tests de restauration.
+
+### Dump quotidien (exemple)
+```bash
+mkdir -p ~/apps/fiestaaa/backups
+docker compose exec -T db pg_dump -U ${POSTGRES_USER} ${POSTGRES_DB} \
+  | gzip > ~/apps/fiestaaa/backups/fiestaaa-$(date +%F).sql.gz
+```
+
+### Rétention (exemple)
+```bash
+find ~/apps/fiestaaa/backups -type f -name "fiestaaa-*.sql.gz" -mtime +14 -delete
+```
+
+### Test de restauration (exemple)
+```bash
+gunzip -c ~/apps/fiestaaa/backups/fiestaaa-YYYY-MM-DD.sql.gz \
+  | docker compose exec -T db psql -U ${POSTGRES_USER} ${POSTGRES_DB}
+```
+
+Recommandations :
+- stocker les backups hors VPS (rsync/S3),
+- chiffrer les dumps (age/gpg),
+- vérifier la restauration au moins 1x/mois.
+
+## 9) Vérifications runtime
 
 - Santé API : `curl -vk https://api.fiestaaa.app/health` (passe par Traefik) ou `docker compose exec api curl -f http://localhost:8080/health`.
 - Metrics API : `curl -H "Authorization: Bearer $METRICS_TOKEN" http://127.0.0.1:8080/metrics`
@@ -321,7 +361,7 @@ Le script charge `.env`, construit l’URL Postgres (`DATABASE_URL` ou `POSTGRES
 - Répartition des devices actifs par plateforme.
 - Nouveaux utilisateurs par jour (14 derniers jours).
 
-## 8) Checklists rapides
+## 10) Checklists rapides
 
 ### MEP VPS (infra)
 - [ ] IP/DNS validés (`fiestaaa.app`, `api.fiestaaa.app` ➜ VPS)

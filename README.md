@@ -30,7 +30,12 @@ Quick dev workflow using Docker Compose for both Postgres and the Rust API.
   `DATABASE_URL=postgres://postgres:postgres@localhost:5432/fiestaaa` in `.env`.
 
 ## Monitoring (Prometheus/Grafana)
-- Make sure the API is running on `:8080` and that `METRICS_TOKEN` matches the `bearer_token` in `prometheus.yml`.
+- Make sure the API is running on `:8080` and set `METRICS_TOKEN` in `.env`.
+- Create the Prometheus token file (ignored by git):
+  ```bash
+  mkdir -p secrets
+  printf "%s" "$METRICS_TOKEN" > secrets/metrics_token
+  ```
 - Start the stack: `docker compose -f docker-compose.monitoring.yml up -d`
 - Prometheus: http://127.0.0.1:9090
 - Grafana: http://127.0.0.1:3000 (user `admin`, password from `GRAFANA_ADMIN_PASSWORD`)
@@ -38,7 +43,7 @@ Quick dev workflow using Docker Compose for both Postgres and the Rust API.
   ```bash
   curl -H "Authorization: Bearer $METRICS_TOKEN" http://127.0.0.1:8080/metrics
   ```
-- If you change the token, update `prometheus.yml` accordingly.
+- If you change the token, update `secrets/metrics_token` accordingly.
 
 ## Tests
 - Run tests with Docker (recommended): `docker compose run --rm api cargo test`

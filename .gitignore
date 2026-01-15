@@ -13,3 +13,4 @@ service-account*.json
 *.p8
 *.der
 *.crt
+secrets/**

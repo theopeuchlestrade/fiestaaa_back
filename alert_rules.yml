@@ -1,0 +1,29 @@
+groups:
+  - name: fiestaaa.rules
+    rules:
+      - alert: FiestaaaApiDown
+        expr: up{job="fiestaaa-api"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Fiestaaa API down"
+          description: "No scrape targets for job fiestaaa-api."
+
+      - alert: NodeExporterDown
+        expr: up{job="node-exporter"} == 0
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Node exporter down"
+          description: "No scrape targets for job node-exporter."
+
+      - alert: PrometheusConfigReloadFailed
+        expr: prometheus_config_last_reload_successful == 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Prometheus config reload failed"
+          description: "Prometheus failed to reload its configuration."
