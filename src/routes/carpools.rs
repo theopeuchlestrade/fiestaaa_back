@@ -1,6 +1,7 @@
 use actix_web::{delete, get, patch, post, web, HttpRequest, HttpResponse, Responder};
 use chrono::Utc;
 use log::{info, warn};
+use serde::Deserialize;
 use serde_json::json;
 use sqlx::{PgPool, Row};
 
@@ -139,9 +140,11 @@ fn server_error() -> HttpResponse {
 async fn fetch_carpool_views(
     db: &PgPool,
     event_id: i64,
+    user_id: Option<i64>,
+    sort_by: Option<String>,
 ) -> Result<Vec<CarpoolView>, HttpResponse> {
     let carpools = sqlx::query_as::<_, Carpool>(
-        "SELECT * FROM carpools WHERE event_id = $1 ORDER BY depart_at ASC",
+        "SELECT * FROM carpools WHERE event_id = $1",
     )
     .bind(event_id)
     .fetch_all(db)
@@ -149,6 +152,82 @@ async fn fetch_carpool_views(
     .unwrap_or_else(|e| {
         panic!("FETCH VIEWS ERROR: {:?}", e);
     });
+
+    // Helper function to apply sorting to a list of carpools
+    fn apply_sort(list: &mut Vec<Carpool>, sort_by: Option<&str>) {
+        match sort_by {
+            Some("departure_asc") => {
+                list.sort_by(|a, b| a.depart_at.cmp(&b.depart_at));
+            }
+            Some("departure_desc") => {
+                list.sort_by(|a, b| b.depart_at.cmp(&a.depart_at));
+            }
+            Some("seats_asc") => {
+                list.sort_by(|a, b| a.seats_total.cmp(&b.seats_total));
+            }
+            Some("seats_desc") => {
+                list.sort_by(|a, b| b.seats_total.cmp(&a.seats_total));
+            }
+            Some("available_seats_asc") => {
+                list.sort_by(|a, b| (a.seats_total - a.seats_taken).cmp(&(b.seats_total - b.seats_taken)));
+            }
+            Some("available_seats_desc") => {
+                list.sort_by(|a, b| (b.seats_total - b.seats_taken).cmp(&(a.seats_total - a.seats_taken)));
+            }
+            _ => {
+                // Default sorting: by departure time ascending
+                list.sort_by(|a, b| a.depart_at.cmp(&b.depart_at));
+            }
+        }
+    }
+
+    // Apply custom sorting based on user preferences and participation
+    let mut carpools = carpools;
+    
+    if let Some(user_id) = user_id {
+        // First, separate carpools where user is driver or passenger
+        let mut user_driver_carpools = Vec::new();
+        let mut user_passenger_carpools = Vec::new();
+        let mut other_carpools = Vec::new();
+        
+        for carpool in carpools {
+            // Check if user is driver
+            if carpool.driver_id == user_id {
+                user_driver_carpools.push(carpool);
+            } else {
+                // Check if user is passenger (we'll need to query this)
+                let is_passenger = sqlx::query_scalar::<_, bool>(
+                    "SELECT EXISTS(SELECT 1 FROM carpool_passengers WHERE carpool_id = $1 AND user_id = $2)",
+                )
+                .bind(carpool.carpool_id)
+                .bind(user_id)
+                .fetch_one(db)
+                .await
+                .unwrap_or(false);
+                
+                if is_passenger {
+                    user_passenger_carpools.push(carpool);
+                } else {
+                    other_carpools.push(carpool);
+                }
+            }
+        }
+        
+        // Sort each category independently BEFORE combining
+        apply_sort(&mut user_driver_carpools, sort_by.as_deref());
+        apply_sort(&mut user_passenger_carpools, sort_by.as_deref());
+        apply_sort(&mut other_carpools, sort_by.as_deref());
+        
+        // Recombine with priority: driver first, then passenger, then others
+        // The sort order is preserved within each category
+        carpools = Vec::new();
+        carpools.extend(user_driver_carpools);
+        carpools.extend(user_passenger_carpools);
+        carpools.extend(other_carpools);
+    } else {
+        // No user context: just apply global sort
+        apply_sort(&mut carpools, sort_by.as_deref());
+    }
 
     let mut views = Vec::new();
     for carpool in carpools {
@@ -200,13 +279,14 @@ async fn fetch_carpool_views(
     get,
     path = "/events/{event_id}/carpools",
     tag = "carpools",
+    params(
+        ("event_id" = i64, Path, description = "Identifiant de l'événement"),
+        ("sort" = Option<String>, Query, description = "Critère de tri: departure_asc, departure_desc, seats_asc, seats_desc, available_seats_asc, available_seats_desc")
+    ),
     responses(
         (status = 200, description = "Liste des covoiturages", body = Vec<CarpoolView>),
         (status = 403, description = "Non autorisé", body = ErrorResponse),
         (status = 404, description = "Événement introuvable", body = ErrorResponse)
-    ),
-    params(
-        ("event_id" = i64, Path, description = "Identifiant de l'événement")
     )
 )]
 #[get("/events/{event_id}/carpools")]
@@ -214,15 +294,27 @@ pub async fn list_event_carpools(
     state: web::Data<AppState>,
     req: HttpRequest,
     event_id: web::Path<i64>,
+    query: web::Query<CarpoolListQuery>,
 ) -> impl Responder {
     if let Err(resp) = ensure_event_member(&req, state.get_ref(), *event_id).await {
         return resp;
     }
 
-    match fetch_carpool_views(&state.db, *event_id).await {
+    let user_id = match claims_email(&req, &state) {
+        Ok(email) => fetch_user_id(&state.db, &email).await.ok(),
+        Err(_) => None,
+    };
+
+    match fetch_carpool_views(&state.db, *event_id, user_id, query.sort.clone()).await {
         Ok(carpools) => HttpResponse::Ok().json(carpools),
         Err(resp) => resp,
     }
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CarpoolListQuery {
+    #[serde(default)]
+    pub sort: Option<String>,
 }
 
 #[utoipa::path(
@@ -356,7 +448,7 @@ pub async fn create_carpool(
     .await;
 
 
-    match fetch_carpool_views(&state.db, *event_id).await {
+    match fetch_carpool_views(&state.db, *event_id, None, None).await {
         Ok(views) => {
             let view = views.iter().find(|v| v.carpool_id == carpool.carpool_id);
             match view {
@@ -485,7 +577,7 @@ pub async fn update_carpool(
     )
     .await;
 
-    match fetch_carpool_views(&state.db, current.event_id).await {
+    match fetch_carpool_views(&state.db, current.event_id, None, None).await {
         Ok(views) => {
             let view = views.iter().find(|v| v.carpool_id == *carpool_id);
             match view {
