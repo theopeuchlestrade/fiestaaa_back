@@ -87,9 +87,12 @@ async fn ensure_event_member(
     .bind(&requester)
     .fetch_one(&state.db)
     .await
-    .unwrap_or_else(|e| {
-        panic!("AUTH MEMBER ERROR: {:?}", e);
-    });
+    .map_err(|_| {
+        HttpResponse::InternalServerError().json(ErrorResponse {
+            error: "db_error".into(),
+            details: None,
+        })
+    })?;
 
     if is_member {
         Ok(())
@@ -113,9 +116,12 @@ async fn ensure_carpool_driver(
         .bind(carpool_id)
         .fetch_optional(&state.db)
         .await
-        .unwrap_or_else(|e| {
-            panic!("AUTH DRIVER ERROR: {:?}", e);
-        });
+        .map_err(|_| {
+            HttpResponse::InternalServerError().json(ErrorResponse {
+                error: "db_error".into(),
+                details: None,
+            })
+        })?;
 
     match driver_id {
         Some(id) if id == requester_id => Ok(()),
@@ -149,9 +155,12 @@ async fn fetch_carpool_views(
     .bind(event_id)
     .fetch_all(db)
     .await
-    .unwrap_or_else(|e| {
-        panic!("FETCH VIEWS ERROR: {:?}", e);
-    });
+    .map_err(|_| {
+        HttpResponse::InternalServerError().json(ErrorResponse {
+            error: "db_error".into(),
+            details: None,
+        })
+    })?;
 
     // Helper function to apply sorting to a list of carpools
     fn apply_sort(list: &mut Vec<Carpool>, sort_by: Option<&str>) {
@@ -203,7 +212,10 @@ async fn fetch_carpool_views(
                 .bind(user_id)
                 .fetch_one(db)
                 .await
-                .unwrap_or(false);
+                .unwrap_or_else(|e| {
+                    warn!("Failed to check if user is passenger: {}", e);
+                    false
+                });
                 
                 if is_passenger {
                     user_passenger_carpools.push(carpool);
@@ -430,8 +442,8 @@ pub async fn create_carpool(
     .await
     {
         Ok(c) => c,
-        Err(e) => {
-            panic!("DB INSERT ERROR: {:?}", e);
+        Err(_) => {
+            return server_error();
         }
     };
 
