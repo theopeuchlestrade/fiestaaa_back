@@ -74,5 +74,6 @@ pub fn build_state(pool: PgPool, secret: &str, admin_emails: &[&str]) -> web::Da
         google_android_client_id: None,
         apple_app_id: None,
         apple_service_id: None,
+        google_ios_client_id: None,
     })
 }
