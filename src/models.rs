@@ -405,3 +405,82 @@ pub struct QRCodeStatsResponse {
     pub total_checked_in: i64,
     pub pending_checkins: i64,
 }
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct CarpoolPayload {
+    pub origin: String,
+    pub origin_latitude: Option<f64>,
+    pub origin_longitude: Option<f64>,
+    pub depart_at: chrono::DateTime<chrono::Utc>,
+    pub seats_total: i32,
+    pub notes: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct CarpoolPatchPayload {
+    pub origin: Option<String>,
+    pub origin_latitude: Option<f64>,
+    pub origin_longitude: Option<f64>,
+    pub depart_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub seats_total: Option<i32>,
+    pub notes: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema, FromRow)]
+pub struct Carpool {
+    pub carpool_id: i64,
+    pub event_id: i64,
+    pub driver_id: i64,
+    pub origin: String,
+    pub origin_latitude: Option<f64>,
+    pub origin_longitude: Option<f64>,
+    pub depart_at: chrono::DateTime<chrono::Utc>,
+    pub seats_total: i32,
+    pub seats_taken: i32,
+    pub notes: Option<String>,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    pub updated_at: chrono::DateTime<chrono::Utc>,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema, FromRow)]
+pub struct CarpoolPassenger {
+    pub user_id: i64,
+    pub handle: Option<String>,
+    pub avatar_url: Option<String>,
+    pub joined_at: chrono::DateTime<chrono::Utc>,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema, FromRow)]
+pub struct CarpoolView {
+    pub carpool_id: i64,
+    pub event_id: i64,
+    pub driver_id: i64,
+    pub driver_handle: Option<String>,
+    pub driver_avatar_url: Option<String>,
+    pub origin: String,
+    pub origin_latitude: Option<f64>,
+    pub origin_longitude: Option<f64>,
+    pub depart_at: chrono::DateTime<chrono::Utc>,
+    pub seats_total: i32,
+    pub seats_taken: i32,
+    pub notes: Option<String>,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    pub updated_at: chrono::DateTime<chrono::Utc>,
+    pub passengers: Vec<CarpoolPassenger>,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct CarpoolJoinResponse {
+    pub success: bool,
+    pub seats_taken: i32,
+    pub seats_total: i32,
+    pub message: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct CarpoolLeaveResponse {
+    pub success: bool,
+    pub seats_taken: i32,
+    pub seats_total: i32,
+    pub message: String,
+}

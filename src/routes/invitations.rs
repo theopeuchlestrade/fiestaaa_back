@@ -1151,6 +1151,90 @@ pub async fn respond_invitation(
                 details: None,
             });
         }
+
+        let driver_carpool_id = sqlx::query_scalar::<_, i64>(
+            "SELECT carpool_id FROM carpools WHERE driver_id = $1 AND event_id = $2",
+        )
+        .bind(user.id)
+        .bind(*event_id)
+        .fetch_optional(&mut *tx)
+        .await;
+
+        if let Ok(Some(carpool_id)) = driver_carpool_id {
+            if let Err(_) = sqlx::query("DELETE FROM carpool_passengers WHERE carpool_id = $1")
+                .bind(carpool_id)
+                .execute(&mut *tx)
+                .await
+            {
+                let _ = tx.rollback().await;
+                return HttpResponse::InternalServerError().json(ErrorResponse {
+                    error: "db_error".into(),
+                    details: None,
+                });
+            }
+            if let Err(_) = sqlx::query("DELETE FROM carpools WHERE carpool_id = $1")
+                .bind(carpool_id)
+                .execute(&mut *tx)
+                .await
+            {
+                let _ = tx.rollback().await;
+                return HttpResponse::InternalServerError().json(ErrorResponse {
+                    error: "db_error".into(),
+                    details: None,
+                });
+            }
+
+            publish_event(
+                &state.redis_client,
+                *event_id,
+                &json!({"type": "carpool_deleted", "carpool_id": carpool_id}),
+            )
+            .await;
+        }
+
+        let passenger_carpool = sqlx::query_scalar::<_, i64>(
+            "SELECT cp.carpool_id FROM carpool_passengers cp
+             JOIN carpools c ON c.carpool_id = cp.carpool_id
+             WHERE cp.user_id = $1 AND c.event_id = $2",
+        )
+        .bind(user.id)
+        .bind(*event_id)
+        .fetch_optional(&mut *tx)
+        .await;
+
+        if let Ok(Some(carpool_id)) = passenger_carpool {
+            if let Err(_) = sqlx::query("DELETE FROM carpool_passengers WHERE carpool_id = $1 AND user_id = $2")
+                .bind(carpool_id)
+                .bind(user.id)
+                .execute(&mut *tx)
+                .await
+            {
+                let _ = tx.rollback().await;
+                return HttpResponse::InternalServerError().json(ErrorResponse {
+                    error: "db_error".into(),
+                    details: None,
+                });
+            }
+
+            if let Err(_) = sqlx::query("UPDATE carpools SET seats_taken = GREATEST(seats_taken - 1, 0) WHERE carpool_id = $1")
+                .bind(carpool_id)
+                .execute(&mut *tx)
+                .await
+            {
+                let _ = tx.rollback().await;
+                return HttpResponse::InternalServerError().json(ErrorResponse {
+                    error: "db_error".into(),
+                    details: None,
+                });
+            }
+
+            publish_event(
+                &state.redis_client,
+                *event_id,
+                &json!({"type": "carpool_left", "carpool_id": carpool_id, "user_id": user.id}),
+            )
+            .await;
+        }
     }
 
     if let Err(_) = tx.commit().await {

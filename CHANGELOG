@@ -17,3 +17,9 @@
 - Complete CRUD for `/payment_providers` including endpoints and models for managing payment providers.
 - Added integration tests for CRUD operations of payment providers in `tests/payment_providers.rs`.
 - Verified error handling for payment provider updates.
+- Complete carpooling module (`/carpools`) for events including creation, update, deletion, join, and leave operations.
+- Database migration `007_carpooling.sql` introducing carpools and carpool_passengers tables with proper constraints and indexes.
+- Models for carpooling operations including Carpool, CarpoolPayload, CarpoolPatchPayload, CarpoolPassenger, CarpoolView, CarpoolJoinResponse, and CarpoolLeaveResponse.
+- Integration tests for `/carpools` validating complete carpool management, including permissions, validation, and edge cases.
+- Real-time notifications for carpool creation, updates, and participation changes.
+- Business rules ensuring seats_taken <= seats_total, preventing duplicate joins, and proper permission handling.

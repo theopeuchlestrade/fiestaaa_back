@@ -1,6 +1,7 @@
 use actix_web::web;
 
 pub mod auth;
+pub mod carpools;
 pub mod events;
 pub mod friends;
 pub mod health;
@@ -49,6 +50,12 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(events::create_event_poll)
         .service(events::vote_event_poll)
         .service(events::delete_event_poll)
+        .service(carpools::list_event_carpools)
+        .service(carpools::create_carpool)
+        .service(carpools::update_carpool)
+        .service(carpools::delete_carpool)
+        .service(carpools::join_carpool)
+        .service(carpools::leave_carpool)
         .service(events::search_address)
         .service(events::list_event_items)
         .service(events::list_event_item_contributions)
