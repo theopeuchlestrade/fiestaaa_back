@@ -71,7 +71,7 @@ pub fn normalize_handle(raw: &str) -> HandleCandidate {
 
 pub fn is_valid_handle(raw: &str) -> bool {
     let len = raw.len();
-    if len < HANDLE_MIN_LEN || len > HANDLE_MAX_LEN {
+    if !(HANDLE_MIN_LEN..=HANDLE_MAX_LEN).contains(&len) {
         return false;
     }
     let mut chars = raw.chars();

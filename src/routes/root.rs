@@ -45,9 +45,8 @@ pub async fn me(state: web::Data<AppState>, req: HttpRequest) -> impl Responder 
 
             match record {
                 Ok(Some(user)) => {
-                    let email: String =
-                        user.try_get("email").unwrap_or_else(|_| claims.sub.clone());
-                    let handle: String = user.try_get("handle").unwrap_or_else(|_| claims.handle);
+                    let email: String = user.try_get("email").unwrap_or(claims.sub.clone());
+                    let handle: String = user.try_get("handle").unwrap_or(claims.handle);
                     let avatar_url: Option<String> = user.try_get("avatar_url").ok();
                     HttpResponse::Ok().json(MeResponse {
                         email,

@@ -98,8 +98,7 @@ pub async fn create_item(
         item_kind,
     } = payload;
 
-    if name_item.trim().is_empty() || max_quantity <= 0 || unit_label.trim().is_empty()
-    {
+    if name_item.trim().is_empty() || max_quantity <= 0 || unit_label.trim().is_empty() {
         return HttpResponse::BadRequest().json(ErrorResponse {
             error: "invalid_payload".into(),
             details: Some("name_item, unit_label non vides et max_quantity > 0".into()),
@@ -178,8 +177,7 @@ pub async fn replace_item(
         item_kind,
     } = payload;
 
-    if name_item.trim().is_empty() || max_quantity <= 0 || unit_label.trim().is_empty()
-    {
+    if name_item.trim().is_empty() || max_quantity <= 0 || unit_label.trim().is_empty() {
         return HttpResponse::BadRequest().json(ErrorResponse {
             error: "invalid_payload".into(),
             details: Some("name_item, unit_label non vides et max_quantity > 0".into()),
@@ -205,13 +203,13 @@ pub async fn replace_item(
                 return HttpResponse::NotFound().json(ErrorResponse {
                     error: "item_not_found".into(),
                     details: None,
-                })
+                });
             }
             Err(_) => {
                 return HttpResponse::InternalServerError().json(ErrorResponse {
                     error: "db_error".into(),
                     details: None,
-                })
+                });
             }
         }
     } else {
@@ -239,13 +237,13 @@ pub async fn replace_item(
 
     match res {
         Ok(Some(item)) => {
-            if let Some(previous) = previous_kind {
-                if previous != item.item_kind {
-                    info!(
-                        "item_kind_changed item_id={} from={} to={}",
-                        item.item_id, previous, item.item_kind
-                    );
-                }
+            if let Some(previous) = previous_kind
+                && previous != item.item_kind
+            {
+                info!(
+                    "item_kind_changed item_id={} from={} to={}",
+                    item.item_id, previous, item.item_kind
+                );
             }
             HttpResponse::Ok().json(item)
         }
@@ -302,8 +300,7 @@ pub async fn update_item(
         item_kind,
     } = payload;
 
-    if name_item.as_ref().is_some_and(|v| v.trim().is_empty())
-    {
+    if name_item.as_ref().is_some_and(|v| v.trim().is_empty()) {
         return HttpResponse::BadRequest().json(ErrorResponse {
             error: "invalid_payload".into(),
             details: Some("name_item ne peut pas être vide".into()),
@@ -315,8 +312,7 @@ pub async fn update_item(
             details: Some("max_quantity doit être > 0".into()),
         });
     }
-    if unit_label.as_ref().is_some_and(|v| v.trim().is_empty())
-    {
+    if unit_label.as_ref().is_some_and(|v| v.trim().is_empty()) {
         return HttpResponse::BadRequest().json(ErrorResponse {
             error: "invalid_payload".into(),
             details: Some("unit_label ne peut pas être vide".into()),
@@ -342,13 +338,13 @@ pub async fn update_item(
                 return HttpResponse::NotFound().json(ErrorResponse {
                     error: "item_not_found".into(),
                     details: None,
-                })
+                });
             }
             Err(_) => {
                 return HttpResponse::InternalServerError().json(ErrorResponse {
                     error: "db_error".into(),
                     details: None,
-                })
+                });
             }
         }
     } else {
@@ -366,9 +362,19 @@ pub async fn update_item(
          RETURNING item_id, type_id, name_item, max_quantity, unit_label, item_kind",
     )
     .bind(type_id)
-    .bind(name_item.as_ref().map(|v| v.trim()).filter(|v| !v.is_empty()))
+    .bind(
+        name_item
+            .as_ref()
+            .map(|v| v.trim())
+            .filter(|v| !v.is_empty()),
+    )
     .bind(max_quantity)
-    .bind(unit_label.as_ref().map(|v| v.trim()).filter(|v| !v.is_empty()))
+    .bind(
+        unit_label
+            .as_ref()
+            .map(|v| v.trim())
+            .filter(|v| !v.is_empty()),
+    )
     .bind(item_kind.as_deref())
     .bind(*item_id)
     .fetch_optional(&state.db)
@@ -376,13 +382,13 @@ pub async fn update_item(
 
     match res {
         Ok(Some(item)) => {
-            if let Some(previous) = previous_kind {
-                if previous != item.item_kind {
-                    info!(
-                        "item_kind_changed item_id={} from={} to={}",
-                        item.item_id, previous, item.item_kind
-                    );
-                }
+            if let Some(previous) = previous_kind
+                && previous != item.item_kind
+            {
+                info!(
+                    "item_kind_changed item_id={} from={} to={}",
+                    item.item_id, previous, item.item_kind
+                );
             }
             HttpResponse::Ok().json(item)
         }

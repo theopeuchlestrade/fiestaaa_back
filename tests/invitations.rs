@@ -65,7 +65,7 @@ async fn invitations_crud_flow() -> Result<(), Box<dyn Error>> {
     let secret = "secret";
     let owner_email = "owner@example.com";
     let state = build_state(pool.clone(), secret, &[]);
-    let mut app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
+    let app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
 
     let event_id = seed_event(&pool, owner_email).await?;
     let invitee_email = "guest@example.com";
@@ -75,7 +75,7 @@ async fn invitations_crud_flow() -> Result<(), Box<dyn Error>> {
 
     // Create invitation
     let resp = test::call_service(
-        &mut app,
+        &app,
         test::TestRequest::post()
             .uri(&format!("/events/{}/invitations", event_id))
             .insert_header(("Authorization", format!("Bearer {}", owner_token.clone())))
@@ -92,7 +92,7 @@ async fn invitations_crud_flow() -> Result<(), Box<dyn Error>> {
 
     // List invitations
     let resp = test::call_service(
-        &mut app,
+        &app,
         test::TestRequest::get()
             .uri(&format!("/events/{}/invitations", event_id))
             .insert_header(("Authorization", format!("Bearer {}", owner_token.clone())))
@@ -106,7 +106,7 @@ async fn invitations_crud_flow() -> Result<(), Box<dyn Error>> {
 
     // Invitee fetches their invitations
     let resp = test::call_service(
-        &mut app,
+        &app,
         test::TestRequest::get()
             .uri("/my/invitations")
             .insert_header(("Authorization", format!("Bearer {}", invitee_token.clone())))
@@ -119,7 +119,7 @@ async fn invitations_crud_flow() -> Result<(), Box<dyn Error>> {
 
     // Invitee accepts
     let resp = test::call_service(
-        &mut app,
+        &app,
         test::TestRequest::patch()
             .uri(&format!("/my/invitations/{}", event_id))
             .insert_header(("Authorization", format!("Bearer {}", invitee_token.clone())))
@@ -135,7 +135,7 @@ async fn invitations_crud_flow() -> Result<(), Box<dyn Error>> {
 
     // Delete invitation
     let resp = test::call_service(
-        &mut app,
+        &app,
         test::TestRequest::delete()
             .uri(&format!(
                 "/events/{}/invitations/{}",
@@ -149,7 +149,7 @@ async fn invitations_crud_flow() -> Result<(), Box<dyn Error>> {
 
     // Ensure list is empty
     let resp = test::call_service(
-        &mut app,
+        &app,
         test::TestRequest::get()
             .uri(&format!("/events/{}/invitations", event_id))
             .insert_header(("Authorization", format!("Bearer {}", owner_token)))

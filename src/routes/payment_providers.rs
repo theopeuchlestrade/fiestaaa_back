@@ -256,13 +256,13 @@ pub async fn update_payment_provider(
         .as_deref()
         .map(str::trim)
         .filter(|v| !v.is_empty());
-    if let Some(pattern) = validation_pattern {
-        if Regex::new(pattern).is_err() {
-            return HttpResponse::BadRequest().json(ErrorResponse {
-                error: "invalid_payload".into(),
-                details: Some("validation_regex doit être un regex valide".into()),
-            });
-        }
+    if let Some(pattern) = validation_pattern
+        && Regex::new(pattern).is_err()
+    {
+        return HttpResponse::BadRequest().json(ErrorResponse {
+            error: "invalid_payload".into(),
+            details: Some("validation_regex doit être un regex valide".into()),
+        });
     }
 
     let res = sqlx::query_as::<_, PaymentProvider>(

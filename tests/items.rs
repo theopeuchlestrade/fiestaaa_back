@@ -44,13 +44,9 @@ async fn list_items_initially_empty() -> Result<(), Box<dyn Error>> {
 
     let secret = "secret";
     let state = build_state(pool.clone(), secret, &["admin@example.com"]);
-    let mut app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
+    let app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
 
-    let resp = test::call_service(
-        &mut app,
-        test::TestRequest::get().uri("/items").to_request(),
-    )
-    .await;
+    let resp = test::call_service(&app, test::TestRequest::get().uri("/items").to_request()).await;
 
     assert_eq!(resp.status(), StatusCode::OK);
     let payload: Vec<Item> = test::read_body_json(resp).await;
@@ -69,11 +65,11 @@ async fn create_item_requires_authentication() -> Result<(), Box<dyn Error>> {
 
     let secret = "secret";
     let state = build_state(pool.clone(), secret, &["admin@example.com"]);
-    let mut app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
+    let app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
     let type_id = seed_item_type(&pool, "Drink").await?;
 
     let resp = test::call_service(
-        &mut app,
+        &app,
         test::TestRequest::post()
             .uri("/items")
             .set_json(&ItemPayload {
@@ -102,13 +98,13 @@ async fn create_item_rejects_non_admin() -> Result<(), Box<dyn Error>> {
 
     let secret = "secret";
     let state = build_state(pool.clone(), secret, &["admin@example.com"]);
-    let mut app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
+    let app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
 
     let type_id = seed_item_type(&pool, "Drink").await?;
     let token = admin_token(secret, "user@example.com").expect("token");
 
     let resp = test::call_service(
-        &mut app,
+        &app,
         test::TestRequest::post()
             .uri("/items")
             .insert_header(("Authorization", format!("Bearer {}", token)))
@@ -139,14 +135,14 @@ async fn items_crud_flow() -> Result<(), Box<dyn Error>> {
     let secret = "secret";
     let admin_email = "admin@example.com";
     let state = build_state(pool.clone(), secret, &[admin_email]);
-    let mut app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
+    let app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
 
     let type_id = seed_item_type(&pool, "Drink").await?;
     let other_type_id = seed_item_type(&pool, "Food").await?;
     let token = admin_token(secret, admin_email).expect("token");
 
     let resp = test::call_service(
-        &mut app,
+        &app,
         test::TestRequest::post()
             .uri("/items")
             .insert_header(("Authorization", format!("Bearer {}", token.clone())))
@@ -167,17 +163,13 @@ async fn items_crud_flow() -> Result<(), Box<dyn Error>> {
     assert_eq!(created.max_quantity, 10);
     assert_eq!(created.item_kind, "need");
 
-    let resp = test::call_service(
-        &mut app,
-        test::TestRequest::get().uri("/items").to_request(),
-    )
-    .await;
+    let resp = test::call_service(&app, test::TestRequest::get().uri("/items").to_request()).await;
     assert_eq!(resp.status(), StatusCode::OK);
     let listed: Vec<Item> = test::read_body_json(resp).await;
     assert_eq!(listed.len(), 1);
 
     let resp = test::call_service(
-        &mut app,
+        &app,
         test::TestRequest::put()
             .uri(&format!("/items/{}", created.item_id))
             .insert_header(("Authorization", format!("Bearer {}", token.clone())))
@@ -198,7 +190,7 @@ async fn items_crud_flow() -> Result<(), Box<dyn Error>> {
     assert_eq!(replaced.max_quantity, 5);
 
     let resp = test::call_service(
-        &mut app,
+        &app,
         test::TestRequest::patch()
             .uri(&format!("/items/{}", created.item_id))
             .insert_header(("Authorization", format!("Bearer {}", token.clone())))
@@ -219,7 +211,7 @@ async fn items_crud_flow() -> Result<(), Box<dyn Error>> {
     assert_eq!(patched.max_quantity, 7);
 
     let resp = test::call_service(
-        &mut app,
+        &app,
         test::TestRequest::delete()
             .uri(&format!("/items/{}", created.item_id))
             .insert_header(("Authorization", format!("Bearer {}", token)))
@@ -248,12 +240,12 @@ async fn create_item_rejects_unknown_type() -> Result<(), Box<dyn Error>> {
     let secret = "secret";
     let admin_email = "admin@example.com";
     let state = build_state(pool.clone(), secret, &[admin_email]);
-    let mut app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
+    let app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
 
     let token = admin_token(secret, admin_email).expect("token");
 
     let resp = test::call_service(
-        &mut app,
+        &app,
         test::TestRequest::post()
             .uri("/items")
             .insert_header(("Authorization", format!("Bearer {}", token)))

@@ -18,16 +18,16 @@ async fn register_creates_user_and_hashes_password() -> Result<(), Box<dyn Error
 
     let secret = "secret";
     let state = build_state(pool.clone(), secret, &[]);
-    let mut app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
+    let app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
 
     let email = "Admin@Test.com";
     let password = "supersafepw";
 
     let resp = test::call_service(
-        &mut app,
+        &app,
         test::TestRequest::post()
             .uri("/auth/register")
-            .set_json(&serde_json::json!({ "email": email, "password": password }))
+            .set_json(serde_json::json!({ "email": email, "password": password }))
             .to_request(),
     )
     .await;
@@ -55,13 +55,13 @@ async fn register_rejects_invalid_payload() -> Result<(), Box<dyn Error>> {
     reset_tables(&pool, &["users"]).await?;
 
     let state = build_state(pool.clone(), "secret", &[]);
-    let mut app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
+    let app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
 
     let resp = test::call_service(
-        &mut app,
+        &app,
         test::TestRequest::post()
             .uri("/auth/register")
-            .set_json(&serde_json::json!({ "email": "", "password": "short" }))
+            .set_json(serde_json::json!({ "email": "", "password": "short" }))
             .to_request(),
     )
     .await;
@@ -84,12 +84,12 @@ async fn register_rejects_duplicate_email() -> Result<(), Box<dyn Error>> {
     reset_tables(&pool, &["users"]).await?;
 
     let state = build_state(pool.clone(), "secret", &[]);
-    let mut app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
+    let app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
 
     let payload = serde_json::json!({ "email": "dup@example.com", "password": "strongpass" });
 
     let first = test::call_service(
-        &mut app,
+        &app,
         test::TestRequest::post()
             .uri("/auth/register")
             .set_json(&payload)
@@ -99,7 +99,7 @@ async fn register_rejects_duplicate_email() -> Result<(), Box<dyn Error>> {
     assert_eq!(first.status(), StatusCode::CREATED);
 
     let second = test::call_service(
-        &mut app,
+        &app,
         test::TestRequest::post()
             .uri("/auth/register")
             .set_json(&payload)
@@ -120,14 +120,14 @@ async fn login_returns_token_for_valid_credentials() -> Result<(), Box<dyn Error
     reset_tables(&pool, &["users"]).await?;
 
     let state = build_state(pool.clone(), "secret", &[]);
-    let mut app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
+    let app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
 
     let email = "user@example.com";
     let password = "mypassword";
 
     let register_payload = serde_json::json!({ "email": email, "password": password });
     let register_resp = test::call_service(
-        &mut app,
+        &app,
         test::TestRequest::post()
             .uri("/auth/register")
             .set_json(&register_payload)
@@ -137,10 +137,10 @@ async fn login_returns_token_for_valid_credentials() -> Result<(), Box<dyn Error
     assert_eq!(register_resp.status(), StatusCode::CREATED);
 
     let login_resp = test::call_service(
-        &mut app,
+        &app,
         test::TestRequest::post()
             .uri("/auth/login")
-            .set_json(&serde_json::json!({ "email": email, "password": password }))
+            .set_json(serde_json::json!({ "email": email, "password": password }))
             .to_request(),
     )
     .await;
@@ -166,14 +166,14 @@ async fn login_rejects_invalid_credentials() -> Result<(), Box<dyn Error>> {
     reset_tables(&pool, &["users"]).await?;
 
     let state = build_state(pool.clone(), "secret", &[]);
-    let mut app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
+    let app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
 
     let email = "user2@example.com";
     let password = "mypassword";
 
     let register_payload = serde_json::json!({ "email": email, "password": password });
     let register_resp = test::call_service(
-        &mut app,
+        &app,
         test::TestRequest::post()
             .uri("/auth/register")
             .set_json(&register_payload)
@@ -183,20 +183,20 @@ async fn login_rejects_invalid_credentials() -> Result<(), Box<dyn Error>> {
     assert_eq!(register_resp.status(), StatusCode::CREATED);
 
     let wrong_password_resp = test::call_service(
-        &mut app,
+        &app,
         test::TestRequest::post()
             .uri("/auth/login")
-            .set_json(&serde_json::json!({ "email": email, "password": "wrongpass" }))
+            .set_json(serde_json::json!({ "email": email, "password": "wrongpass" }))
             .to_request(),
     )
     .await;
     assert_eq!(wrong_password_resp.status(), StatusCode::UNAUTHORIZED);
 
     let unknown_user_resp = test::call_service(
-        &mut app,
+        &app,
         test::TestRequest::post()
             .uri("/auth/login")
-            .set_json(&serde_json::json!({ "email": "ghost@example.com", "password": "something" }))
+            .set_json(serde_json::json!({ "email": "ghost@example.com", "password": "something" }))
             .to_request(),
     )
     .await;
@@ -216,26 +216,26 @@ async fn delete_account_removes_user() -> Result<(), Box<dyn Error>> {
 
     let secret = "secret";
     let state = build_state(pool.clone(), secret, &[]);
-    let mut app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
+    let app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
 
     let email = "delete-me@example.com";
     let password = "MyStr0ng!Pass#2025";
 
     let register_resp = test::call_service(
-        &mut app,
+        &app,
         test::TestRequest::post()
             .uri("/auth/register")
-            .set_json(&serde_json::json!({ "email": email, "password": password }))
+            .set_json(serde_json::json!({ "email": email, "password": password }))
             .to_request(),
     )
     .await;
     assert_eq!(register_resp.status(), StatusCode::CREATED);
 
     let login_resp = test::call_service(
-        &mut app,
+        &app,
         test::TestRequest::post()
             .uri("/auth/login")
-            .set_json(&serde_json::json!({ "email": email, "password": password }))
+            .set_json(serde_json::json!({ "email": email, "password": password }))
             .to_request(),
     )
     .await;
@@ -253,7 +253,7 @@ async fn delete_account_removes_user() -> Result<(), Box<dyn Error>> {
     assert_eq!(count_before.0, 1);
 
     let delete_resp = test::call_service(
-        &mut app,
+        &app,
         test::TestRequest::delete()
             .uri("/me")
             .insert_header(("Authorization", format!("Bearer {}", token)))
@@ -263,7 +263,10 @@ async fn delete_account_removes_user() -> Result<(), Box<dyn Error>> {
     assert_eq!(delete_resp.status(), StatusCode::OK);
 
     let delete_json: Value = test::read_body_json(delete_resp).await;
-    assert_eq!(delete_json.get("status").and_then(|v| v.as_str()), Some("account_deleted"));
+    assert_eq!(
+        delete_json.get("status").and_then(|v| v.as_str()),
+        Some("account_deleted")
+    );
 
     let count_after: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM users")
         .fetch_one(&pool)
@@ -283,17 +286,14 @@ async fn delete_account_requires_auth() -> Result<(), Box<dyn Error>> {
     reset_tables(&pool, &["users"]).await?;
 
     let state = build_state(pool.clone(), "secret", &[]);
-    let mut app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
+    let app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
 
-    let no_header_resp = test::call_service(
-        &mut app,
-        test::TestRequest::delete().uri("/me").to_request(),
-    )
-    .await;
+    let no_header_resp =
+        test::call_service(&app, test::TestRequest::delete().uri("/me").to_request()).await;
     assert_eq!(no_header_resp.status(), StatusCode::UNAUTHORIZED);
 
     let invalid_token_resp = test::call_service(
-        &mut app,
+        &app,
         test::TestRequest::delete()
             .uri("/me")
             .insert_header(("Authorization", "Bearer invalid.token.here"))
@@ -316,26 +316,26 @@ async fn delete_account_returns_404_for_missing_user() -> Result<(), Box<dyn Err
 
     let secret = "secret";
     let state = build_state(pool.clone(), secret, &[]);
-    let mut app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
+    let app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
 
     let email = "ghost@example.com";
     let password = "MyStr0ng!Pass#2025";
 
     let register_resp = test::call_service(
-        &mut app,
+        &app,
         test::TestRequest::post()
             .uri("/auth/register")
-            .set_json(&serde_json::json!({ "email": email, "password": password }))
+            .set_json(serde_json::json!({ "email": email, "password": password }))
             .to_request(),
     )
     .await;
     assert_eq!(register_resp.status(), StatusCode::CREATED);
 
     let login_resp = test::call_service(
-        &mut app,
+        &app,
         test::TestRequest::post()
             .uri("/auth/login")
-            .set_json(&serde_json::json!({ "email": email, "password": password }))
+            .set_json(serde_json::json!({ "email": email, "password": password }))
             .to_request(),
     )
     .await;
@@ -351,7 +351,7 @@ async fn delete_account_returns_404_for_missing_user() -> Result<(), Box<dyn Err
         .await?;
 
     let delete_resp = test::call_service(
-        &mut app,
+        &app,
         test::TestRequest::delete()
             .uri("/me")
             .insert_header(("Authorization", format!("Bearer {}", token)))

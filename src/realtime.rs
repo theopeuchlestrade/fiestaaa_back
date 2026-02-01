@@ -41,14 +41,14 @@ pub fn event_channel(event_id: i64) -> String {
 }
 
 pub async fn publish_json(redis: &Option<RedisClient>, channel: &str, payload: &impl Serialize) {
-    if let Some(client) = redis {
-        if let Ok(mut conn) = client.get_multiplexed_async_connection().await {
-            let _: redis::RedisResult<()> = redis::cmd("PUBLISH")
-                .arg(channel)
-                .arg(serde_json::to_string(payload).unwrap_or_default())
-                .query_async(&mut conn)
-                .await;
-        }
+    if let Some(client) = redis
+        && let Ok(mut conn) = client.get_multiplexed_async_connection().await
+    {
+        let _: redis::RedisResult<()> = redis::cmd("PUBLISH")
+            .arg(channel)
+            .arg(serde_json::to_string(payload).unwrap_or_default())
+            .query_async(&mut conn)
+            .await;
     }
 }
 
@@ -96,20 +96,11 @@ pub async fn websocket(
     ws::start(ws, &req, stream)
 }
 
-#[derive(Debug, serde::Deserialize, Clone)]
+#[derive(Debug, serde::Deserialize, Clone, Default)]
 #[serde(default)]
 pub struct EventWsQuery {
     pub event_id: Option<i64>,
     pub token: Option<String>,
-}
-
-impl Default for EventWsQuery {
-    fn default() -> Self {
-        Self {
-            event_id: None,
-            token: None,
-        }
-    }
 }
 
 #[derive(Message)]

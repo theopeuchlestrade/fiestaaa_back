@@ -16,6 +16,23 @@ use crate::{
     models::{Claims, ErrorResponse},
 };
 
+#[derive(Debug)]
+pub enum AuthError {
+    HashFailed,
+    JwtFailed,
+}
+
+impl std::fmt::Display for AuthError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::HashFailed => write!(f, "hashing failed"),
+            Self::JwtFailed => write!(f, "jwt encoding failed"),
+        }
+    }
+}
+
+impl std::error::Error for AuthError {}
+
 pub fn now_ts() -> u64 {
     use std::time::{SystemTime, UNIX_EPOCH};
     SystemTime::now()
@@ -24,12 +41,12 @@ pub fn now_ts() -> u64 {
         .as_secs()
 }
 
-pub fn hash_password(password: &str) -> Result<String, ()> {
+pub fn hash_password(password: &str) -> Result<String, AuthError> {
     let salt = SaltString::generate(&mut OsRng);
     Argon2::default()
         .hash_password(password.as_bytes(), &salt)
         .map(|h| h.to_string())
-        .map_err(|_| ())
+        .map_err(|_| AuthError::HashFailed)
 }
 
 pub fn verify_password(hash: &str, password: &str) -> bool {
@@ -96,13 +113,13 @@ pub async fn fetch_user_auth(
     }
 }
 
-pub fn encode_jwt(claims: &Claims, secret: &str) -> Result<String, ()> {
+pub fn encode_jwt(claims: &Claims, secret: &str) -> Result<String, AuthError> {
     encode(
         &Header::new(Algorithm::HS256),
         claims,
         &EncodingKey::from_secret(secret.as_bytes()),
     )
-    .map_err(|_| ())
+    .map_err(|_| AuthError::JwtFailed)
 }
 
 pub fn decode_jwt(token: &str, secret: &str) -> Result<Claims, HttpResponse> {
