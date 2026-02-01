@@ -1,4 +1,5 @@
 use actix_web::{HttpRequest, HttpResponse, Responder, delete, get, patch, post, put, web};
+use log::info;
 use sqlx::Error;
 
 use crate::{
@@ -23,6 +24,21 @@ fn ensure_admin(req: &HttpRequest, state: &AppState) -> Result<(), HttpResponse>
     }
 }
 
+fn normalize_item_kind(value: &str) -> Option<String> {
+    let normalized = value.trim().to_lowercase();
+    match normalized.as_str() {
+        "need" | "bring" => Some(normalized),
+        _ => None,
+    }
+}
+
+fn invalid_item_kind() -> HttpResponse {
+    HttpResponse::BadRequest().json(ErrorResponse {
+        error: "invalid_payload".into(),
+        details: Some("item_kind doit être 'need' ou 'bring'".into()),
+    })
+}
+
 #[utoipa::path(
     get,
     path = "/items",
@@ -35,7 +51,9 @@ fn ensure_admin(req: &HttpRequest, state: &AppState) -> Result<(), HttpResponse>
 #[get("/items")]
 pub async fn list_items(state: web::Data<AppState>) -> impl Responder {
     let res = sqlx::query_as::<_, Item>(
-        "SELECT item_id, type_id, name_item, max_quantity, unit_label FROM items ORDER BY item_id",
+        "SELECT item_id, type_id, name_item, max_quantity, unit_label, item_kind
+         FROM items
+         ORDER BY item_id",
     )
     .fetch_all(&state.db)
     .await;
@@ -72,9 +90,15 @@ pub async fn create_item(
     }
 
     let payload = payload.into_inner();
-    if payload.name_item.trim().is_empty()
-        || payload.max_quantity <= 0
-        || payload.unit_label.trim().is_empty()
+    let ItemPayload {
+        type_id,
+        name_item,
+        max_quantity,
+        unit_label,
+        item_kind,
+    } = payload;
+
+    if name_item.trim().is_empty() || max_quantity <= 0 || unit_label.trim().is_empty()
     {
         return HttpResponse::BadRequest().json(ErrorResponse {
             error: "invalid_payload".into(),
@@ -82,15 +106,24 @@ pub async fn create_item(
         });
     }
 
+    let item_kind = match item_kind {
+        Some(raw) => match normalize_item_kind(&raw) {
+            Some(value) => value,
+            None => return invalid_item_kind(),
+        },
+        None => "need".to_string(),
+    };
+
     let res = sqlx::query_as::<_, Item>(
-        "INSERT INTO items (type_id, name_item, max_quantity, unit_label)
-         VALUES ($1, $2, $3, $4)
-         RETURNING item_id, type_id, name_item, max_quantity, unit_label",
+        "INSERT INTO items (type_id, name_item, max_quantity, unit_label, item_kind)
+         VALUES ($1, $2, $3, $4, $5)
+         RETURNING item_id, type_id, name_item, max_quantity, unit_label, item_kind",
     )
-    .bind(payload.type_id)
-    .bind(payload.name_item.trim())
-    .bind(payload.max_quantity)
-    .bind(payload.unit_label.trim())
+    .bind(type_id)
+    .bind(name_item.trim())
+    .bind(max_quantity)
+    .bind(unit_label.trim())
+    .bind(item_kind)
     .fetch_one(&state.db)
     .await;
 
@@ -137,9 +170,15 @@ pub async fn replace_item(
     }
 
     let payload = payload.into_inner();
-    if payload.name_item.trim().is_empty()
-        || payload.max_quantity <= 0
-        || payload.unit_label.trim().is_empty()
+    let ItemPayload {
+        type_id,
+        name_item,
+        max_quantity,
+        unit_label,
+        item_kind,
+    } = payload;
+
+    if name_item.trim().is_empty() || max_quantity <= 0 || unit_label.trim().is_empty()
     {
         return HttpResponse::BadRequest().json(ErrorResponse {
             error: "invalid_payload".into(),
@@ -147,22 +186,69 @@ pub async fn replace_item(
         });
     }
 
+    let item_kind = match item_kind {
+        Some(raw) => match normalize_item_kind(&raw) {
+            Some(value) => Some(value),
+            None => return invalid_item_kind(),
+        },
+        None => None,
+    };
+
+    let previous_kind = if item_kind.is_some() {
+        match sqlx::query_scalar::<_, String>("SELECT item_kind FROM items WHERE item_id = $1")
+            .bind(*item_id)
+            .fetch_optional(&state.db)
+            .await
+        {
+            Ok(Some(value)) => Some(value),
+            Ok(None) => {
+                return HttpResponse::NotFound().json(ErrorResponse {
+                    error: "item_not_found".into(),
+                    details: None,
+                })
+            }
+            Err(_) => {
+                return HttpResponse::InternalServerError().json(ErrorResponse {
+                    error: "db_error".into(),
+                    details: None,
+                })
+            }
+        }
+    } else {
+        None
+    };
+
     let res = sqlx::query_as::<_, Item>(
         "UPDATE items
-         SET type_id = $1, name_item = $2, max_quantity = $3, unit_label = $4
-         WHERE item_id = $5
-         RETURNING item_id, type_id, name_item, max_quantity, unit_label",
+         SET type_id = $1,
+             name_item = $2,
+             max_quantity = $3,
+             unit_label = $4,
+             item_kind = COALESCE($5, item_kind)
+         WHERE item_id = $6
+         RETURNING item_id, type_id, name_item, max_quantity, unit_label, item_kind",
     )
-    .bind(payload.type_id)
-    .bind(payload.name_item.trim())
-    .bind(payload.max_quantity)
-    .bind(payload.unit_label.trim())
+    .bind(type_id)
+    .bind(name_item.trim())
+    .bind(max_quantity)
+    .bind(unit_label.trim())
+    .bind(item_kind.as_deref())
     .bind(*item_id)
     .fetch_optional(&state.db)
     .await;
 
     match res {
-        Ok(Some(item)) => HttpResponse::Ok().json(item),
+        Ok(Some(item)) => {
+            if let Some(previous) = previous_kind {
+                if previous != item.item_kind {
+                    info!(
+                        "item_kind_changed item_id={} from={} to={}",
+                        item.item_id, previous, item.item_kind
+                    );
+                }
+            }
+            HttpResponse::Ok().json(item)
+        }
         Ok(None) => HttpResponse::NotFound().json(ErrorResponse {
             error: "item_not_found".into(),
             details: None,
@@ -208,26 +294,28 @@ pub async fn update_item(
     }
 
     let payload = payload.into_inner();
-    if payload
-        .name_item
-        .as_ref()
-        .is_some_and(|v| v.trim().is_empty())
+    let ItemPatchPayload {
+        type_id,
+        name_item,
+        max_quantity,
+        unit_label,
+        item_kind,
+    } = payload;
+
+    if name_item.as_ref().is_some_and(|v| v.trim().is_empty())
     {
         return HttpResponse::BadRequest().json(ErrorResponse {
             error: "invalid_payload".into(),
             details: Some("name_item ne peut pas être vide".into()),
         });
     }
-    if payload.max_quantity.is_some_and(|qty| qty <= 0) {
+    if max_quantity.is_some_and(|qty| qty <= 0) {
         return HttpResponse::BadRequest().json(ErrorResponse {
             error: "invalid_payload".into(),
             details: Some("max_quantity doit être > 0".into()),
         });
     }
-    if payload
-        .unit_label
-        .as_ref()
-        .is_some_and(|v| v.trim().is_empty())
+    if unit_label.as_ref().is_some_and(|v| v.trim().is_empty())
     {
         return HttpResponse::BadRequest().json(ErrorResponse {
             error: "invalid_payload".into(),
@@ -235,37 +323,69 @@ pub async fn update_item(
         });
     }
 
+    let item_kind = match item_kind {
+        Some(raw) => match normalize_item_kind(&raw) {
+            Some(value) => Some(value),
+            None => return invalid_item_kind(),
+        },
+        None => None,
+    };
+
+    let previous_kind = if item_kind.is_some() {
+        match sqlx::query_scalar::<_, String>("SELECT item_kind FROM items WHERE item_id = $1")
+            .bind(*item_id)
+            .fetch_optional(&state.db)
+            .await
+        {
+            Ok(Some(value)) => Some(value),
+            Ok(None) => {
+                return HttpResponse::NotFound().json(ErrorResponse {
+                    error: "item_not_found".into(),
+                    details: None,
+                })
+            }
+            Err(_) => {
+                return HttpResponse::InternalServerError().json(ErrorResponse {
+                    error: "db_error".into(),
+                    details: None,
+                })
+            }
+        }
+    } else {
+        None
+    };
+
     let res = sqlx::query_as::<_, Item>(
         "UPDATE items
          SET type_id = COALESCE($1, type_id),
              name_item = COALESCE($2, name_item),
              max_quantity = COALESCE($3, max_quantity),
-             unit_label = COALESCE($4, unit_label)
-         WHERE item_id = $5
-         RETURNING item_id, type_id, name_item, max_quantity, unit_label",
+             unit_label = COALESCE($4, unit_label),
+             item_kind = COALESCE($5, item_kind)
+         WHERE item_id = $6
+         RETURNING item_id, type_id, name_item, max_quantity, unit_label, item_kind",
     )
-    .bind(payload.type_id)
-    .bind(
-        payload
-            .name_item
-            .as_ref()
-            .map(|v| v.trim())
-            .filter(|v| !v.is_empty()),
-    )
-    .bind(payload.max_quantity)
-    .bind(
-        payload
-            .unit_label
-            .as_ref()
-            .map(|v| v.trim())
-            .filter(|v| !v.is_empty()),
-    )
+    .bind(type_id)
+    .bind(name_item.as_ref().map(|v| v.trim()).filter(|v| !v.is_empty()))
+    .bind(max_quantity)
+    .bind(unit_label.as_ref().map(|v| v.trim()).filter(|v| !v.is_empty()))
+    .bind(item_kind.as_deref())
     .bind(*item_id)
     .fetch_optional(&state.db)
     .await;
 
     match res {
-        Ok(Some(item)) => HttpResponse::Ok().json(item),
+        Ok(Some(item)) => {
+            if let Some(previous) = previous_kind {
+                if previous != item.item_kind {
+                    info!(
+                        "item_kind_changed item_id={} from={} to={}",
+                        item.item_id, previous, item.item_kind
+                    );
+                }
+            }
+            HttpResponse::Ok().json(item)
+        }
         Ok(None) => HttpResponse::NotFound().json(ErrorResponse {
             error: "item_not_found".into(),
             details: None,

@@ -27,6 +27,21 @@ fn claims_email(req: &HttpRequest, state: &AppState) -> Result<String, HttpRespo
     Ok(claims.sub.to_lowercase())
 }
 
+fn normalize_item_kind(value: &str) -> Option<String> {
+    let normalized = value.trim().to_lowercase();
+    match normalized.as_str() {
+        "need" | "bring" => Some(normalized),
+        _ => None,
+    }
+}
+
+fn invalid_item_kind_response() -> HttpResponse {
+    HttpResponse::BadRequest().json(ErrorResponse {
+        error: "invalid_payload".into(),
+        details: Some("item_kind doit être 'need' ou 'bring'".into()),
+    })
+}
+
 async fn fetch_event_owner_email(db: &PgPool, event_id: i64) -> Result<String, HttpResponse> {
     let owner =
         sqlx::query_scalar::<_, String>("SELECT owner_email FROM events WHERE event_id = $1")
@@ -1196,7 +1211,10 @@ pub async fn list_event_items(
                 ei.max_quantity,
                 ei.quantity AS reserved_quantity,
                 i.unit_label,
-                cu.email AS created_by_email
+                i.item_kind,
+                cu.email AS created_by_email,
+                cu.handle AS created_by_handle,
+                cu.avatar_url AS created_by_avatar_url
          FROM events_items ei
          JOIN items i ON i.item_id = ei.item_id
          JOIN item_types it ON it.type_id = i.type_id
@@ -1389,28 +1407,57 @@ pub async fn create_custom_event_item(
         Err(resp) => return resp,
     };
 
+    let owner_email = match fetch_event_owner_email(&state.db, *event_id).await {
+        Ok(owner) => owner,
+        Err(resp) => return resp,
+    };
+    let is_owner = owner_email.eq_ignore_ascii_case(&creator_email) || owner_email.is_empty();
+
     let creator_id = match fetch_user_id(&state.db, &creator_email).await {
         Ok(id) => id,
         Err(resp) => return resp,
     };
 
     let payload = payload.into_inner();
-    let name_trimmed = payload.name_item.trim().to_string();
-    if name_trimmed.is_empty() || payload.max_quantity <= 0 {
+    let EventCustomItemPayload {
+        name_item,
+        max_quantity,
+        unit_label,
+        item_kind,
+    } = payload;
+
+    let name_trimmed = name_item.trim().to_string();
+    if name_trimmed.is_empty() || max_quantity <= 0 {
         return HttpResponse::BadRequest().json(ErrorResponse {
             error: "invalid_payload".into(),
             details: Some("Nom non vide et quantité > 0 requis".into()),
         });
     }
 
-    let unit_label = payload
-        .unit_label
+    let unit_label = unit_label
         .map(|v| v.trim().to_string())
         .filter(|v| !v.is_empty())
         .unwrap_or_else(|| "pièce".to_string());
 
-    if let Err(resp) = ensure_event_exists(&state.db, *event_id).await {
-        return resp;
+    let item_kind = match item_kind {
+        Some(raw) => match normalize_item_kind(&raw) {
+            Some(value) => value,
+            None => return invalid_item_kind_response(),
+        },
+        None => {
+            if is_owner {
+                "need".to_string()
+            } else {
+                "bring".to_string()
+            }
+        }
+    };
+
+    if item_kind == "need" && !is_owner {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            error: "forbidden".into(),
+            details: Some("only the creator can add need items".into()),
+        });
     }
 
     let mut tx = match state.db.begin().await {
@@ -1426,10 +1473,12 @@ pub async fn create_custom_event_item(
          JOIN items i ON i.item_id = ei.item_id
          WHERE ei.event_id = $1
            AND lower(i.name_item) = $2
+           AND i.item_kind = $3
          FOR UPDATE",
     )
     .bind(*event_id)
     .bind(&normalized_name)
+    .bind(item_kind.as_str())
     .fetch_optional(&mut *tx)
     .await
     .map_err(|_| server_error());
@@ -1477,14 +1526,15 @@ pub async fn create_custom_event_item(
         };
 
         match sqlx::query_scalar::<_, i64>(
-            "INSERT INTO items (type_id, name_item, max_quantity, unit_label)
-             VALUES ($1, $2, $3, $4)
+            "INSERT INTO items (type_id, name_item, max_quantity, unit_label, item_kind)
+             VALUES ($1, $2, $3, $4, $5)
              RETURNING item_id",
         )
         .bind(default_type_id)
         .bind(name_trimmed.as_str())
-        .bind(payload.max_quantity)
+        .bind(max_quantity)
         .bind(unit_label.as_str())
+        .bind(item_kind.as_str())
         .fetch_one(&mut *tx)
         .await
         {
@@ -1505,7 +1555,7 @@ pub async fn create_custom_event_item(
     )
     .bind(*event_id)
     .bind(item_id)
-    .bind(payload.max_quantity)
+    .bind(max_quantity)
     .bind(creator_id)
     .fetch_one(&mut *tx)
     .await;
@@ -2620,7 +2670,10 @@ async fn fetch_event_item_view(
                 ei.max_quantity,
                 ei.quantity AS reserved_quantity,
                 i.unit_label,
-                cu.email AS created_by_email
+                i.item_kind,
+                cu.email AS created_by_email,
+                cu.handle AS created_by_handle,
+                cu.avatar_url AS created_by_avatar_url
          FROM events_items ei
          JOIN items i ON i.item_id = ei.item_id
          JOIN item_types it ON it.type_id = i.type_id

@@ -81,6 +81,7 @@ async fn create_item_requires_authentication() -> Result<(), Box<dyn Error>> {
                 name_item: "Soda".to_string(),
                 max_quantity: 10,
                 unit_label: "unités".to_string(),
+                item_kind: None,
             })
             .to_request(),
     )
@@ -116,6 +117,7 @@ async fn create_item_rejects_non_admin() -> Result<(), Box<dyn Error>> {
                 name_item: "Soda".to_string(),
                 max_quantity: 10,
                 unit_label: "unités".to_string(),
+                item_kind: None,
             })
             .to_request(),
     )
@@ -153,6 +155,7 @@ async fn items_crud_flow() -> Result<(), Box<dyn Error>> {
                 name_item: "Soda".to_string(),
                 max_quantity: 10,
                 unit_label: "unités".to_string(),
+                item_kind: None,
             })
             .to_request(),
     )
@@ -162,6 +165,7 @@ async fn items_crud_flow() -> Result<(), Box<dyn Error>> {
     assert_eq!(created.type_id, type_id);
     assert_eq!(created.name_item, "Soda");
     assert_eq!(created.max_quantity, 10);
+    assert_eq!(created.item_kind, "need");
 
     let resp = test::call_service(
         &mut app,
@@ -182,6 +186,7 @@ async fn items_crud_flow() -> Result<(), Box<dyn Error>> {
                 name_item: "Burger".to_string(),
                 max_quantity: 5,
                 unit_label: "unités".to_string(),
+                item_kind: None,
             })
             .to_request(),
     )
@@ -202,6 +207,7 @@ async fn items_crud_flow() -> Result<(), Box<dyn Error>> {
                 name_item: Some("Burger Deluxe".to_string()),
                 max_quantity: Some(7),
                 unit_label: None,
+                item_kind: None,
             })
             .to_request(),
     )
@@ -256,6 +262,7 @@ async fn create_item_rejects_unknown_type() -> Result<(), Box<dyn Error>> {
                 name_item: "Ghost".to_string(),
                 max_quantity: 1,
                 unit_label: "unités".to_string(),
+                item_kind: None,
             })
             .to_request(),
     )
