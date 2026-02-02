@@ -2,9 +2,9 @@ mod common;
 
 use std::error::Error;
 
-use actix_web::{http::StatusCode, test, App};
+use actix_web::{App, http::StatusCode, test};
 use chrono::{Duration, Utc};
-use common::{build_state, obtain_pool, reset_tables, DB_LOCK};
+use common::{DB_LOCK, build_state, obtain_pool, reset_tables};
 use fiestaaa_back::{
     auth::{encode_jwt, hash_password, now_ts},
     models::{
@@ -29,7 +29,6 @@ struct TestErrorResponse {
 struct TestStatusResponse {
     status: String,
 }
-
 
 fn make_token(secret: &str, email: &str) -> Option<String> {
     let handle = email
@@ -59,7 +58,6 @@ async fn seed_user(pool: &PgPool, email: &str) -> sqlx::Result<i64> {
     .await
 }
 
-
 async fn seed_event(pool: &PgPool, owner_email: &str) -> sqlx::Result<i64> {
     sqlx::query_scalar::<_, i64>(
         r#"
@@ -74,13 +72,11 @@ async fn seed_event(pool: &PgPool, owner_email: &str) -> sqlx::Result<i64> {
 }
 
 async fn accept_invitation(pool: &PgPool, event_id: i64, user_id: i64) -> sqlx::Result<()> {
-    sqlx::query(
-        "INSERT INTO invitations (event_id, user_id, status) VALUES ($1, $2, 'Accepted')",
-    )
-    .bind(event_id)
-    .bind(user_id)
-    .execute(pool)
-    .await?;
+    sqlx::query("INSERT INTO invitations (event_id, user_id, status) VALUES ($1, $2, 'Accepted')")
+        .bind(event_id)
+        .bind(user_id)
+        .execute(pool)
+        .await?;
     Ok(())
 }
 
@@ -99,7 +95,17 @@ async fn list_carpools_requires_event_membership() -> Result<(), Box<dyn Error>>
         return Ok(());
     };
     let _guard = DB_LOCK.lock().await;
-    reset_tables(&pool, &["events", "users", "carpools", "carpool_passengers", "invitations"]).await?;
+    reset_tables(
+        &pool,
+        &[
+            "events",
+            "users",
+            "carpools",
+            "carpool_passengers",
+            "invitations",
+        ],
+    )
+    .await?;
 
     let secret = "secret";
     let owner_email = "owner@example.com";
@@ -110,12 +116,12 @@ async fn list_carpools_requires_event_membership() -> Result<(), Box<dyn Error>>
     let event_id = seed_event(&pool, owner_email).await?;
 
     let state = build_state(pool.clone(), secret, &[]);
-    let mut app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
+    let app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
 
     let outsider_token = make_token(secret, outsider_email).expect("token");
 
     let resp = test::call_service(
-        &mut app,
+        &app,
         test::TestRequest::get()
             .uri(&format!("/events/{}/carpools", event_id))
             .insert_header(("Authorization", format!("Bearer {}", outsider_token)))
@@ -138,7 +144,17 @@ async fn list_carpools_initially_empty() -> Result<(), Box<dyn Error>> {
         return Ok(());
     };
     let _guard = DB_LOCK.lock().await;
-    reset_tables(&pool, &["events", "users", "carpools", "carpool_passengers", "invitations"]).await?;
+    reset_tables(
+        &pool,
+        &[
+            "events",
+            "users",
+            "carpools",
+            "carpool_passengers",
+            "invitations",
+        ],
+    )
+    .await?;
 
     let secret = "secret";
     let owner_email = "owner@example.com";
@@ -147,12 +163,12 @@ async fn list_carpools_initially_empty() -> Result<(), Box<dyn Error>> {
     let event_id = seed_event(&pool, owner_email).await?;
 
     let state = build_state(pool.clone(), secret, &[]);
-    let mut app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
+    let app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
 
     let token = make_token(secret, owner_email).expect("token");
 
     let resp = test::call_service(
-        &mut app,
+        &app,
         test::TestRequest::get()
             .uri(&format!("/events/{}/carpools", event_id))
             .insert_header(("Authorization", format!("Bearer {}", token)))
@@ -177,7 +193,17 @@ async fn create_carpool_requires_authentication() -> Result<(), Box<dyn Error>> 
         return Ok(());
     };
     let _guard = DB_LOCK.lock().await;
-    reset_tables(&pool, &["events", "users", "carpools", "carpool_passengers", "invitations"]).await?;
+    reset_tables(
+        &pool,
+        &[
+            "events",
+            "users",
+            "carpools",
+            "carpool_passengers",
+            "invitations",
+        ],
+    )
+    .await?;
 
     let secret = "secret";
     let owner_email = "owner@example.com";
@@ -186,10 +212,10 @@ async fn create_carpool_requires_authentication() -> Result<(), Box<dyn Error>> 
     let event_id = seed_event(&pool, owner_email).await?;
 
     let state = build_state(pool.clone(), secret, &[]);
-    let mut app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
+    let app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
 
     let resp = test::call_service(
-        &mut app,
+        &app,
         test::TestRequest::post()
             .uri(&format!("/events/{}/carpools", event_id))
             .set_json(&CarpoolPayload {
@@ -219,7 +245,17 @@ async fn create_carpool_validates_payload() -> Result<(), Box<dyn Error>> {
         return Ok(());
     };
     let _guard = DB_LOCK.lock().await;
-    reset_tables(&pool, &["events", "users", "carpools", "carpool_passengers", "invitations"]).await?;
+    reset_tables(
+        &pool,
+        &[
+            "events",
+            "users",
+            "carpools",
+            "carpool_passengers",
+            "invitations",
+        ],
+    )
+    .await?;
 
     let secret = "secret";
     let owner_email = "owner@example.com";
@@ -228,13 +264,13 @@ async fn create_carpool_validates_payload() -> Result<(), Box<dyn Error>> {
     let event_id = seed_event(&pool, owner_email).await?;
 
     let state = build_state(pool.clone(), secret, &[]);
-    let mut app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
+    let app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
 
     let token = make_token(secret, owner_email).expect("token");
 
     // Empty origin
     let resp = test::call_service(
-        &mut app,
+        &app,
         test::TestRequest::post()
             .uri(&format!("/events/{}/carpools", event_id))
             .insert_header(("Authorization", format!("Bearer {}", token)))
@@ -253,7 +289,7 @@ async fn create_carpool_validates_payload() -> Result<(), Box<dyn Error>> {
 
     // Zero seats
     let resp = test::call_service(
-        &mut app,
+        &app,
         test::TestRequest::post()
             .uri(&format!("/events/{}/carpools", event_id))
             .insert_header(("Authorization", format!("Bearer {}", token)))
@@ -272,7 +308,7 @@ async fn create_carpool_validates_payload() -> Result<(), Box<dyn Error>> {
 
     // Past departure
     let resp = test::call_service(
-        &mut app,
+        &app,
         test::TestRequest::post()
             .uri(&format!("/events/{}/carpools", event_id))
             .insert_header(("Authorization", format!("Bearer {}", token)))
@@ -303,7 +339,17 @@ async fn create_carpool_success() -> Result<(), Box<dyn Error>> {
         return Ok(());
     };
     let _guard = DB_LOCK.lock().await;
-    reset_tables(&pool, &["events", "users", "carpools", "carpool_passengers", "invitations"]).await?;
+    reset_tables(
+        &pool,
+        &[
+            "events",
+            "users",
+            "carpools",
+            "carpool_passengers",
+            "invitations",
+        ],
+    )
+    .await?;
 
     let secret = "secret";
     let owner_email = "owner@example.com";
@@ -312,13 +358,13 @@ async fn create_carpool_success() -> Result<(), Box<dyn Error>> {
     let event_id = seed_event(&pool, owner_email).await?;
 
     let state = build_state(pool.clone(), secret, &[]);
-    let mut app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
+    let app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
 
     let token = make_token(secret, owner_email).expect("token");
     let depart = future_departure();
 
     let resp = test::call_service(
-        &mut app,
+        &app,
         test::TestRequest::post()
             .uri(&format!("/events/{}/carpools", event_id))
             .insert_header(("Authorization", format!("Bearer {}", token)))
@@ -356,7 +402,17 @@ async fn create_carpool_prevents_duplicate_participation() -> Result<(), Box<dyn
         return Ok(());
     };
     let _guard = DB_LOCK.lock().await;
-    reset_tables(&pool, &["events", "users", "carpools", "carpool_passengers", "invitations"]).await?;
+    reset_tables(
+        &pool,
+        &[
+            "events",
+            "users",
+            "carpools",
+            "carpool_passengers",
+            "invitations",
+        ],
+    )
+    .await?;
 
     let secret = "secret";
     let owner_email = "owner@example.com";
@@ -365,13 +421,13 @@ async fn create_carpool_prevents_duplicate_participation() -> Result<(), Box<dyn
     let event_id = seed_event(&pool, owner_email).await?;
 
     let state = build_state(pool.clone(), secret, &[]);
-    let mut app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
+    let app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
 
     let token = make_token(secret, owner_email).expect("token");
 
     // First carpool - should succeed
     let resp = test::call_service(
-        &mut app,
+        &app,
         test::TestRequest::post()
             .uri(&format!("/events/{}/carpools", event_id))
             .insert_header(("Authorization", format!("Bearer {}", token)))
@@ -390,7 +446,7 @@ async fn create_carpool_prevents_duplicate_participation() -> Result<(), Box<dyn
 
     // Second carpool - should fail (already driver)
     let resp = test::call_service(
-        &mut app,
+        &app,
         test::TestRequest::post()
             .uri(&format!("/events/{}/carpools", event_id))
             .insert_header(("Authorization", format!("Bearer {}", token)))
@@ -423,7 +479,17 @@ async fn update_carpool_only_driver() -> Result<(), Box<dyn Error>> {
         return Ok(());
     };
     let _guard = DB_LOCK.lock().await;
-    reset_tables(&pool, &["events", "users", "carpools", "carpool_passengers", "invitations"]).await?;
+    reset_tables(
+        &pool,
+        &[
+            "events",
+            "users",
+            "carpools",
+            "carpool_passengers",
+            "invitations",
+        ],
+    )
+    .await?;
 
     let secret = "secret";
     let owner_email = "owner@example.com";
@@ -435,14 +501,14 @@ async fn update_carpool_only_driver() -> Result<(), Box<dyn Error>> {
     accept_invitation(&pool, event_id, other_id).await?;
 
     let state = build_state(pool.clone(), secret, &[]);
-    let mut app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
+    let app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
 
     let owner_token = make_token(secret, owner_email).expect("token");
     let other_token = make_token(secret, other_email).expect("token");
 
     // Create carpool as owner
     let resp = test::call_service(
-        &mut app,
+        &app,
         test::TestRequest::post()
             .uri(&format!("/events/{}/carpools", event_id))
             .insert_header(("Authorization", format!("Bearer {}", owner_token)))
@@ -462,7 +528,7 @@ async fn update_carpool_only_driver() -> Result<(), Box<dyn Error>> {
 
     // Try to update as non-driver - should fail
     let resp = test::call_service(
-        &mut app,
+        &app,
         test::TestRequest::patch()
             .uri(&format!("/carpools/{}", carpool.carpool_id))
             .insert_header(("Authorization", format!("Bearer {}", other_token)))
@@ -493,7 +559,17 @@ async fn update_carpool_success() -> Result<(), Box<dyn Error>> {
         return Ok(());
     };
     let _guard = DB_LOCK.lock().await;
-    reset_tables(&pool, &["events", "users", "carpools", "carpool_passengers", "invitations"]).await?;
+    reset_tables(
+        &pool,
+        &[
+            "events",
+            "users",
+            "carpools",
+            "carpool_passengers",
+            "invitations",
+        ],
+    )
+    .await?;
 
     let secret = "secret";
     let owner_email = "owner@example.com";
@@ -502,13 +578,13 @@ async fn update_carpool_success() -> Result<(), Box<dyn Error>> {
     let event_id = seed_event(&pool, owner_email).await?;
 
     let state = build_state(pool.clone(), secret, &[]);
-    let mut app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
+    let app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
 
     let token = make_token(secret, owner_email).expect("token");
 
     // Create carpool
     let resp = test::call_service(
-        &mut app,
+        &app,
         test::TestRequest::post()
             .uri(&format!("/events/{}/carpools", event_id))
             .insert_header(("Authorization", format!("Bearer {}", token)))
@@ -529,7 +605,7 @@ async fn update_carpool_success() -> Result<(), Box<dyn Error>> {
     // Update carpool
     let new_depart = future_departure() + Duration::hours(2);
     let resp = test::call_service(
-        &mut app,
+        &app,
         test::TestRequest::patch()
             .uri(&format!("/carpools/{}", carpool.carpool_id))
             .insert_header(("Authorization", format!("Bearer {}", token)))
@@ -564,7 +640,17 @@ async fn delete_carpool_only_driver() -> Result<(), Box<dyn Error>> {
         return Ok(());
     };
     let _guard = DB_LOCK.lock().await;
-    reset_tables(&pool, &["events", "users", "carpools", "carpool_passengers", "invitations"]).await?;
+    reset_tables(
+        &pool,
+        &[
+            "events",
+            "users",
+            "carpools",
+            "carpool_passengers",
+            "invitations",
+        ],
+    )
+    .await?;
 
     let secret = "secret";
     let owner_email = "owner@example.com";
@@ -576,14 +662,14 @@ async fn delete_carpool_only_driver() -> Result<(), Box<dyn Error>> {
     accept_invitation(&pool, event_id, other_id).await?;
 
     let state = build_state(pool.clone(), secret, &[]);
-    let mut app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
+    let app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
 
     let owner_token = make_token(secret, owner_email).expect("token");
     let other_token = make_token(secret, other_email).expect("token");
 
     // Create carpool as owner
     let resp = test::call_service(
-        &mut app,
+        &app,
         test::TestRequest::post()
             .uri(&format!("/events/{}/carpools", event_id))
             .insert_header(("Authorization", format!("Bearer {}", owner_token)))
@@ -603,7 +689,7 @@ async fn delete_carpool_only_driver() -> Result<(), Box<dyn Error>> {
 
     // Try to delete as non-driver - should fail
     let resp = test::call_service(
-        &mut app,
+        &app,
         test::TestRequest::delete()
             .uri(&format!("/carpools/{}", carpool.carpool_id))
             .insert_header(("Authorization", format!("Bearer {}", other_token)))
@@ -626,7 +712,17 @@ async fn delete_carpool_success() -> Result<(), Box<dyn Error>> {
         return Ok(());
     };
     let _guard = DB_LOCK.lock().await;
-    reset_tables(&pool, &["events", "users", "carpools", "carpool_passengers", "invitations"]).await?;
+    reset_tables(
+        &pool,
+        &[
+            "events",
+            "users",
+            "carpools",
+            "carpool_passengers",
+            "invitations",
+        ],
+    )
+    .await?;
 
     let secret = "secret";
     let owner_email = "owner@example.com";
@@ -635,13 +731,13 @@ async fn delete_carpool_success() -> Result<(), Box<dyn Error>> {
     let event_id = seed_event(&pool, owner_email).await?;
 
     let state = build_state(pool.clone(), secret, &[]);
-    let mut app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
+    let app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
 
     let token = make_token(secret, owner_email).expect("token");
 
     // Create carpool
     let resp = test::call_service(
-        &mut app,
+        &app,
         test::TestRequest::post()
             .uri(&format!("/events/{}/carpools", event_id))
             .insert_header(("Authorization", format!("Bearer {}", token)))
@@ -661,7 +757,7 @@ async fn delete_carpool_success() -> Result<(), Box<dyn Error>> {
 
     // Delete carpool
     let resp = test::call_service(
-        &mut app,
+        &app,
         test::TestRequest::delete()
             .uri(&format!("/carpools/{}", carpool.carpool_id))
             .insert_header(("Authorization", format!("Bearer {}", token)))
@@ -674,7 +770,7 @@ async fn delete_carpool_success() -> Result<(), Box<dyn Error>> {
 
     // Verify it's gone
     let resp = test::call_service(
-        &mut app,
+        &app,
         test::TestRequest::get()
             .uri(&format!("/events/{}/carpools", event_id))
             .insert_header(("Authorization", format!("Bearer {}", token)))
@@ -699,7 +795,17 @@ async fn join_carpool_success() -> Result<(), Box<dyn Error>> {
         return Ok(());
     };
     let _guard = DB_LOCK.lock().await;
-    reset_tables(&pool, &["events", "users", "carpools", "carpool_passengers", "invitations"]).await?;
+    reset_tables(
+        &pool,
+        &[
+            "events",
+            "users",
+            "carpools",
+            "carpool_passengers",
+            "invitations",
+        ],
+    )
+    .await?;
 
     let secret = "secret";
     let driver_email = "driver@example.com";
@@ -711,14 +817,14 @@ async fn join_carpool_success() -> Result<(), Box<dyn Error>> {
     accept_invitation(&pool, event_id, passenger_id).await?;
 
     let state = build_state(pool.clone(), secret, &[]);
-    let mut app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
+    let app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
 
     let driver_token = make_token(secret, driver_email).expect("token");
     let passenger_token = make_token(secret, passenger_email).expect("token");
 
     // Create carpool
     let resp = test::call_service(
-        &mut app,
+        &app,
         test::TestRequest::post()
             .uri(&format!("/events/{}/carpools", event_id))
             .insert_header(("Authorization", format!("Bearer {}", driver_token)))
@@ -738,7 +844,7 @@ async fn join_carpool_success() -> Result<(), Box<dyn Error>> {
 
     // Join carpool
     let resp = test::call_service(
-        &mut app,
+        &app,
         test::TestRequest::post()
             .uri(&format!("/carpools/{}/join", carpool.carpool_id))
             .insert_header(("Authorization", format!("Bearer {}", passenger_token)))
@@ -765,7 +871,17 @@ async fn join_carpool_fails_when_full() -> Result<(), Box<dyn Error>> {
         return Ok(());
     };
     let _guard = DB_LOCK.lock().await;
-    reset_tables(&pool, &["events", "users", "carpools", "carpool_passengers", "invitations"]).await?;
+    reset_tables(
+        &pool,
+        &[
+            "events",
+            "users",
+            "carpools",
+            "carpool_passengers",
+            "invitations",
+        ],
+    )
+    .await?;
 
     let secret = "secret";
     let driver_email = "driver@example.com";
@@ -780,7 +896,7 @@ async fn join_carpool_fails_when_full() -> Result<(), Box<dyn Error>> {
     accept_invitation(&pool, event_id, p2_id).await?;
 
     let state = build_state(pool.clone(), secret, &[]);
-    let mut app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
+    let app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
 
     let driver_token = make_token(secret, driver_email).expect("token");
     let p1_token = make_token(secret, p1_email).expect("token");
@@ -788,7 +904,7 @@ async fn join_carpool_fails_when_full() -> Result<(), Box<dyn Error>> {
 
     // Create carpool with 1 seat
     let resp = test::call_service(
-        &mut app,
+        &app,
         test::TestRequest::post()
             .uri(&format!("/events/{}/carpools", event_id))
             .insert_header(("Authorization", format!("Bearer {}", driver_token)))
@@ -808,7 +924,7 @@ async fn join_carpool_fails_when_full() -> Result<(), Box<dyn Error>> {
 
     // First passenger joins
     let resp = test::call_service(
-        &mut app,
+        &app,
         test::TestRequest::post()
             .uri(&format!("/carpools/{}/join", carpool.carpool_id))
             .insert_header(("Authorization", format!("Bearer {}", p1_token)))
@@ -819,7 +935,7 @@ async fn join_carpool_fails_when_full() -> Result<(), Box<dyn Error>> {
 
     // Second passenger tries to join - should fail
     let resp = test::call_service(
-        &mut app,
+        &app,
         test::TestRequest::post()
             .uri(&format!("/carpools/{}/join", carpool.carpool_id))
             .insert_header(("Authorization", format!("Bearer {}", p2_token)))
@@ -844,7 +960,17 @@ async fn join_carpool_fails_if_driver() -> Result<(), Box<dyn Error>> {
         return Ok(());
     };
     let _guard = DB_LOCK.lock().await;
-    reset_tables(&pool, &["events", "users", "carpools", "carpool_passengers", "invitations"]).await?;
+    reset_tables(
+        &pool,
+        &[
+            "events",
+            "users",
+            "carpools",
+            "carpool_passengers",
+            "invitations",
+        ],
+    )
+    .await?;
 
     let secret = "secret";
     let driver_email = "driver@example.com";
@@ -853,13 +979,13 @@ async fn join_carpool_fails_if_driver() -> Result<(), Box<dyn Error>> {
     let event_id = seed_event(&pool, driver_email).await?;
 
     let state = build_state(pool.clone(), secret, &[]);
-    let mut app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
+    let app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
 
     let driver_token = make_token(secret, driver_email).expect("token");
 
     // Create carpool
     let resp = test::call_service(
-        &mut app,
+        &app,
         test::TestRequest::post()
             .uri(&format!("/events/{}/carpools", event_id))
             .insert_header(("Authorization", format!("Bearer {}", driver_token)))
@@ -879,7 +1005,7 @@ async fn join_carpool_fails_if_driver() -> Result<(), Box<dyn Error>> {
 
     // Driver tries to join own carpool
     let resp = test::call_service(
-        &mut app,
+        &app,
         test::TestRequest::post()
             .uri(&format!("/carpools/{}/join", carpool.carpool_id))
             .insert_header(("Authorization", format!("Bearer {}", driver_token)))
@@ -904,7 +1030,17 @@ async fn join_carpool_fails_if_already_in_another() -> Result<(), Box<dyn Error>
         return Ok(());
     };
     let _guard = DB_LOCK.lock().await;
-    reset_tables(&pool, &["events", "users", "carpools", "carpool_passengers", "invitations"]).await?;
+    reset_tables(
+        &pool,
+        &[
+            "events",
+            "users",
+            "carpools",
+            "carpool_passengers",
+            "invitations",
+        ],
+    )
+    .await?;
 
     let secret = "secret";
     let driver1_email = "driver1@example.com";
@@ -919,7 +1055,7 @@ async fn join_carpool_fails_if_already_in_another() -> Result<(), Box<dyn Error>
     accept_invitation(&pool, event_id, passenger_id).await?;
 
     let state = build_state(pool.clone(), secret, &[]);
-    let mut app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
+    let app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
 
     let driver1_token = make_token(secret, driver1_email).expect("token");
     let driver2_token = make_token(secret, driver2_email).expect("token");
@@ -927,7 +1063,7 @@ async fn join_carpool_fails_if_already_in_another() -> Result<(), Box<dyn Error>
 
     // Create first carpool
     let resp = test::call_service(
-        &mut app,
+        &app,
         test::TestRequest::post()
             .uri(&format!("/events/{}/carpools", event_id))
             .insert_header(("Authorization", format!("Bearer {}", driver1_token)))
@@ -947,7 +1083,7 @@ async fn join_carpool_fails_if_already_in_another() -> Result<(), Box<dyn Error>
 
     // Create second carpool
     let resp = test::call_service(
-        &mut app,
+        &app,
         test::TestRequest::post()
             .uri(&format!("/events/{}/carpools", event_id))
             .insert_header(("Authorization", format!("Bearer {}", driver2_token)))
@@ -967,7 +1103,7 @@ async fn join_carpool_fails_if_already_in_another() -> Result<(), Box<dyn Error>
 
     // Passenger joins first carpool
     let resp = test::call_service(
-        &mut app,
+        &app,
         test::TestRequest::post()
             .uri(&format!("/carpools/{}/join", carpool1.carpool_id))
             .insert_header(("Authorization", format!("Bearer {}", passenger_token)))
@@ -978,7 +1114,7 @@ async fn join_carpool_fails_if_already_in_another() -> Result<(), Box<dyn Error>
 
     // Passenger tries to join second carpool - should fail
     let resp = test::call_service(
-        &mut app,
+        &app,
         test::TestRequest::post()
             .uri(&format!("/carpools/{}/join", carpool2.carpool_id))
             .insert_header(("Authorization", format!("Bearer {}", passenger_token)))
@@ -1003,7 +1139,17 @@ async fn leave_carpool_success() -> Result<(), Box<dyn Error>> {
         return Ok(());
     };
     let _guard = DB_LOCK.lock().await;
-    reset_tables(&pool, &["events", "users", "carpools", "carpool_passengers", "invitations"]).await?;
+    reset_tables(
+        &pool,
+        &[
+            "events",
+            "users",
+            "carpools",
+            "carpool_passengers",
+            "invitations",
+        ],
+    )
+    .await?;
 
     let secret = "secret";
     let driver_email = "driver@example.com";
@@ -1015,14 +1161,14 @@ async fn leave_carpool_success() -> Result<(), Box<dyn Error>> {
     accept_invitation(&pool, event_id, passenger_id).await?;
 
     let state = build_state(pool.clone(), secret, &[]);
-    let mut app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
+    let app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
 
     let driver_token = make_token(secret, driver_email).expect("token");
     let passenger_token = make_token(secret, passenger_email).expect("token");
 
     // Create carpool
     let resp = test::call_service(
-        &mut app,
+        &app,
         test::TestRequest::post()
             .uri(&format!("/events/{}/carpools", event_id))
             .insert_header(("Authorization", format!("Bearer {}", driver_token)))
@@ -1042,7 +1188,7 @@ async fn leave_carpool_success() -> Result<(), Box<dyn Error>> {
 
     // Join carpool
     let resp = test::call_service(
-        &mut app,
+        &app,
         test::TestRequest::post()
             .uri(&format!("/carpools/{}/join", carpool.carpool_id))
             .insert_header(("Authorization", format!("Bearer {}", passenger_token)))
@@ -1053,7 +1199,7 @@ async fn leave_carpool_success() -> Result<(), Box<dyn Error>> {
 
     // Leave carpool
     let resp = test::call_service(
-        &mut app,
+        &app,
         test::TestRequest::delete()
             .uri(&format!("/carpools/{}/join", carpool.carpool_id))
             .insert_header(("Authorization", format!("Bearer {}", passenger_token)))
@@ -1079,7 +1225,17 @@ async fn leave_carpool_fails_not_joined() -> Result<(), Box<dyn Error>> {
         return Ok(());
     };
     let _guard = DB_LOCK.lock().await;
-    reset_tables(&pool, &["events", "users", "carpools", "carpool_passengers", "invitations"]).await?;
+    reset_tables(
+        &pool,
+        &[
+            "events",
+            "users",
+            "carpools",
+            "carpool_passengers",
+            "invitations",
+        ],
+    )
+    .await?;
 
     let secret = "secret";
     let driver_email = "driver@example.com";
@@ -1091,14 +1247,14 @@ async fn leave_carpool_fails_not_joined() -> Result<(), Box<dyn Error>> {
     accept_invitation(&pool, event_id, other_id).await?;
 
     let state = build_state(pool.clone(), secret, &[]);
-    let mut app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
+    let app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
 
     let driver_token = make_token(secret, driver_email).expect("token");
     let other_token = make_token(secret, other_email).expect("token");
 
     // Create carpool
     let resp = test::call_service(
-        &mut app,
+        &app,
         test::TestRequest::post()
             .uri(&format!("/events/{}/carpools", event_id))
             .insert_header(("Authorization", format!("Bearer {}", driver_token)))
@@ -1118,7 +1274,7 @@ async fn leave_carpool_fails_not_joined() -> Result<(), Box<dyn Error>> {
 
     // Try to leave without joining
     let resp = test::call_service(
-        &mut app,
+        &app,
         test::TestRequest::delete()
             .uri(&format!("/carpools/{}/join", carpool.carpool_id))
             .insert_header(("Authorization", format!("Bearer {}", other_token)))
@@ -1143,7 +1299,17 @@ async fn list_carpools_prioritizes_user_participation() -> Result<(), Box<dyn Er
         return Ok(());
     };
     let _guard = DB_LOCK.lock().await;
-    reset_tables(&pool, &["events", "users", "carpools", "carpool_passengers", "invitations"]).await?;
+    reset_tables(
+        &pool,
+        &[
+            "events",
+            "users",
+            "carpools",
+            "carpool_passengers",
+            "invitations",
+        ],
+    )
+    .await?;
 
     let secret = "secret";
     let owner_email = "owner@example.com";
@@ -1155,14 +1321,14 @@ async fn list_carpools_prioritizes_user_participation() -> Result<(), Box<dyn Er
     accept_invitation(&pool, event_id, passenger_id).await?;
 
     let state = build_state(pool.clone(), secret, &[]);
-    let mut app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
+    let app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
 
     let owner_token = make_token(secret, owner_email).expect("token");
     let passenger_token = make_token(secret, passenger_email).expect("token");
 
     // Owner creates first carpool
     let resp = test::call_service(
-        &mut app,
+        &app,
         test::TestRequest::post()
             .uri(&format!("/events/{}/carpools", event_id))
             .insert_header(("Authorization", format!("Bearer {}", owner_token)))
@@ -1182,12 +1348,12 @@ async fn list_carpools_prioritizes_user_participation() -> Result<(), Box<dyn Er
 
     // Owner creates second carpool (this should work since we're testing the same user)
     // Actually, this won't work due to business logic - let's use a different approach
-    
+
     // Instead, let's test the prioritization with owner as driver and passenger joining owner's carpool
-    
+
     // Test owner's view - should see their own carpool first (only one carpool for now)
     let resp = test::call_service(
-        &mut app,
+        &app,
         test::TestRequest::get()
             .uri(&format!("/events/{}/carpools", event_id))
             .insert_header(("Authorization", format!("Bearer {}", owner_token)))
@@ -1201,7 +1367,7 @@ async fn list_carpools_prioritizes_user_participation() -> Result<(), Box<dyn Er
 
     // Passenger joins owner's carpool
     let resp = test::call_service(
-        &mut app,
+        &app,
         test::TestRequest::post()
             .uri(&format!("/carpools/{}/join", owner_carpool.carpool_id))
             .insert_header(("Authorization", format!("Bearer {}", passenger_token)))
@@ -1212,7 +1378,7 @@ async fn list_carpools_prioritizes_user_participation() -> Result<(), Box<dyn Er
 
     // Test passenger's view - should see the carpool they joined first
     let resp = test::call_service(
-        &mut app,
+        &app,
         test::TestRequest::get()
             .uri(&format!("/events/{}/carpools", event_id))
             .insert_header(("Authorization", format!("Bearer {}", passenger_token)))
@@ -1223,7 +1389,7 @@ async fn list_carpools_prioritizes_user_participation() -> Result<(), Box<dyn Er
     let carpools: Vec<CarpoolView> = test::read_body_json(resp).await;
     assert_eq!(carpools.len(), 1);
     assert_eq!(carpools[0].carpool_id, owner_carpool.carpool_id);
-    
+
     // For now, this test demonstrates the basic prioritization logic
     // A more complete test would require multiple drivers which is complex due to business rules
 
@@ -1241,7 +1407,17 @@ async fn list_carpools_sorting_options() -> Result<(), Box<dyn Error>> {
         return Ok(());
     };
     let _guard = DB_LOCK.lock().await;
-    reset_tables(&pool, &["events", "users", "carpools", "carpool_passengers", "invitations"]).await?;
+    reset_tables(
+        &pool,
+        &[
+            "events",
+            "users",
+            "carpools",
+            "carpool_passengers",
+            "invitations",
+        ],
+    )
+    .await?;
 
     let secret = "secret";
     let owner_email = "owner@example.com";
@@ -1256,7 +1432,7 @@ async fn list_carpools_sorting_options() -> Result<(), Box<dyn Error>> {
     accept_invitation(&pool, event_id, driver3_id).await?;
 
     let state = build_state(pool.clone(), secret, &[]);
-    let mut app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
+    let app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
 
     let owner_token = make_token(secret, owner_email).expect("token");
     let driver2_token = make_token(secret, driver2_email).expect("token");
@@ -1264,7 +1440,7 @@ async fn list_carpools_sorting_options() -> Result<(), Box<dyn Error>> {
 
     // Create multiple carpools with different characteristics using different drivers
     let resp = test::call_service(
-        &mut app,
+        &app,
         test::TestRequest::post()
             .uri(&format!("/events/{}/carpools", event_id))
             .insert_header(("Authorization", format!("Bearer {}", owner_token)))
@@ -1283,7 +1459,7 @@ async fn list_carpools_sorting_options() -> Result<(), Box<dyn Error>> {
     let carpool1: CarpoolView = test::read_body_json(resp).await;
 
     let resp = test::call_service(
-        &mut app,
+        &app,
         test::TestRequest::post()
             .uri(&format!("/events/{}/carpools", event_id))
             .insert_header(("Authorization", format!("Bearer {}", driver2_token)))
@@ -1302,7 +1478,7 @@ async fn list_carpools_sorting_options() -> Result<(), Box<dyn Error>> {
     let carpool2: CarpoolView = test::read_body_json(resp).await;
 
     let resp = test::call_service(
-        &mut app,
+        &app,
         test::TestRequest::post()
             .uri(&format!("/events/{}/carpools", event_id))
             .insert_header(("Authorization", format!("Bearer {}", driver3_token)))
@@ -1324,7 +1500,7 @@ async fn list_carpools_sorting_options() -> Result<(), Box<dyn Error>> {
     // Note: owner's carpool (carpool1) appears first because they are the driver,
     // then other carpools are sorted by departure time
     let resp = test::call_service(
-        &mut app,
+        &app,
         test::TestRequest::get()
             .uri(&format!("/events/{}/carpools", event_id))
             .insert_header(("Authorization", format!("Bearer {}", owner_token)))
@@ -1342,9 +1518,12 @@ async fn list_carpools_sorting_options() -> Result<(), Box<dyn Error>> {
     // Test departure_desc sorting
     // Owner's carpool still first due to driver priority, others sorted desc
     let resp = test::call_service(
-        &mut app,
+        &app,
         test::TestRequest::get()
-            .uri(&format!("/events/{}/carpools?sort=departure_desc", event_id))
+            .uri(&format!(
+                "/events/{}/carpools?sort=departure_desc",
+                event_id
+            ))
             .insert_header(("Authorization", format!("Bearer {}", owner_token)))
             .to_request(),
     )
@@ -1359,7 +1538,7 @@ async fn list_carpools_sorting_options() -> Result<(), Box<dyn Error>> {
     // Test seats_desc sorting
     // Owner's carpool first (driver priority), others sorted by seats desc
     let resp = test::call_service(
-        &mut app,
+        &app,
         test::TestRequest::get()
             .uri(&format!("/events/{}/carpools?sort=seats_desc", event_id))
             .insert_header(("Authorization", format!("Bearer {}", owner_token)))
@@ -1387,7 +1566,17 @@ async fn list_carpools_preserves_user_priority_with_sort() -> Result<(), Box<dyn
         return Ok(());
     };
     let _guard = DB_LOCK.lock().await;
-    reset_tables(&pool, &["events", "users", "carpools", "carpool_passengers", "invitations"]).await?;
+    reset_tables(
+        &pool,
+        &[
+            "events",
+            "users",
+            "carpools",
+            "carpool_passengers",
+            "invitations",
+        ],
+    )
+    .await?;
 
     let secret = "secret";
     let owner_email = "owner@example.com";
@@ -1407,7 +1596,7 @@ async fn list_carpools_preserves_user_priority_with_sort() -> Result<(), Box<dyn
     accept_invitation(&pool, event_id, passenger_id).await?;
 
     let state = build_state(pool.clone(), secret, &[]);
-    let mut app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
+    let app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
 
     let owner_token = make_token(secret, owner_email).expect("token");
     let driver2_token = make_token(secret, driver2_email).expect("token");
@@ -1417,7 +1606,7 @@ async fn list_carpools_preserves_user_priority_with_sort() -> Result<(), Box<dyn
     // Create carpools with different departure times
     // Owner's carpool: departs LATEST (3 hours from now)
     let resp = test::call_service(
-        &mut app,
+        &app,
         test::TestRequest::post()
             .uri(&format!("/events/{}/carpools", event_id))
             .insert_header(("Authorization", format!("Bearer {}", owner_token)))
@@ -1437,7 +1626,7 @@ async fn list_carpools_preserves_user_priority_with_sort() -> Result<(), Box<dyn
 
     // Driver2's carpool: departs EARLIEST (1 hour from now)
     let resp = test::call_service(
-        &mut app,
+        &app,
         test::TestRequest::post()
             .uri(&format!("/events/{}/carpools", event_id))
             .insert_header(("Authorization", format!("Bearer {}", driver2_token)))
@@ -1457,7 +1646,7 @@ async fn list_carpools_preserves_user_priority_with_sort() -> Result<(), Box<dyn
 
     // Driver3's carpool: departs MIDDLE (2 hours from now)
     let resp = test::call_service(
-        &mut app,
+        &app,
         test::TestRequest::post()
             .uri(&format!("/events/{}/carpools", event_id))
             .insert_header(("Authorization", format!("Bearer {}", driver3_token)))
@@ -1477,7 +1666,7 @@ async fn list_carpools_preserves_user_priority_with_sort() -> Result<(), Box<dyn
 
     // Passenger joins driver2's carpool (which departs earliest)
     let resp = test::call_service(
-        &mut app,
+        &app,
         test::TestRequest::post()
             .uri(&format!("/carpools/{}/join", driver2_carpool.carpool_id))
             .insert_header(("Authorization", format!("Bearer {}", passenger_token)))
@@ -1489,7 +1678,7 @@ async fn list_carpools_preserves_user_priority_with_sort() -> Result<(), Box<dyn
     // TEST 1: Owner should see their OWN carpool first, even with departure_asc sort
     // (owner's carpool departs LATEST, but should still be first because they're the driver)
     let resp = test::call_service(
-        &mut app,
+        &app,
         test::TestRequest::get()
             .uri(&format!("/events/{}/carpools?sort=departure_asc", event_id))
             .insert_header(("Authorization", format!("Bearer {}", owner_token)))
@@ -1500,17 +1689,29 @@ async fn list_carpools_preserves_user_priority_with_sort() -> Result<(), Box<dyn
     let carpools: Vec<CarpoolView> = test::read_body_json(resp).await;
     assert_eq!(carpools.len(), 3);
     // Owner's carpool should be FIRST (priority as driver)
-    assert_eq!(carpools[0].carpool_id, owner_carpool.carpool_id, "Owner's carpool should be first");
+    assert_eq!(
+        carpools[0].carpool_id, owner_carpool.carpool_id,
+        "Owner's carpool should be first"
+    );
     // Other carpools sorted by departure time
-    assert_eq!(carpools[1].carpool_id, driver2_carpool.carpool_id, "Earliest other carpool second");
-    assert_eq!(carpools[2].carpool_id, driver3_carpool.carpool_id, "Latest other carpool third");
+    assert_eq!(
+        carpools[1].carpool_id, driver2_carpool.carpool_id,
+        "Earliest other carpool second"
+    );
+    assert_eq!(
+        carpools[2].carpool_id, driver3_carpool.carpool_id,
+        "Latest other carpool third"
+    );
 
     // TEST 2: Passenger should see their JOINED carpool first, even with departure_desc sort
     // (driver2's carpool departs EARLIEST, but with desc sort, it would normally be last)
     let resp = test::call_service(
-        &mut app,
+        &app,
         test::TestRequest::get()
-            .uri(&format!("/events/{}/carpools?sort=departure_desc", event_id))
+            .uri(&format!(
+                "/events/{}/carpools?sort=departure_desc",
+                event_id
+            ))
             .insert_header(("Authorization", format!("Bearer {}", passenger_token)))
             .to_request(),
     )
@@ -1519,10 +1720,19 @@ async fn list_carpools_preserves_user_priority_with_sort() -> Result<(), Box<dyn
     let carpools: Vec<CarpoolView> = test::read_body_json(resp).await;
     assert_eq!(carpools.len(), 3);
     // Passenger's joined carpool should be FIRST (priority as passenger)
-    assert_eq!(carpools[0].carpool_id, driver2_carpool.carpool_id, "Passenger's joined carpool should be first");
+    assert_eq!(
+        carpools[0].carpool_id, driver2_carpool.carpool_id,
+        "Passenger's joined carpool should be first"
+    );
     // Other carpools sorted by departure time descending
-    assert_eq!(carpools[1].carpool_id, owner_carpool.carpool_id, "Latest other carpool second");
-    assert_eq!(carpools[2].carpool_id, driver3_carpool.carpool_id, "Middle other carpool third");
+    assert_eq!(
+        carpools[1].carpool_id, owner_carpool.carpool_id,
+        "Latest other carpool second"
+    );
+    assert_eq!(
+        carpools[2].carpool_id, driver3_carpool.carpool_id,
+        "Middle other carpool third"
+    );
 
     Ok(())
 }

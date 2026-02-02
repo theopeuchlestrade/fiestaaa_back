@@ -36,10 +36,10 @@ async fn list_payment_providers_initially_empty() -> Result<(), Box<dyn Error>> 
 
     let secret = "secret";
     let state = build_state(pool.clone(), secret, &["admin@example.com"]);
-    let mut app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
+    let app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
 
     let resp = test::call_service(
-        &mut app,
+        &app,
         test::TestRequest::get()
             .uri("/payment-providers")
             .to_request(),
@@ -63,10 +63,10 @@ async fn create_payment_provider_requires_authentication() -> Result<(), Box<dyn
 
     let secret = "secret";
     let state = build_state(pool.clone(), secret, &["admin@example.com"]);
-    let mut app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
+    let app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
 
     let resp = test::call_service(
-        &mut app,
+        &app,
         test::TestRequest::post()
             .uri("/payment-providers")
             .set_json(&PaymentProviderPayload {
@@ -94,12 +94,12 @@ async fn create_payment_provider_rejects_non_admin() -> Result<(), Box<dyn Error
 
     let secret = "secret";
     let state = build_state(pool.clone(), secret, &["admin@example.com"]);
-    let mut app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
+    let app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
 
     let token = admin_token(secret, "user@example.com").expect("token");
 
     let resp = test::call_service(
-        &mut app,
+        &app,
         test::TestRequest::post()
             .uri("/payment-providers")
             .insert_header(("Authorization", format!("Bearer {}", token)))
@@ -129,12 +129,12 @@ async fn payment_providers_crud_flow() -> Result<(), Box<dyn Error>> {
     let secret = "secret";
     let admin_email = "admin@example.com";
     let state = build_state(pool.clone(), secret, &[admin_email]);
-    let mut app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
+    let app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
     let token = admin_token(secret, admin_email).expect("token");
 
     // Create a payment provider
     let resp = test::call_service(
-        &mut app,
+        &app,
         test::TestRequest::post()
             .uri("/payment-providers")
             .insert_header(("Authorization", format!("Bearer {}", token.clone())))
@@ -154,7 +154,7 @@ async fn payment_providers_crud_flow() -> Result<(), Box<dyn Error>> {
 
     // List payment providers
     let resp = test::call_service(
-        &mut app,
+        &app,
         test::TestRequest::get()
             .uri("/payment-providers")
             .to_request(),
@@ -166,7 +166,7 @@ async fn payment_providers_crud_flow() -> Result<(), Box<dyn Error>> {
 
     // Replace (PUT) payment provider
     let resp = test::call_service(
-        &mut app,
+        &app,
         test::TestRequest::put()
             .uri(&format!("/payment-providers/{}", created.provider_id))
             .insert_header(("Authorization", format!("Bearer {}", token.clone())))
@@ -186,7 +186,7 @@ async fn payment_providers_crud_flow() -> Result<(), Box<dyn Error>> {
 
     // Update (PATCH) payment provider partially
     let resp = test::call_service(
-        &mut app,
+        &app,
         test::TestRequest::patch()
             .uri(&format!("/payment-providers/{}", created.provider_id))
             .insert_header(("Authorization", format!("Bearer {}", token.clone())))
@@ -207,7 +207,7 @@ async fn payment_providers_crud_flow() -> Result<(), Box<dyn Error>> {
 
     // Delete payment provider
     let resp = test::call_service(
-        &mut app,
+        &app,
         test::TestRequest::delete()
             .uri(&format!("/payment-providers/{}", created.provider_id))
             .insert_header(("Authorization", format!("Bearer {}", token)))
@@ -236,12 +236,12 @@ async fn create_payment_provider_validates_url_template() -> Result<(), Box<dyn 
     let secret = "secret";
     let admin_email = "admin@example.com";
     let state = build_state(pool.clone(), secret, &[admin_email]);
-    let mut app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
+    let app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
     let token = admin_token(secret, admin_email).expect("token");
 
     // Try creating provider with invalid URL template
     let resp = test::call_service(
-        &mut app,
+        &app,
         test::TestRequest::post()
             .uri("/payment-providers")
             .insert_header(("Authorization", format!("Bearer {}", token)))
@@ -271,12 +271,12 @@ async fn create_payment_provider_prevents_duplicates() -> Result<(), Box<dyn Err
     let secret = "secret";
     let admin_email = "admin@example.com";
     let state = build_state(pool.clone(), secret, &[admin_email]);
-    let mut app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
+    let app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
     let token = admin_token(secret, admin_email).expect("token");
 
     // Create first provider
     let resp = test::call_service(
-        &mut app,
+        &app,
         test::TestRequest::post()
             .uri("/payment-providers")
             .insert_header(("Authorization", format!("Bearer {}", token.clone())))
@@ -293,7 +293,7 @@ async fn create_payment_provider_prevents_duplicates() -> Result<(), Box<dyn Err
 
     // Try creating provider with same name
     let resp = test::call_service(
-        &mut app,
+        &app,
         test::TestRequest::post()
             .uri("/payment-providers")
             .insert_header(("Authorization", format!("Bearer {}", token)))
