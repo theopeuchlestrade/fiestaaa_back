@@ -1,0 +1,13 @@
+#!/bin/sh
+set -e
+
+if [ "${SKIP_LINT:-}" = "1" ]; then
+  echo "[fiestaaa_back] SKIP_LINT=1, skipping lint"
+  exit 0
+fi
+
+echo "[fiestaaa_back] cargo fmt"
+cargo fmt --all
+
+echo "[fiestaaa_back] cargo clippy"
+cargo clippy --all-targets --all-features -- -D warnings

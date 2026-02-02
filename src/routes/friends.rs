@@ -10,7 +10,7 @@ use crate::{
         ErrorResponse, Friend, FriendRequest, FriendRequestActionPayload, FriendRequestPayload,
         FriendSearchResult, StatusResponse,
     },
-    notifications::notify_users,
+    notifications::{NotificationRequest, notify_users},
     realtime::{event_types, publish_global},
     state::AppState,
 };
@@ -387,16 +387,18 @@ pub async fn create_friend_request(
                 &state.notifications,
                 &state.db,
                 &[target.id],
-                &title,
-                &body,
-                json!({
-                    "type": "friend_request",
-                    "request_id": req.id,
-                    "from_email": req.sender_email,
-                    "from_handle": req.sender_handle
-                }),
-                Some(&dedup),
-                Some(600),
+                NotificationRequest {
+                    title: &title,
+                    body: &body,
+                    data: json!({
+                        "type": "friend_request",
+                        "request_id": req.id,
+                        "from_email": req.sender_email,
+                        "from_handle": req.sender_handle
+                    }),
+                    dedup_base_key: Some(dedup.as_str()),
+                    dedup_ttl: Some(600),
+                },
             )
             .await;
             publish_global(
@@ -562,7 +564,7 @@ pub async fn respond_friend_request(
 
     if target_status == "Accepted" {
         let (a, b) = ordered_pair(sender_id, receiver_id);
-        if let Err(_) = sqlx::query(
+        if (sqlx::query(
             "INSERT INTO friendships (user_a, user_b)
              VALUES ($1, $2)
              ON CONFLICT DO NOTHING",
@@ -570,7 +572,8 @@ pub async fn respond_friend_request(
         .bind(a)
         .bind(b)
         .execute(&mut *tx)
-        .await
+        .await)
+            .is_err()
         {
             let _ = tx.rollback().await;
             return db_error();
@@ -595,17 +598,19 @@ pub async fn respond_friend_request(
                 &state.notifications,
                 &state.db,
                 &[sender_id],
-                &title,
-                &body,
-                json!({
-                    "type": "friend_response",
-                    "request_id": req.id,
-                    "status": target_status,
-                    "from_email": req.receiver_email,
-                    "from_handle": req.receiver_handle
-                }),
-                Some(&dedup),
-                Some(300),
+                NotificationRequest {
+                    title: &title,
+                    body: &body,
+                    data: json!({
+                        "type": "friend_response",
+                        "request_id": req.id,
+                        "status": target_status,
+                        "from_email": req.receiver_email,
+                        "from_handle": req.receiver_handle
+                    }),
+                    dedup_base_key: Some(dedup.as_str()),
+                    dedup_ttl: Some(300),
+                },
             )
             .await;
             publish_global(

@@ -1,4 +1,4 @@
-use actix_web::{delete, get, patch, post, web, HttpRequest, HttpResponse, Responder};
+use actix_web::{HttpRequest, HttpResponse, Responder, delete, get, patch, post, web};
 use chrono::Utc;
 use log::{info, warn};
 use serde::Deserialize;
@@ -8,10 +8,10 @@ use sqlx::{PgPool, Row};
 use crate::{
     auth::extract_claims_from_auth,
     models::{
-        Carpool, CarpoolJoinResponse, CarpoolLeaveResponse, CarpoolPatchPayload, CarpoolPayload,
-        CarpoolPassenger, CarpoolView, ErrorResponse, StatusResponse,
+        Carpool, CarpoolJoinResponse, CarpoolLeaveResponse, CarpoolPassenger, CarpoolPatchPayload,
+        CarpoolPayload, CarpoolView, ErrorResponse, StatusResponse,
     },
-    notifications::{notify_users},
+    notifications::{NotificationRequest, notify_users},
     realtime::publish_event,
     state::AppState,
 };
@@ -112,16 +112,17 @@ async fn ensure_carpool_driver(
     let requester_email = claims_email(req, state)?;
     let requester_id = fetch_user_id(&state.db, &requester_email).await?;
 
-    let driver_id = sqlx::query_scalar::<_, i64>("SELECT driver_id FROM carpools WHERE carpool_id = $1")
-        .bind(carpool_id)
-        .fetch_optional(&state.db)
-        .await
-        .map_err(|_| {
-            HttpResponse::InternalServerError().json(ErrorResponse {
-                error: "db_error".into(),
-                details: None,
-            })
-        })?;
+    let driver_id =
+        sqlx::query_scalar::<_, i64>("SELECT driver_id FROM carpools WHERE carpool_id = $1")
+            .bind(carpool_id)
+            .fetch_optional(&state.db)
+            .await
+            .map_err(|_| {
+                HttpResponse::InternalServerError().json(ErrorResponse {
+                    error: "db_error".into(),
+                    details: None,
+                })
+            })?;
 
     match driver_id {
         Some(id) if id == requester_id => Ok(()),
@@ -149,21 +150,19 @@ async fn fetch_carpool_views(
     user_id: Option<i64>,
     sort_by: Option<String>,
 ) -> Result<Vec<CarpoolView>, HttpResponse> {
-    let carpools = sqlx::query_as::<_, Carpool>(
-        "SELECT * FROM carpools WHERE event_id = $1",
-    )
-    .bind(event_id)
-    .fetch_all(db)
-    .await
-    .map_err(|_| {
-        HttpResponse::InternalServerError().json(ErrorResponse {
-            error: "db_error".into(),
-            details: None,
-        })
-    })?;
+    let carpools = sqlx::query_as::<_, Carpool>("SELECT * FROM carpools WHERE event_id = $1")
+        .bind(event_id)
+        .fetch_all(db)
+        .await
+        .map_err(|_| {
+            HttpResponse::InternalServerError().json(ErrorResponse {
+                error: "db_error".into(),
+                details: None,
+            })
+        })?;
 
     // Helper function to apply sorting to a list of carpools
-    fn apply_sort(list: &mut Vec<Carpool>, sort_by: Option<&str>) {
+    fn apply_sort(list: &mut [Carpool], sort_by: Option<&str>) {
         match sort_by {
             Some("departure_asc") => {
                 list.sort_by(|a, b| a.depart_at.cmp(&b.depart_at));
@@ -178,10 +177,14 @@ async fn fetch_carpool_views(
                 list.sort_by(|a, b| b.seats_total.cmp(&a.seats_total));
             }
             Some("available_seats_asc") => {
-                list.sort_by(|a, b| (a.seats_total - a.seats_taken).cmp(&(b.seats_total - b.seats_taken)));
+                list.sort_by(|a, b| {
+                    (a.seats_total - a.seats_taken).cmp(&(b.seats_total - b.seats_taken))
+                });
             }
             Some("available_seats_desc") => {
-                list.sort_by(|a, b| (b.seats_total - b.seats_taken).cmp(&(a.seats_total - a.seats_taken)));
+                list.sort_by(|a, b| {
+                    (b.seats_total - b.seats_taken).cmp(&(a.seats_total - a.seats_taken))
+                });
             }
             _ => {
                 // Default sorting: by departure time ascending
@@ -192,13 +195,13 @@ async fn fetch_carpool_views(
 
     // Apply custom sorting based on user preferences and participation
     let mut carpools = carpools;
-    
+
     if let Some(user_id) = user_id {
         // First, separate carpools where user is driver or passenger
         let mut user_driver_carpools = Vec::new();
         let mut user_passenger_carpools = Vec::new();
         let mut other_carpools = Vec::new();
-        
+
         for carpool in carpools {
             // Check if user is driver
             if carpool.driver_id == user_id {
@@ -216,7 +219,7 @@ async fn fetch_carpool_views(
                     warn!("Failed to check if user is passenger: {}", e);
                     false
                 });
-                
+
                 if is_passenger {
                     user_passenger_carpools.push(carpool);
                 } else {
@@ -224,12 +227,12 @@ async fn fetch_carpool_views(
                 }
             }
         }
-        
+
         // Sort each category independently BEFORE combining
         apply_sort(&mut user_driver_carpools, sort_by.as_deref());
         apply_sort(&mut user_passenger_carpools, sort_by.as_deref());
         apply_sort(&mut other_carpools, sort_by.as_deref());
-        
+
         // Recombine with priority: driver first, then passenger, then others
         // The sort order is preserved within each category
         carpools = Vec::new();
@@ -243,13 +246,11 @@ async fn fetch_carpool_views(
 
     let mut views = Vec::new();
     for carpool in carpools {
-        let driver = sqlx::query(
-            "SELECT u.handle, u.avatar_url FROM users u WHERE u.id = $1",
-        )
-        .bind(carpool.driver_id)
-        .fetch_optional(db)
-        .await
-        .map_err(|_| server_error())?;
+        let driver = sqlx::query("SELECT u.handle, u.avatar_url FROM users u WHERE u.id = $1")
+            .bind(carpool.driver_id)
+            .fetch_optional(db)
+            .await
+            .map_err(|_| server_error())?;
 
         let passengers = sqlx::query_as::<_, CarpoolPassenger>(
             r#"
@@ -270,7 +271,9 @@ async fn fetch_carpool_views(
             event_id: carpool.event_id,
             driver_id: carpool.driver_id,
             driver_handle: driver.as_ref().and_then(|row| row.try_get("handle").ok()),
-            driver_avatar_url: driver.as_ref().and_then(|row| row.try_get("avatar_url").ok()),
+            driver_avatar_url: driver
+                .as_ref()
+                .and_then(|row| row.try_get("avatar_url").ok()),
             origin: carpool.origin,
             origin_latitude: carpool.origin_latitude,
             origin_longitude: carpool.origin_longitude,
@@ -366,8 +369,10 @@ pub async fn create_carpool(
     };
 
     let payload = payload.into_inner();
-    info!("Received carpool payload: origin={}, depart_at={:?}, seats_total={}, notes={:?}",
-        payload.origin, payload.depart_at, payload.seats_total, payload.notes);
+    info!(
+        "Received carpool payload: origin={}, depart_at={:?}, seats_total={}, notes={:?}",
+        payload.origin, payload.depart_at, payload.seats_total, payload.notes
+    );
 
     let origin = payload.origin.trim().to_string();
     if origin.is_empty() {
@@ -387,9 +392,17 @@ pub async fn create_carpool(
     }
 
     let now = Utc::now();
-    info!("Now UTC: {:?}, payload.depart_at: {:?}, comparison: {}", now, payload.depart_at, payload.depart_at < now);
+    info!(
+        "Now UTC: {:?}, payload.depart_at: {:?}, comparison: {}",
+        now,
+        payload.depart_at,
+        payload.depart_at < now
+    );
     if payload.depart_at < now {
-        warn!("Departure time is in past: now={:?}, depart_at={:?}", now, payload.depart_at);
+        warn!(
+            "Departure time is in past: now={:?}, depart_at={:?}",
+            now, payload.depart_at
+        );
         return HttpResponse::BadRequest().json(ErrorResponse {
             error: "invalid_payload".into(),
             details: Some("La date de départ doit être dans le futur".into()),
@@ -414,8 +427,11 @@ pub async fn create_carpool(
         }
     };
 
-    if let Some(_) = existing_carpool {
-        warn!("User {} is already in a carpool for event {}", user_id, *event_id);
+    if existing_carpool.is_some() {
+        warn!(
+            "User {} is already in a carpool for event {}",
+            user_id, *event_id
+        );
         return HttpResponse::BadRequest().json(ErrorResponse {
             error: "already_in_carpool".into(),
             details: Some("Vous êtes déjà dans un covoiturage pour cet événement".into()),
@@ -458,7 +474,6 @@ pub async fn create_carpool(
         &json!({"type": "carpool_created", "carpool_id": carpool.carpool_id}),
     )
     .await;
-
 
     match fetch_carpool_views(&state.db, *event_id, None, None).await {
         Ok(views) => {
@@ -510,11 +525,11 @@ pub async fn update_carpool(
             return HttpResponse::NotFound().json(ErrorResponse {
                 error: "carpool_not_found".into(),
                 details: None,
-            })
+            });
         }
     };
 
-    let origin = payload.origin.unwrap_or_else(|| current.origin);
+    let origin = payload.origin.unwrap_or(current.origin);
     if origin.trim().is_empty() {
         return HttpResponse::BadRequest().json(ErrorResponse {
             error: "invalid_payload".into(),
@@ -630,7 +645,7 @@ pub async fn delete_carpool(
             return HttpResponse::NotFound().json(ErrorResponse {
                 error: "carpool_not_found".into(),
                 details: None,
-            })
+            });
         }
         Err(_) => return server_error(),
     };
@@ -685,19 +700,26 @@ pub async fn delete_carpool(
 
     // Notify passengers that the carpool was cancelled
     if !passenger_ids.is_empty() && state.notifications.is_enabled() {
+        let body = format!(
+            "Le covoiturage au départ de {} a été annulé par le conducteur",
+            current.origin
+        );
+        let dedup = format!("carpool_cancelled:{}", *carpool_id);
         notify_users(
             &state.notifications,
             &state.db,
             &passenger_ids,
-            "Covoiturage annulé",
-            &format!("Le covoiturage au départ de {} a été annulé par le conducteur", current.origin),
-            json!({
-                "type": "carpool_cancelled",
-                "event_id": current.event_id,
-                "carpool_id": *carpool_id
-            }),
-            Some(&format!("carpool_cancelled:{}", *carpool_id)),
-            Some(300),
+            NotificationRequest {
+                title: "Covoiturage annulé",
+                body: body.as_str(),
+                data: json!({
+                    "type": "carpool_cancelled",
+                    "event_id": current.event_id,
+                    "carpool_id": *carpool_id
+                }),
+                dedup_base_key: Some(dedup.as_str()),
+                dedup_ttl: Some(300),
+            },
         )
         .await;
     }
@@ -748,7 +770,7 @@ pub async fn join_carpool(
             return HttpResponse::NotFound().json(ErrorResponse {
                 error: "carpool_not_found".into(),
                 details: None,
-            })
+            });
         }
         Err(_) => return server_error(),
     };
@@ -803,7 +825,10 @@ pub async fn join_carpool(
     {
         Ok(is_passenger) => is_passenger,
         Err(e) => {
-            warn!("Failed to check if user is passenger in another carpool: {}", e);
+            warn!(
+                "Failed to check if user is passenger in another carpool: {}",
+                e
+            );
             return server_error();
         }
     };
@@ -811,7 +836,9 @@ pub async fn join_carpool(
     if is_passenger_elsewhere {
         return HttpResponse::BadRequest().json(ErrorResponse {
             error: "already_in_another_carpool".into(),
-            details: Some("Vous êtes déjà passager dans un autre covoiturage pour cet événement".into()),
+            details: Some(
+                "Vous êtes déjà passager dans un autre covoiturage pour cet événement".into(),
+            ),
         });
     }
 
@@ -855,11 +882,13 @@ pub async fn join_carpool(
     }
 
     let new_seats_taken = carpool.seats_taken + 1;
-    match sqlx::query("UPDATE carpools SET seats_taken = $1, updated_at = now() WHERE carpool_id = $2")
-        .bind(new_seats_taken)
-        .bind(*carpool_id)
-        .execute(&state.db)
-        .await
+    match sqlx::query(
+        "UPDATE carpools SET seats_taken = $1, updated_at = now() WHERE carpool_id = $2",
+    )
+    .bind(new_seats_taken)
+    .bind(*carpool_id)
+    .execute(&state.db)
+    .await
     {
         Ok(_) => (),
         Err(e) => {
@@ -879,28 +908,33 @@ pub async fn join_carpool(
 
     // Notify driver
     if state.notifications.is_enabled() {
-        let passenger_handle = match sqlx::query_scalar::<_, String>("SELECT handle FROM users WHERE id = $1")
-            .bind(user_id)
-            .fetch_optional(&state.db)
-            .await
-        {
-            Ok(Some(h)) => h,
-            _ => "Un utilisateur".to_string(),
-        };
+        let passenger_handle =
+            match sqlx::query_scalar::<_, String>("SELECT handle FROM users WHERE id = $1")
+                .bind(user_id)
+                .fetch_optional(&state.db)
+                .await
+            {
+                Ok(Some(h)) => h,
+                _ => "Un utilisateur".to_string(),
+            };
 
+        let body = format!("{} a rejoint votre covoiturage", passenger_handle);
+        let dedup = format!("carpool_join:{}:{}", *carpool_id, user_id);
         notify_users(
             &state.notifications,
             &state.db,
             &[carpool.driver_id],
-            "Nouveau passager",
-            &format!("{} a rejoint votre covoiturage", passenger_handle),
-            json!({
-                "type": "carpool_joined",
-                "event_id": carpool.event_id,
-                "carpool_id": *carpool_id
-            }),
-            Some(&format!("carpool_join:{}:{}", *carpool_id, user_id)),
-            Some(300),
+            NotificationRequest {
+                title: "Nouveau passager",
+                body: body.as_str(),
+                data: json!({
+                    "type": "carpool_joined",
+                    "event_id": carpool.event_id,
+                    "carpool_id": *carpool_id
+                }),
+                dedup_base_key: Some(dedup.as_str()),
+                dedup_ttl: Some(300),
+            },
         )
         .await;
     }
@@ -953,7 +987,7 @@ pub async fn leave_carpool(
             return HttpResponse::NotFound().json(ErrorResponse {
                 error: "carpool_not_found".into(),
                 details: None,
-            })
+            });
         }
         Err(_) => return server_error(),
     };
@@ -979,11 +1013,13 @@ pub async fn leave_carpool(
     }
 
     let new_seats_taken = carpool.seats_taken - 1;
-    match sqlx::query("UPDATE carpools SET seats_taken = $1, updated_at = now() WHERE carpool_id = $2")
-        .bind(new_seats_taken)
-        .bind(*carpool_id)
-        .execute(&state.db)
-        .await
+    match sqlx::query(
+        "UPDATE carpools SET seats_taken = $1, updated_at = now() WHERE carpool_id = $2",
+    )
+    .bind(new_seats_taken)
+    .bind(*carpool_id)
+    .execute(&state.db)
+    .await
     {
         Ok(_) => (),
         Err(e) => {
@@ -1003,28 +1039,33 @@ pub async fn leave_carpool(
 
     // Notify driver
     if state.notifications.is_enabled() {
-        let passenger_handle = match sqlx::query_scalar::<_, String>("SELECT handle FROM users WHERE id = $1")
-            .bind(user_id)
-            .fetch_optional(&state.db)
-            .await
-        {
-            Ok(Some(h)) => h,
-            _ => "Un utilisateur".to_string(),
-        };
+        let passenger_handle =
+            match sqlx::query_scalar::<_, String>("SELECT handle FROM users WHERE id = $1")
+                .bind(user_id)
+                .fetch_optional(&state.db)
+                .await
+            {
+                Ok(Some(h)) => h,
+                _ => "Un utilisateur".to_string(),
+            };
 
+        let body = format!("{} a quitté votre covoiturage", passenger_handle);
+        let dedup = format!("carpool_leave:{}:{}", *carpool_id, user_id);
         notify_users(
             &state.notifications,
             &state.db,
             &[carpool.driver_id],
-            "Un passager est parti",
-            &format!("{} a quitté votre covoiturage", passenger_handle),
-            json!({
-                "type": "carpool_left",
-                "event_id": carpool.event_id,
-                "carpool_id": *carpool_id
-            }),
-            Some(&format!("carpool_leave:{}:{}", *carpool_id, user_id)),
-            Some(300),
+            NotificationRequest {
+                title: "Un passager est parti",
+                body: body.as_str(),
+                data: json!({
+                    "type": "carpool_left",
+                    "event_id": carpool.event_id,
+                    "carpool_id": *carpool_id
+                }),
+                dedup_base_key: Some(dedup.as_str()),
+                dedup_ttl: Some(300),
+            },
         )
         .await;
     }

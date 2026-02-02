@@ -46,14 +46,7 @@ pub fn build_state(pool: PgPool, secret: &str, admin_emails: &[&str]) -> web::Da
         .user_agent("fiestaaa-backend-tests")
         .build()
         .expect("http client");
-    let notifications = NotificationService::new(
-        None,
-        None,
-        None,
-        None,
-        http_client.clone(),
-        300,
-    );
+    let notifications = NotificationService::new(None, None, None, None, http_client.clone(), 300);
 
     web::Data::new(AppState {
         db: pool,

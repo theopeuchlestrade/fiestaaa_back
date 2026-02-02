@@ -7,7 +7,9 @@ use uuid::Uuid;
 use crate::{
     auth::extract_claims_from_auth,
     handles::{handle_available, is_valid_handle, normalize_handle},
-    models::{ErrorResponse, HandleAvailabilityResponse, HandleUpdatePayload, MeResponse, StatusResponse},
+    models::{
+        ErrorResponse, HandleAvailabilityResponse, HandleUpdatePayload, MeResponse, StatusResponse,
+    },
     state::AppState,
 };
 
@@ -151,7 +153,7 @@ pub async fn upload_avatar(
     };
 
     let mut bytes: Vec<u8> = Vec::new();
-    while let Some(field) = payload.next().await {
+    if let Some(field) = payload.next().await {
         let mut field = match field {
             Ok(f) => f,
             Err(_) => {
@@ -179,7 +181,6 @@ pub async fn upload_avatar(
             }
             bytes.extend_from_slice(&chunk);
         }
-        break;
     }
 
     if bytes.is_empty() {
@@ -282,10 +283,7 @@ pub async fn upload_avatar(
     )
 )]
 #[delete("/me")]
-pub async fn delete_account(
-    state: web::Data<AppState>,
-    req: HttpRequest,
-) -> impl Responder {
+pub async fn delete_account(state: web::Data<AppState>, req: HttpRequest) -> impl Responder {
     let claims = match extract_claims_from_auth(&req, &state.jwt_secret) {
         Ok(c) => c,
         Err(resp) => return resp,
@@ -298,11 +296,9 @@ pub async fn delete_account(
         .await;
 
     match res {
-        Ok(result) if result.rows_affected() > 0 => {
-            HttpResponse::Ok().json(StatusResponse {
-                status: "account_deleted".into(),
-            })
-        }
+        Ok(result) if result.rows_affected() > 0 => HttpResponse::Ok().json(StatusResponse {
+            status: "account_deleted".into(),
+        }),
         Ok(_) => HttpResponse::NotFound().json(ErrorResponse {
             error: "user_not_found".into(),
             details: None,

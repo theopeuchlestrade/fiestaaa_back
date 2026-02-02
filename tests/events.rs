@@ -82,13 +82,9 @@ async fn list_events_initially_empty() -> Result<(), Box<dyn Error>> {
 
     let secret = "secret";
     let state = build_state(pool.clone(), secret, &["admin@example.com"]);
-    let mut app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
+    let app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
 
-    let resp = test::call_service(
-        &mut app,
-        test::TestRequest::get().uri("/events").to_request(),
-    )
-    .await;
+    let resp = test::call_service(&app, test::TestRequest::get().uri("/events").to_request()).await;
 
     assert_eq!(resp.status(), StatusCode::OK);
     let payload: Vec<Event> = test::read_body_json(resp).await;
@@ -107,10 +103,10 @@ async fn create_event_requires_authentication() -> Result<(), Box<dyn Error>> {
 
     let secret = "secret";
     let state = build_state(pool.clone(), secret, &["admin@example.com"]);
-    let mut app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
+    let app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
 
     let resp = test::call_service(
-        &mut app,
+        &app,
         test::TestRequest::post()
             .uri("/events")
             .set_json(&EventPayload {
@@ -146,12 +142,12 @@ async fn create_event_allows_authenticated_user() -> Result<(), Box<dyn Error>> 
 
     let secret = "secret";
     let state = build_state(pool.clone(), secret, &["admin@example.com"]);
-    let mut app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
+    let app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
 
     let token = admin_token(secret, "user@example.com").expect("token");
 
     let resp = test::call_service(
-        &mut app,
+        &app,
         test::TestRequest::post()
             .uri("/events")
             .insert_header(("Authorization", format!("Bearer {}", token)))
@@ -189,14 +185,14 @@ async fn events_crud_flow() -> Result<(), Box<dyn Error>> {
     let secret = "secret";
     let admin_email = "admin@example.com";
     let state = build_state(pool.clone(), secret, &[admin_email]);
-    let mut app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
+    let app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
 
     let provider_id = seed_payment_provider(&pool, "TestProvider").await?;
     let token = admin_token(secret, admin_email).expect("token");
 
     // Create an event
     let resp = test::call_service(
-        &mut app,
+        &app,
         test::TestRequest::post()
             .uri("/events")
             .insert_header(("Authorization", format!("Bearer {}", token.clone())))
@@ -224,11 +220,7 @@ async fn events_crud_flow() -> Result<(), Box<dyn Error>> {
     assert_eq!(created.owner_email, admin_email);
 
     // List events
-    let resp = test::call_service(
-        &mut app,
-        test::TestRequest::get().uri("/events").to_request(),
-    )
-    .await;
+    let resp = test::call_service(&app, test::TestRequest::get().uri("/events").to_request()).await;
     assert_eq!(resp.status(), StatusCode::OK);
     let listed: Vec<Event> = test::read_body_json(resp).await;
     assert_eq!(listed.len(), 1);
@@ -236,7 +228,7 @@ async fn events_crud_flow() -> Result<(), Box<dyn Error>> {
 
     // Update event (PUT)
     let resp = test::call_service(
-        &mut app,
+        &app,
         test::TestRequest::put()
             .uri(&format!("/events/{}", created.event_id))
             .insert_header(("Authorization", format!("Bearer {}", token.clone())))
@@ -265,7 +257,7 @@ async fn events_crud_flow() -> Result<(), Box<dyn Error>> {
 
     // Partial update (PATCH)
     let resp = test::call_service(
-        &mut app,
+        &app,
         test::TestRequest::patch()
             .uri(&format!("/events/{}", created.event_id))
             .insert_header(("Authorization", format!("Bearer {}", token.clone())))
@@ -294,7 +286,7 @@ async fn events_crud_flow() -> Result<(), Box<dyn Error>> {
 
     // Delete event
     let resp = test::call_service(
-        &mut app,
+        &app,
         test::TestRequest::delete()
             .uri(&format!("/events/{}", created.event_id))
             .insert_header(("Authorization", format!("Bearer {}", token)))
@@ -335,12 +327,12 @@ async fn event_items_reservation_flow() -> Result<(), Box<dyn Error>> {
     let secret = "secret";
     let admin_email = "admin@example.com";
     let state = build_state(pool.clone(), secret, &[admin_email]);
-    let mut app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
+    let app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
     let admin_token_value = admin_token(secret, admin_email).expect("token");
 
     // Create event
     let resp = test::call_service(
-        &mut app,
+        &app,
         test::TestRequest::post()
             .uri("/events")
             .insert_header((
@@ -372,7 +364,7 @@ async fn event_items_reservation_flow() -> Result<(), Box<dyn Error>> {
 
     // Listing automatically seeds catalog items for the event
     let resp = test::call_service(
-        &mut app,
+        &app,
         test::TestRequest::get()
             .uri(&format!("/events/{}/items", event.event_id))
             .to_request(),
@@ -393,7 +385,7 @@ async fn event_items_reservation_flow() -> Result<(), Box<dyn Error>> {
 
     // User one reserves 2 units
     let resp = test::call_service(
-        &mut app,
+        &app,
         test::TestRequest::post()
             .uri(&format!(
                 "/events/{}/items/{}/reserve",
@@ -413,7 +405,7 @@ async fn event_items_reservation_flow() -> Result<(), Box<dyn Error>> {
 
     // User two reserves 2 units (total = 4)
     let resp = test::call_service(
-        &mut app,
+        &app,
         test::TestRequest::post()
             .uri(&format!(
                 "/events/{}/items/{}/reserve",
@@ -433,7 +425,7 @@ async fn event_items_reservation_flow() -> Result<(), Box<dyn Error>> {
 
     // User two attempts to exceed max quantity
     let resp = test::call_service(
-        &mut app,
+        &app,
         test::TestRequest::post()
             .uri(&format!(
                 "/events/{}/items/{}/reserve",
@@ -451,7 +443,7 @@ async fn event_items_reservation_flow() -> Result<(), Box<dyn Error>> {
 
     // User one adjusts contribution to 1 unit (total should become 3)
     let resp = test::call_service(
-        &mut app,
+        &app,
         test::TestRequest::post()
             .uri(&format!(
                 "/events/{}/items/{}/reserve",
@@ -471,7 +463,7 @@ async fn event_items_reservation_flow() -> Result<(), Box<dyn Error>> {
 
     // Listing reflects final quantity
     let resp = test::call_service(
-        &mut app,
+        &app,
         test::TestRequest::get()
             .uri(&format!("/events/{}/items", event.event_id))
             .to_request(),
@@ -500,12 +492,12 @@ async fn create_event_rejects_unknown_payment_provider() -> Result<(), Box<dyn E
     let secret = "secret";
     let admin_email = "admin@example.com";
     let state = build_state(pool.clone(), secret, &[admin_email]);
-    let mut app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
+    let app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
 
     let token = admin_token(secret, admin_email).expect("token");
 
     let resp = test::call_service(
-        &mut app,
+        &app,
         test::TestRequest::post()
             .uri("/events")
             .insert_header(("Authorization", format!("Bearer {}", token)))
@@ -543,13 +535,13 @@ async fn event_validates_empty_fields() -> Result<(), Box<dyn Error>> {
     let secret = "secret";
     let admin_email = "admin@example.com";
     let state = build_state(pool.clone(), secret, &[admin_email]);
-    let mut app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
+    let app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
 
     let token = admin_token(secret, admin_email).expect("token");
 
     // Test with empty name
     let resp = test::call_service(
-        &mut app,
+        &app,
         test::TestRequest::post()
             .uri("/events")
             .insert_header(("Authorization", format!("Bearer {}", token.clone())))
@@ -574,7 +566,7 @@ async fn event_validates_empty_fields() -> Result<(), Box<dyn Error>> {
 
     // Test with empty description
     let resp = test::call_service(
-        &mut app,
+        &app,
         test::TestRequest::post()
             .uri("/events")
             .insert_header(("Authorization", format!("Bearer {}", token.clone())))
@@ -599,7 +591,7 @@ async fn event_validates_empty_fields() -> Result<(), Box<dyn Error>> {
 
     // Test with empty address
     let resp = test::call_service(
-        &mut app,
+        &app,
         test::TestRequest::post()
             .uri("/events")
             .insert_header(("Authorization", format!("Bearer {}", token)))
