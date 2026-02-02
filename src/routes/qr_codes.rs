@@ -298,19 +298,19 @@ pub async fn scan_qr_code(
     }
 
     // Check if invitation is still valid
-    if let Some(ref status) = invitation_status {
-        if status == "Declined" || status == "Expired" {
-            let _ = tx.rollback().await;
-            return HttpResponse::Forbidden().json(QRCodeScanResponse {
-                success: false,
-                status: "invitation_invalid".into(),
-                user_email: Some(user_email),
-                user_handle: Some(user_handle),
-                user_avatar_url,
-                scanned_at: None,
-                message: format!("L'invitation de cet utilisateur est: {}", status),
-            });
-        }
+    if let Some(ref status) = invitation_status
+        && (status == "Declined" || status == "Expired")
+    {
+        let _ = tx.rollback().await;
+        return HttpResponse::Forbidden().json(QRCodeScanResponse {
+            success: false,
+            status: "invitation_invalid".into(),
+            user_email: Some(user_email),
+            user_handle: Some(user_handle),
+            user_avatar_url,
+            scanned_at: None,
+            message: format!("L'invitation de cet utilisateur est: {}", status),
+        });
     }
 
     // Check if manually invalidated
@@ -361,7 +361,7 @@ pub async fn scan_qr_code(
         });
     }
 
-    if let Err(_) = tx.commit().await {
+    if (tx.commit().await).is_err() {
         return HttpResponse::InternalServerError().json(ErrorResponse {
             error: "db_error".into(),
             details: None,

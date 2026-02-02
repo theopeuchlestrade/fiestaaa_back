@@ -27,6 +27,32 @@ pub struct NotificationService {
     pub fcm_token_provider: Option<Arc<dyn gcp_auth::TokenProvider + Send + Sync>>,
 }
 
+pub struct NotificationMessage<'a> {
+    pub title: &'a str,
+    pub body: &'a str,
+    pub data: Value,
+}
+
+pub struct NotificationRequest<'a> {
+    pub title: &'a str,
+    pub body: &'a str,
+    pub data: Value,
+    pub dedup_base_key: Option<&'a str>,
+    pub dedup_ttl: Option<u64>,
+}
+
+pub struct NotificationTarget {
+    pub tokens: Vec<String>,
+    pub dedup_key: Option<String>,
+    pub dedup_ttl: Option<u64>,
+}
+
+struct FcmV1Context<'a> {
+    db: &'a Pool<Postgres>,
+    project_id: &'a str,
+    provider: Arc<dyn gcp_auth::TokenProvider + Send + Sync>,
+}
+
 impl NotificationService {
     pub fn new(
         server_key: Option<String>,
@@ -75,39 +101,31 @@ impl NotificationService {
     pub async fn send_to_tokens(
         &self,
         db: &Pool<Postgres>,
-        tokens: Vec<String>,
-        title: &str,
-        body: &str,
-        data: Value,
-        dedup_key: Option<String>,
-        dedup_ttl: Option<u64>,
+        target: NotificationTarget,
+        message: &NotificationMessage<'_>,
     ) {
-        if tokens.is_empty() {
+        if target.tokens.is_empty() {
             return;
         }
 
-        let ttl = dedup_ttl.unwrap_or(self.default_dedup_ttl_seconds);
-        if let Some(key) = dedup_key.as_ref() {
-            if self.is_throttled(key, ttl).await {
-                debug!("notification skipped by throttle for key {key}");
-                return;
-            }
+        let ttl = target.dedup_ttl.unwrap_or(self.default_dedup_ttl_seconds);
+        if let Some(key) = target.dedup_key.as_ref()
+            && self.is_throttled(key, ttl).await
+        {
+            debug!("notification skipped by throttle for key {key}");
+            return;
         }
 
         if let (Some(project_id), Some(provider)) =
             (&self.fcm_project_id, self.fcm_token_provider.as_ref())
         {
-            for tok in tokens {
-                self.send_v1(
-                    db,
-                    project_id,
-                    provider.clone(),
-                    &tok,
-                    title,
-                    body,
-                    data.clone(),
-                )
-                .await;
+            let ctx = FcmV1Context {
+                db,
+                project_id,
+                provider: provider.clone(),
+            };
+            for tok in target.tokens {
+                self.send_v1(&ctx, &tok, message).await;
             }
             return;
         }
@@ -117,12 +135,12 @@ impl NotificationService {
         }
 
         let payload = serde_json::json!({
-            "registration_ids": tokens,
+            "registration_ids": target.tokens,
             "notification": {
-                "title": title,
-                "body": body,
+                "title": message.title,
+                "body": message.body,
             },
-            "data": data,
+            "data": message.data,
             "priority": "high"
         });
 
@@ -160,7 +178,7 @@ impl NotificationService {
                     );
                 }
 
-                if let Err(err) = handle_invalid_tokens(db, &tokens, &body).await {
+                if let Err(err) = handle_invalid_tokens(db, &target.tokens, &body).await {
                     warn!("failed to prune invalid FCM tokens: {err}");
                 }
             }
@@ -176,16 +194,12 @@ impl NotificationService {
 
     async fn send_v1(
         &self,
-        db: &Pool<Postgres>,
-        project_id: &str,
-        provider: Arc<dyn gcp_auth::TokenProvider + Send + Sync>,
+        ctx: &FcmV1Context<'_>,
         token: &str,
-        title: &str,
-        body: &str,
-        data: Value,
+        message: &NotificationMessage<'_>,
     ) {
-        let url = format!("{FCM_V1_BASE}/projects/{project_id}/messages:send");
-        let access = match provider.token(&[FCM_SCOPE]).await {
+        let url = format!("{FCM_V1_BASE}/projects/{}/messages:send", ctx.project_id);
+        let access = match ctx.provider.token(&[FCM_SCOPE]).await {
             Ok(tok) => tok.as_str().to_string(),
             Err(err) => {
                 warn!("fcm v1 auth token error: {err}");
@@ -193,12 +207,12 @@ impl NotificationService {
             }
         };
 
-        let data_map = data_to_string_map(&data);
+        let data_map = data_to_string_map(&message.data);
 
         let payload = serde_json::json!({
             "message": {
                 "token": token,
-                "notification": { "title": title, "body": body },
+                "notification": { "title": message.title, "body": message.body },
                 "data": data_map
             }
         });
@@ -240,33 +254,33 @@ impl NotificationService {
         {
             let _ = sqlx::query("UPDATE user_devices SET disabled_at = NOW() WHERE fcm_token = $1")
                 .bind(token)
-                .execute(db)
+                .execute(ctx.db)
                 .await;
         }
     }
 
     async fn is_throttled(&self, key: &str, ttl_seconds: u64) -> bool {
-        if let Some(client) = self.redis_client.as_ref() {
-            if let Ok(mut conn) = client.get_multiplexed_async_connection().await {
-                let inserted: redis::RedisResult<i32> = redis::cmd("SETNX")
-                    .arg(key)
-                    .arg("1")
-                    .query_async(&mut conn)
-                    .await;
-                match inserted {
-                    Ok(1) => {
-                        let _ = redis::cmd("EXPIRE")
-                            .arg(key)
-                            .arg(ttl_seconds as i64)
-                            .query_async::<()>(&mut conn)
-                            .await;
-                        return false;
-                    }
-                    Ok(_) => return true,
-                    Err(err) => {
-                        warn!("redis throttle error: {err}");
-                        return false;
-                    }
+        if let Some(client) = self.redis_client.as_ref()
+            && let Ok(mut conn) = client.get_multiplexed_async_connection().await
+        {
+            let inserted: redis::RedisResult<i32> = redis::cmd("SETNX")
+                .arg(key)
+                .arg("1")
+                .query_async(&mut conn)
+                .await;
+            match inserted {
+                Ok(1) => {
+                    let _ = redis::cmd("EXPIRE")
+                        .arg(key)
+                        .arg(ttl_seconds as i64)
+                        .query_async::<()>(&mut conn)
+                        .await;
+                    return false;
+                }
+                Ok(_) => return true,
+                Err(err) => {
+                    warn!("redis throttle error: {err}");
+                    return false;
                 }
             }
         }
@@ -318,10 +332,9 @@ async fn handle_invalid_tokens(
             if matches!(
                 error,
                 "NotRegistered" | "InvalidRegistration" | "MissingRegistration"
-            ) {
-                if let Some(tok) = sent_tokens.get(idx) {
-                    invalid.push(tok.clone());
-                }
+            ) && let Some(tok) = sent_tokens.get(idx)
+            {
+                invalid.push(tok.clone());
             }
         }
 
@@ -374,16 +387,20 @@ pub async fn notify_users(
     service: &NotificationService,
     db: &Pool<Postgres>,
     user_ids: &[i64],
-    title: &str,
-    body: &str,
-    data: Value,
-    dedup_base_key: Option<&str>,
-    dedup_ttl: Option<u64>,
+    request: NotificationRequest<'_>,
 ) {
     if !service.is_enabled() {
         return;
     }
 
+    let NotificationRequest {
+        title,
+        body,
+        data,
+        dedup_base_key,
+        dedup_ttl,
+    } = request;
+    let message = NotificationMessage { title, body, data };
     let tokens = match tokens_by_user_ids(db, user_ids).await {
         Ok(map) => map,
         Err(err) => {
@@ -398,12 +415,16 @@ pub async fn notify_users(
             service
                 .send_to_tokens(
                     db,
-                    user_tokens.clone(),
-                    title,
-                    body,
-                    data.clone(),
-                    dedup_key,
-                    dedup_ttl,
+                    NotificationTarget {
+                        tokens: user_tokens.clone(),
+                        dedup_key,
+                        dedup_ttl,
+                    },
+                    &NotificationMessage {
+                        title: message.title,
+                        body: message.body,
+                        data: message.data.clone(),
+                    },
                 )
                 .await;
         }

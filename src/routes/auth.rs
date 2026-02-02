@@ -198,9 +198,7 @@ async fn oauth_google(state: web::Data<AppState>, payload: OAuthPayload) -> Http
     if allowed_aud.is_empty() {
         return HttpResponse::InternalServerError().json(ErrorResponse {
             error: "oauth_not_configured".into(),
-            details: Some(
-                "aucun FIESTAAA_GOOGLE_*_CLIENT_ID defini (WEB/ANDROID/IOS)".into(),
-            ),
+            details: Some("aucun FIESTAAA_GOOGLE_*_CLIENT_ID defini (WEB/ANDROID/IOS)".into()),
         });
     }
 
@@ -242,7 +240,7 @@ async fn oauth_google(state: web::Data<AppState>, payload: OAuthPayload) -> Http
         .or_else(|| token_info.get("audience"))
         .and_then(|v| v.as_str())
         .unwrap_or_default();
-    if !allowed_aud.iter().any(|id| *id == aud) {
+    if !allowed_aud.contains(&aud) {
         return HttpResponse::Unauthorized().json(ErrorResponse {
             error: "invalid_token".into(),
             details: Some("aud mismatch".into()),
@@ -252,7 +250,7 @@ async fn oauth_google(state: web::Data<AppState>, payload: OAuthPayload) -> Http
     let email = token_info
         .get("email")
         .and_then(|v| v.as_str())
-        .or_else(|| payload.email.as_deref());
+        .or(payload.email.as_deref());
     if email.is_none() {
         return HttpResponse::Unauthorized().json(ErrorResponse {
             error: "email_required".into(),
@@ -308,8 +306,7 @@ async fn oauth_google(state: web::Data<AppState>, payload: OAuthPayload) -> Http
                         .fetch_optional(&state.db)
                         .await
                         .ok()
-                        .flatten()
-                        .map(|h| h);
+                        .flatten();
                         existing.unwrap_or(new_handle)
                     }
                     _ => {

@@ -17,7 +17,7 @@ use crate::{
         PollOptionVoter, PollView, ShareClaimPayload, ShareClaimResponse, ShareTokenResponse,
         StatusResponse,
     },
-    notifications::{event_member_user_ids, notify_users},
+    notifications::{NotificationRequest, event_member_user_ids, notify_users},
     realtime::{event_types, publish_event, publish_global},
     state::AppState,
 };
@@ -25,6 +25,21 @@ use crate::{
 fn claims_email(req: &HttpRequest, state: &AppState) -> Result<String, HttpResponse> {
     let claims = extract_claims_from_auth(req, &state.jwt_secret)?;
     Ok(claims.sub.to_lowercase())
+}
+
+fn normalize_item_kind(value: &str) -> Option<String> {
+    let normalized = value.trim().to_lowercase();
+    match normalized.as_str() {
+        "need" | "bring" => Some(normalized),
+        _ => None,
+    }
+}
+
+fn invalid_item_kind_response() -> HttpResponse {
+    HttpResponse::BadRequest().json(ErrorResponse {
+        error: "invalid_payload".into(),
+        details: Some("item_kind doit être 'need' ou 'bring'".into()),
+    })
 }
 
 async fn fetch_event_owner_email(db: &PgPool, event_id: i64) -> Result<String, HttpResponse> {
@@ -121,21 +136,24 @@ async fn notify_event_members(state: &AppState, event: &Event, updated_fields: &
     }
 
     let fields: Vec<String> = updated_fields.iter().map(|f| f.to_string()).collect();
+    let body = format!("{} a été mis à jour", event.name_event);
     let dedup = format!("event_updated:{}", event.event_id);
     notify_users(
         &state.notifications,
         &state.db,
         &members,
-        "Événement mis à jour",
-        &format!("{} a été mis à jour", event.name_event),
-        json!({
-            "type": "event_updated",
-            "event_id": event.event_id,
-            "event_name": event.name_event,
-            "fields": fields
-        }),
-        Some(&dedup),
-        Some(300),
+        NotificationRequest {
+            title: "Événement mis à jour",
+            body: body.as_str(),
+            data: json!({
+                "type": "event_updated",
+                "event_id": event.event_id,
+                "event_name": event.name_event,
+                "fields": fields
+            }),
+            dedup_base_key: Some(&dedup),
+            dedup_ttl: Some(300),
+        },
     )
     .await;
 }
@@ -166,10 +184,10 @@ fn validate_invitation_deadline(
 }
 
 async fn ensure_invitation_deadline_schema(db: &PgPool) -> Result<(), HttpResponse> {
-    if let Err(_) =
-        sqlx::query("ALTER TABLE events ADD COLUMN IF NOT EXISTS invitation_deadline DATE")
-            .execute(db)
-            .await
+    if (sqlx::query("ALTER TABLE events ADD COLUMN IF NOT EXISTS invitation_deadline DATE")
+        .execute(db)
+        .await)
+        .is_err()
     {
         return Err(server_error());
     }
@@ -189,7 +207,7 @@ async fn ensure_invitation_deadline_schema(db: &PgPool) -> Result<(), HttpRespon
         $$;
     "#;
 
-    if let Err(_) = sqlx::query(ensure_constraint).execute(db).await {
+    if (sqlx::query(ensure_constraint).execute(db).await).is_err() {
         return Err(server_error());
     }
 
@@ -788,19 +806,16 @@ pub async fn update_event(
             .unwrap_or(current_payment_per_person)
     };
     let target_date_event = payload.date_event.unwrap_or(current_date_event);
-    let invitation_deadline_update = payload.invitation_deadline.clone();
-    let target_deadline = invitation_deadline_update
-        .clone()
-        .unwrap_or(current_invitation_deadline);
+    let invitation_deadline_update = payload.invitation_deadline;
+    let target_deadline = invitation_deadline_update.unwrap_or(current_invitation_deadline);
     if let Err(resp) = validate_invitation_deadline(target_deadline, target_date_event) {
         return resp;
     }
 
-    let (invitation_deadline_set, invitation_deadline_value) =
-        match invitation_deadline_update {
-            Some(value) => (true, value),
-            None => (false, None),
-        };
+    let (invitation_deadline_set, invitation_deadline_value) = match invitation_deadline_update {
+        Some(value) => (true, value),
+        None => (false, None),
+    };
 
     let res = sqlx::query_as::<_, Event>(
         "UPDATE events
@@ -1091,13 +1106,13 @@ pub async fn claim_share_link(
         Err(_) => return server_error(),
     };
 
-    if let Some(limit) = event.invitation_deadline {
-        if chrono::Utc::now().date_naive() > limit {
-            return HttpResponse::Gone().json(ErrorResponse {
-                error: "invitation_expired".into(),
-                details: Some("La date limite pour répondre est dépassée".into()),
-            });
-        }
+    if let Some(limit) = event.invitation_deadline
+        && chrono::Utc::now().date_naive() > limit
+    {
+        return HttpResponse::Gone().json(ErrorResponse {
+            error: "invitation_expired".into(),
+            details: Some("La date limite pour répondre est dépassée".into()),
+        });
     }
 
     let user_id = match fetch_user_id(&state.db, &claims.sub).await {
@@ -1128,7 +1143,7 @@ pub async fn claim_share_link(
     .execute(&mut *tx)
     .await;
 
-    if let Err(_) = update_res {
+    if update_res.is_err() {
         return server_error();
     }
 
@@ -1196,7 +1211,10 @@ pub async fn list_event_items(
                 ei.max_quantity,
                 ei.quantity AS reserved_quantity,
                 i.unit_label,
-                cu.email AS created_by_email
+                i.item_kind,
+                cu.email AS created_by_email,
+                cu.handle AS created_by_handle,
+                cu.avatar_url AS created_by_avatar_url
          FROM events_items ei
          JOIN items i ON i.item_id = ei.item_id
          JOIN item_types it ON it.type_id = i.type_id
@@ -1389,28 +1407,57 @@ pub async fn create_custom_event_item(
         Err(resp) => return resp,
     };
 
+    let owner_email = match fetch_event_owner_email(&state.db, *event_id).await {
+        Ok(owner) => owner,
+        Err(resp) => return resp,
+    };
+    let is_owner = owner_email.eq_ignore_ascii_case(&creator_email) || owner_email.is_empty();
+
     let creator_id = match fetch_user_id(&state.db, &creator_email).await {
         Ok(id) => id,
         Err(resp) => return resp,
     };
 
     let payload = payload.into_inner();
-    let name_trimmed = payload.name_item.trim().to_string();
-    if name_trimmed.is_empty() || payload.max_quantity <= 0 {
+    let EventCustomItemPayload {
+        name_item,
+        max_quantity,
+        unit_label,
+        item_kind,
+    } = payload;
+
+    let name_trimmed = name_item.trim().to_string();
+    if name_trimmed.is_empty() || max_quantity <= 0 {
         return HttpResponse::BadRequest().json(ErrorResponse {
             error: "invalid_payload".into(),
             details: Some("Nom non vide et quantité > 0 requis".into()),
         });
     }
 
-    let unit_label = payload
-        .unit_label
+    let unit_label = unit_label
         .map(|v| v.trim().to_string())
         .filter(|v| !v.is_empty())
         .unwrap_or_else(|| "pièce".to_string());
 
-    if let Err(resp) = ensure_event_exists(&state.db, *event_id).await {
-        return resp;
+    let item_kind = match item_kind {
+        Some(raw) => match normalize_item_kind(&raw) {
+            Some(value) => value,
+            None => return invalid_item_kind_response(),
+        },
+        None => {
+            if is_owner {
+                "need".to_string()
+            } else {
+                "bring".to_string()
+            }
+        }
+    };
+
+    if item_kind == "need" && !is_owner {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            error: "forbidden".into(),
+            details: Some("only the creator can add need items".into()),
+        });
     }
 
     let mut tx = match state.db.begin().await {
@@ -1426,10 +1473,12 @@ pub async fn create_custom_event_item(
          JOIN items i ON i.item_id = ei.item_id
          WHERE ei.event_id = $1
            AND lower(i.name_item) = $2
+           AND i.item_kind = $3
          FOR UPDATE",
     )
     .bind(*event_id)
     .bind(&normalized_name)
+    .bind(item_kind.as_str())
     .fetch_optional(&mut *tx)
     .await
     .map_err(|_| server_error());
@@ -1477,14 +1526,15 @@ pub async fn create_custom_event_item(
         };
 
         match sqlx::query_scalar::<_, i64>(
-            "INSERT INTO items (type_id, name_item, max_quantity, unit_label)
-             VALUES ($1, $2, $3, $4)
+            "INSERT INTO items (type_id, name_item, max_quantity, unit_label, item_kind)
+             VALUES ($1, $2, $3, $4, $5)
              RETURNING item_id",
         )
         .bind(default_type_id)
         .bind(name_trimmed.as_str())
-        .bind(payload.max_quantity)
+        .bind(max_quantity)
         .bind(unit_label.as_str())
+        .bind(item_kind.as_str())
         .fetch_one(&mut *tx)
         .await
         {
@@ -1505,7 +1555,7 @@ pub async fn create_custom_event_item(
     )
     .bind(*event_id)
     .bind(item_id)
-    .bind(payload.max_quantity)
+    .bind(max_quantity)
     .bind(creator_id)
     .fetch_one(&mut *tx)
     .await;
@@ -1518,7 +1568,7 @@ pub async fn create_custom_event_item(
         }
     };
 
-    if let Err(_) = tx.commit().await {
+    if (tx.commit().await).is_err() {
         return server_error();
     }
 
@@ -1670,19 +1720,19 @@ pub async fn reserve_event_item(
         return server_error();
     }
 
-    if let Err(_) =
-        sqlx::query("UPDATE events_items SET quantity = $1 WHERE event_id = $2 AND item_id = $3")
-            .bind(new_total)
-            .bind(event_id)
-            .bind(item_id)
-            .execute(&mut *tx)
-            .await
+    if (sqlx::query("UPDATE events_items SET quantity = $1 WHERE event_id = $2 AND item_id = $3")
+        .bind(new_total)
+        .bind(event_id)
+        .bind(item_id)
+        .execute(&mut *tx)
+        .await)
+        .is_err()
     {
         let _ = tx.rollback().await;
         return server_error();
     }
 
-    if let Err(_) = tx.commit().await {
+    if (tx.commit().await).is_err() {
         return server_error();
     }
 
@@ -1698,7 +1748,7 @@ pub async fn reserve_event_item(
                 }),
             )
             .await;
-            return HttpResponse::Ok().json(view);
+            HttpResponse::Ok().json(view)
         }
         Err(resp) => resp,
     }
@@ -1787,27 +1837,29 @@ pub async fn delete_event_item(
         });
     }
 
-    if let Err(_) = sqlx::query("DELETE FROM user_items WHERE event_id = $1 AND item_id = $2")
+    if (sqlx::query("DELETE FROM user_items WHERE event_id = $1 AND item_id = $2")
         .bind(event_id)
         .bind(item_id)
         .execute(&mut *tx)
-        .await
+        .await)
+        .is_err()
     {
         let _ = tx.rollback().await;
         return server_error();
     }
 
-    if let Err(_) = sqlx::query("DELETE FROM events_items WHERE event_id = $1 AND item_id = $2")
+    if (sqlx::query("DELETE FROM events_items WHERE event_id = $1 AND item_id = $2")
         .bind(event_id)
         .bind(item_id)
         .execute(&mut *tx)
-        .await
+        .await)
+        .is_err()
     {
         let _ = tx.rollback().await;
         return server_error();
     }
 
-    if let Err(_) = tx.commit().await {
+    if (tx.commit().await).is_err() {
         return server_error();
     }
 
@@ -1949,7 +2001,7 @@ pub async fn create_event_poll(
     }
 
     let duration_minutes = payload.duration_minutes.min(60 * 24 * 7);
-    let expires_at = Utc::now() + Duration::minutes(duration_minutes as i64);
+    let expires_at = Utc::now() + Duration::minutes(duration_minutes);
     let allow_multiple = payload.allow_multiple.unwrap_or(true);
 
     let mut tx = match state.db.begin().await {
@@ -1979,21 +2031,22 @@ pub async fn create_event_poll(
     };
 
     for (idx, label) in options.iter().enumerate() {
-        if let Err(_) = sqlx::query(
+        if (sqlx::query(
             "INSERT INTO event_poll_options (poll_id, label, position) VALUES ($1, $2, $3)",
         )
         .bind(poll_id)
         .bind(label)
         .bind(idx as i32)
         .execute(&mut *tx)
-        .await
+        .await)
+            .is_err()
         {
             let _ = tx.rollback().await;
             return server_error();
         }
     }
 
-    if let Err(_) = tx.commit().await {
+    if (tx.commit().await).is_err() {
         return server_error();
     }
 
@@ -2018,40 +2071,42 @@ pub async fn create_event_poll(
     )
     .await;
 
-    if state.notifications.is_enabled() {
-        if let Ok(members) = event_member_user_ids(&state.db, *event_id).await {
-            let event_name = sqlx::query_scalar::<_, String>(
-                "SELECT name_event FROM events WHERE event_id = $1",
-            )
-            .bind(*event_id)
-            .fetch_optional(&state.db)
-            .await
-            .ok()
-            .flatten()
-            .unwrap_or_else(|| "Événement".into());
-            let sender = if claims.handle.trim().is_empty() {
-                claims.sub.as_str()
-            } else {
-                claims.handle.as_str()
-            };
-            let dedup = format!("poll_created:{poll_id}");
-            notify_users(
-                &state.notifications,
-                &state.db,
-                &members,
-                "Nouveau sondage",
-                &format!("{sender} a lancé un sondage dans {event_name}"),
-                json!({
+    if state.notifications.is_enabled()
+        && let Ok(members) = event_member_user_ids(&state.db, *event_id).await
+    {
+        let event_name =
+            sqlx::query_scalar::<_, String>("SELECT name_event FROM events WHERE event_id = $1")
+                .bind(*event_id)
+                .fetch_optional(&state.db)
+                .await
+                .ok()
+                .flatten()
+                .unwrap_or_else(|| "Événement".into());
+        let sender = if claims.handle.trim().is_empty() {
+            claims.sub.as_str()
+        } else {
+            claims.handle.as_str()
+        };
+        let body = format!("{sender} a lancé un sondage dans {event_name}");
+        let dedup = format!("poll_created:{poll_id}");
+        notify_users(
+            &state.notifications,
+            &state.db,
+            &members,
+            NotificationRequest {
+                title: "Nouveau sondage",
+                body: body.as_str(),
+                data: json!({
                     "type": "poll_created",
                     "event_id": *event_id,
                     "poll_id": poll_id,
                     "question": question
                 }),
-                Some(&dedup),
-                Some(600),
-            )
-            .await;
-        }
+                dedup_base_key: Some(&dedup),
+                dedup_ttl: Some(600),
+            },
+        )
+        .await;
     }
 
     HttpResponse::Created().json(poll)
@@ -2143,7 +2198,7 @@ pub async fn vote_event_poll(
         Err(_) => return server_error(),
     };
 
-    let mut option_ids: Vec<i64> = payload.option_ids.iter().copied().collect();
+    let mut option_ids: Vec<i64> = payload.option_ids.to_vec();
     option_ids.sort();
     option_ids.dedup();
 
@@ -2178,11 +2233,12 @@ pub async fn vote_event_poll(
         Err(_) => return server_error(),
     };
 
-    if let Err(_) = sqlx::query("DELETE FROM event_poll_votes WHERE poll_id = $1 AND user_id = $2")
+    if (sqlx::query("DELETE FROM event_poll_votes WHERE poll_id = $1 AND user_id = $2")
         .bind(poll_id)
         .bind(user_id)
         .execute(&mut *tx)
-        .await
+        .await)
+        .is_err()
     {
         let _ = tx.rollback().await;
         return server_error();
@@ -2190,14 +2246,15 @@ pub async fn vote_event_poll(
 
     if !option_ids.is_empty() {
         for opt_id in option_ids {
-            if let Err(_) = sqlx::query(
+            if (sqlx::query(
                 "INSERT INTO event_poll_votes (poll_id, option_id, user_id) VALUES ($1, $2, $3)",
             )
             .bind(poll_id)
             .bind(opt_id)
             .bind(user_id)
             .execute(&mut *tx)
-            .await
+            .await)
+                .is_err()
             {
                 let _ = tx.rollback().await;
                 return server_error();
@@ -2205,7 +2262,7 @@ pub async fn vote_event_poll(
         }
     }
 
-    if let Err(_) = tx.commit().await {
+    if (tx.commit().await).is_err() {
         return server_error();
     }
 
@@ -2451,18 +2508,17 @@ async fn fetch_poll_views(
                 poll.my_votes.push(option_id);
             }
         }
-        if let Some(options) = options_by_poll.get_mut(&poll_id) {
-            if let Some((opt, _)) = options
+        if let Some(options) = options_by_poll.get_mut(&poll_id)
+            && let Some((opt, _)) = options
                 .iter_mut()
                 .find(|(opt, _)| opt.option_id == option_id)
-            {
-                opt.vote_count += 1;
-                opt.voters.push(PollOptionVoter {
-                    email: vote_row.get("email"),
-                    handle: vote_row.get("handle"),
-                    avatar_url: vote_row.get("avatar_url"),
-                });
-            }
+        {
+            opt.vote_count += 1;
+            opt.voters.push(PollOptionVoter {
+                email: vote_row.get("email"),
+                handle: vote_row.get("handle"),
+                avatar_url: vote_row.get("avatar_url"),
+            });
         }
     }
 
@@ -2620,7 +2676,10 @@ async fn fetch_event_item_view(
                 ei.max_quantity,
                 ei.quantity AS reserved_quantity,
                 i.unit_label,
-                cu.email AS created_by_email
+                i.item_kind,
+                cu.email AS created_by_email,
+                cu.handle AS created_by_handle,
+                cu.avatar_url AS created_by_avatar_url
          FROM events_items ei
          JOIN items i ON i.item_id = ei.item_id
          JOIN item_types it ON it.type_id = i.type_id

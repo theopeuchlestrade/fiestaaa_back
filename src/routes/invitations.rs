@@ -9,10 +9,9 @@ use crate::{
     auth::extract_claims_from_auth,
     handles::{is_valid_handle, looks_like_email, normalize_handle},
     models::{
-        ErrorResponse, Invitation, InvitationPatchPayload, InvitationPayload,
-        StatusResponse,
+        ErrorResponse, Invitation, InvitationPatchPayload, InvitationPayload, StatusResponse,
     },
-    notifications::{find_user_id_by_email, notify_users},
+    notifications::{NotificationRequest, find_user_id_by_email, notify_users},
     realtime::{event_types, publish_event, publish_global},
     state::AppState,
 };
@@ -123,10 +122,10 @@ enum TargetIdentifier {
 }
 
 async fn ensure_invitation_deadline_schema(db: &sqlx::PgPool) -> Result<(), HttpResponse> {
-    if let Err(_) =
-        sqlx::query("ALTER TABLE events ADD COLUMN IF NOT EXISTS invitation_deadline DATE")
-            .execute(db)
-            .await
+    if (sqlx::query("ALTER TABLE events ADD COLUMN IF NOT EXISTS invitation_deadline DATE")
+        .execute(db)
+        .await)
+        .is_err()
     {
         return Err(HttpResponse::InternalServerError().json(ErrorResponse {
             error: "db_error".into(),
@@ -149,7 +148,7 @@ async fn ensure_invitation_deadline_schema(db: &sqlx::PgPool) -> Result<(), Http
         $$;
     "#;
 
-    if let Err(_) = sqlx::query(ensure_constraint).execute(db).await {
+    if (sqlx::query(ensure_constraint).execute(db).await).is_err() {
         return Err(HttpResponse::InternalServerError().json(ErrorResponse {
             error: "db_error".into(),
             details: None,
@@ -485,14 +484,15 @@ async fn invite_unregistered_user(
 
     let token = Uuid::new_v4();
 
-    if let Err(_) = sqlx::query(
+    if (sqlx::query(
         "INSERT INTO event_share_tokens (token, event_id, created_by_email) VALUES ($1, $2, $3)",
     )
     .bind(token)
     .bind(event_id)
     .bind(owner_email)
     .execute(&mut *tx)
-    .await
+    .await)
+        .is_err()
     {
         let _ = tx.rollback().await;
         return Err(HttpResponse::InternalServerError().json(ErrorResponse {
@@ -510,7 +510,7 @@ async fn invite_unregistered_user(
         return Err(resp);
     }
 
-    if let Err(_) = tx.commit().await {
+    if (tx.commit().await).is_err() {
         return Err(HttpResponse::InternalServerError().json(ErrorResponse {
             error: "db_error".into(),
             details: None,
@@ -659,13 +659,13 @@ pub async fn create_invitation(
         }
     };
 
-    if let Some(Some(limit)) = invitation_deadline {
-        if chrono::Utc::now().date_naive() > limit {
-            return HttpResponse::Gone().json(ErrorResponse {
-                error: "invitation_expired".into(),
-                details: Some("La date limite pour répondre est dépassée".into()),
-            });
-        }
+    if let Some(Some(limit)) = invitation_deadline
+        && chrono::Utc::now().date_naive() > limit
+    {
+        return HttpResponse::Gone().json(ErrorResponse {
+            error: "invitation_expired".into(),
+            details: Some("La date limite pour répondre est dépassée".into()),
+        });
     }
 
     let identifier = match parse_identifier(&payload.identifier) {
@@ -706,10 +706,8 @@ pub async fn create_invitation(
                             }),
                         )
                         .await;
-                        let event_name = inv
-                            .event_name
-                            .clone()
-                            .unwrap_or_else(|| "un événement".into());
+                        let event_name =
+                            inv.event_name.clone().unwrap_or("un événement".to_string());
                         let title = format!("Invitation à {event_name}");
                         let body = format!("{} t'a invité(e) à {event_name}", owner_email);
                         let dedup = format!("invite_received:{}", *event_id);
@@ -717,25 +715,25 @@ pub async fn create_invitation(
                             &state.notifications,
                             &state.db,
                             &[user.id],
-                            &title,
-                            &body,
-                            json!({
-                                "type": "invite_received",
-                                "event_id": *event_id,
-                                "event_name": inv.event_name.clone()
-                            }),
-                            Some(&dedup),
-                            Some(600),
+                            NotificationRequest {
+                                title: &title,
+                                body: &body,
+                                data: json!({
+                                    "type": "invite_received",
+                                    "event_id": *event_id,
+                                    "event_name": inv.event_name.clone()
+                                }),
+                                dedup_base_key: Some(dedup.as_str()),
+                                dedup_ttl: Some(600),
+                            },
                         )
                         .await;
                         HttpResponse::Created().json(inv)
                     }
-                    Ok(None) => {
-                        HttpResponse::Conflict().json(ErrorResponse {
-                            error: "invitation_exists".into(),
-                            details: None,
-                        })
-                    }
+                    Ok(None) => HttpResponse::Conflict().json(ErrorResponse {
+                        error: "invitation_exists".into(),
+                        details: None,
+                    }),
                     Err(sqlx::Error::Database(db_err))
                         if db_err.code().as_deref() == Some("23505") =>
                     {
@@ -790,10 +788,8 @@ pub async fn create_invitation(
                             }),
                         )
                         .await;
-                        let event_name = inv
-                            .event_name
-                            .clone()
-                            .unwrap_or_else(|| "un événement".into());
+                        let event_name =
+                            inv.event_name.clone().unwrap_or("un événement".to_string());
                         let title = format!("Invitation à {event_name}");
                         let body = format!("{} t'a invité(e) à {event_name}", owner_email);
                         let dedup = format!("invite_received:{}", *event_id);
@@ -801,25 +797,25 @@ pub async fn create_invitation(
                             &state.notifications,
                             &state.db,
                             &[user.id],
-                            &title,
-                            &body,
-                            json!({
-                                "type": "invite_received",
-                                "event_id": *event_id,
-                                "event_name": inv.event_name.clone()
-                            }),
-                            Some(&dedup),
-                            Some(600),
+                            NotificationRequest {
+                                title: &title,
+                                body: &body,
+                                data: json!({
+                                    "type": "invite_received",
+                                    "event_id": *event_id,
+                                    "event_name": inv.event_name.clone()
+                                }),
+                                dedup_base_key: Some(dedup.as_str()),
+                                dedup_ttl: Some(600),
+                            },
                         )
                         .await;
                         HttpResponse::Created().json(inv)
                     }
-                    Ok(None) => {
-                        HttpResponse::Conflict().json(ErrorResponse {
-                            error: "invitation_exists".into(),
-                            details: None,
-                        })
-                    }
+                    Ok(None) => HttpResponse::Conflict().json(ErrorResponse {
+                        error: "invitation_exists".into(),
+                        details: None,
+                    }),
                     Err(sqlx::Error::Database(db_err))
                         if db_err.code().as_deref() == Some("23505") =>
                     {
@@ -1120,7 +1116,7 @@ pub async fn respond_invitation(
         for row in reservations {
             let item_id: i64 = row.get("item_id");
             let qty: i32 = row.get("quantity");
-            if let Err(_) = sqlx::query(
+            if (sqlx::query(
                 "UPDATE events_items
                  SET quantity = GREATEST(quantity - $1, 0)
                  WHERE event_id = $2 AND item_id = $3",
@@ -1129,7 +1125,8 @@ pub async fn respond_invitation(
             .bind(*event_id)
             .bind(item_id)
             .execute(&mut *tx)
-            .await
+            .await)
+                .is_err()
             {
                 let _ = tx.rollback().await;
                 return HttpResponse::InternalServerError().json(ErrorResponse {
@@ -1139,11 +1136,12 @@ pub async fn respond_invitation(
             }
         }
 
-        if let Err(_) = sqlx::query("DELETE FROM user_items WHERE user_id = $1 AND event_id = $2")
+        if (sqlx::query("DELETE FROM user_items WHERE user_id = $1 AND event_id = $2")
             .bind(user.id)
             .bind(*event_id)
             .execute(&mut *tx)
-            .await
+            .await)
+            .is_err()
         {
             let _ = tx.rollback().await;
             return HttpResponse::InternalServerError().json(ErrorResponse {
@@ -1161,10 +1159,11 @@ pub async fn respond_invitation(
         .await;
 
         if let Ok(Some(carpool_id)) = driver_carpool_id {
-            if let Err(_) = sqlx::query("DELETE FROM carpool_passengers WHERE carpool_id = $1")
+            if (sqlx::query("DELETE FROM carpool_passengers WHERE carpool_id = $1")
                 .bind(carpool_id)
                 .execute(&mut *tx)
-                .await
+                .await)
+                .is_err()
             {
                 let _ = tx.rollback().await;
                 return HttpResponse::InternalServerError().json(ErrorResponse {
@@ -1172,10 +1171,11 @@ pub async fn respond_invitation(
                     details: None,
                 });
             }
-            if let Err(_) = sqlx::query("DELETE FROM carpools WHERE carpool_id = $1")
+            if (sqlx::query("DELETE FROM carpools WHERE carpool_id = $1")
                 .bind(carpool_id)
                 .execute(&mut *tx)
-                .await
+                .await)
+                .is_err()
             {
                 let _ = tx.rollback().await;
                 return HttpResponse::InternalServerError().json(ErrorResponse {
@@ -1203,11 +1203,14 @@ pub async fn respond_invitation(
         .await;
 
         if let Ok(Some(carpool_id)) = passenger_carpool {
-            if let Err(_) = sqlx::query("DELETE FROM carpool_passengers WHERE carpool_id = $1 AND user_id = $2")
-                .bind(carpool_id)
-                .bind(user.id)
-                .execute(&mut *tx)
-                .await
+            if (sqlx::query(
+                "DELETE FROM carpool_passengers WHERE carpool_id = $1 AND user_id = $2",
+            )
+            .bind(carpool_id)
+            .bind(user.id)
+            .execute(&mut *tx)
+            .await)
+                .is_err()
             {
                 let _ = tx.rollback().await;
                 return HttpResponse::InternalServerError().json(ErrorResponse {
@@ -1216,10 +1219,13 @@ pub async fn respond_invitation(
                 });
             }
 
-            if let Err(_) = sqlx::query("UPDATE carpools SET seats_taken = GREATEST(seats_taken - 1, 0) WHERE carpool_id = $1")
-                .bind(carpool_id)
-                .execute(&mut *tx)
-                .await
+            if (sqlx::query(
+                "UPDATE carpools SET seats_taken = GREATEST(seats_taken - 1, 0) WHERE carpool_id = $1",
+            )
+            .bind(carpool_id)
+            .execute(&mut *tx)
+            .await)
+                .is_err()
             {
                 let _ = tx.rollback().await;
                 return HttpResponse::InternalServerError().json(ErrorResponse {
@@ -1237,7 +1243,7 @@ pub async fn respond_invitation(
         }
     }
 
-    if let Err(_) = tx.commit().await {
+    if (tx.commit().await).is_err() {
         return HttpResponse::InternalServerError().json(ErrorResponse {
             error: "db_error".into(),
             details: None,
@@ -1280,42 +1286,41 @@ pub async fn respond_invitation(
         .await;
     }
 
-    if !owner_email.eq_ignore_ascii_case(&email) {
-        if let Ok(Some(owner_id)) = find_user_id_by_email(&state.db, &owner_email).await {
-            let status_label = if target_status == "Accepted" {
-                "accepté"
-            } else {
-                "refusé"
-            };
-            let event_name = updated
-                .event_name
-                .clone()
-                .unwrap_or_else(|| "un événement".into());
-            let author = updated
-                .handle
-                .as_deref()
-                .unwrap_or_else(|| updated.email.as_str());
-            let title = format!("Réponse à ton invitation");
-            let body = format!("{author} a {status_label} l'invitation à {event_name}");
-            let dedup = format!("invite_response:{}:{}", *event_id, user.id);
-            notify_users(
-                &state.notifications,
-                &state.db,
-                &[owner_id],
-                &title,
-                &body,
-                json!({
+    if !owner_email.eq_ignore_ascii_case(&email)
+        && let Ok(Some(owner_id)) = find_user_id_by_email(&state.db, &owner_email).await
+    {
+        let status_label = if target_status == "Accepted" {
+            "accepté"
+        } else {
+            "refusé"
+        };
+        let event_name = updated
+            .event_name
+            .clone()
+            .unwrap_or("un événement".to_string());
+        let author = updated.handle.as_deref().unwrap_or(updated.email.as_str());
+        let title = "Réponse à ton invitation".to_string();
+        let body = format!("{author} a {status_label} l'invitation à {event_name}");
+        let dedup = format!("invite_response:{}:{}", *event_id, user.id);
+        notify_users(
+            &state.notifications,
+            &state.db,
+            &[owner_id],
+            NotificationRequest {
+                title: &title,
+                body: &body,
+                data: json!({
                     "type": "invite_response",
                     "event_id": *event_id,
                     "status": target_status,
                     "user_email": updated.email.clone(),
                     "user_handle": updated.handle.clone()
                 }),
-                Some(&dedup),
-                Some(300),
-            )
-            .await;
-        }
+                dedup_base_key: Some(dedup.as_str()),
+                dedup_ttl: Some(300),
+            },
+        )
+        .await;
     }
 
     HttpResponse::Ok().json(updated)
