@@ -321,13 +321,12 @@ async fn update_event_playlist_requires_creator_or_admin() -> Result<(), Box<dyn
         return Ok(());
     };
     let _guard = DB_LOCK.lock().await;
-    reset_tables(&pool, &["events", "payment_providers", "users"])
-        .await?;
+    reset_tables(&pool, &["events", "payment_providers", "users"]).await?;
 
     let secret = "secret";
     let admin_email = "admin@example.com";
     let state = build_state(pool.clone(), secret, &[admin_email]);
-    let mut app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
+    let app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
 
     let creator_email = "creator@example.com";
     let other_email = "other@example.com";
@@ -338,7 +337,7 @@ async fn update_event_playlist_requires_creator_or_admin() -> Result<(), Box<dyn
     let other_token = admin_token(secret, other_email).expect("token");
 
     let resp = test::call_service(
-        &mut app,
+        &app,
         test::TestRequest::post()
             .uri("/events")
             .insert_header(("Authorization", format!("Bearer {}", creator_token.clone())))
@@ -365,7 +364,7 @@ async fn update_event_playlist_requires_creator_or_admin() -> Result<(), Box<dyn
     let created: Event = test::read_body_json(resp).await;
 
     let resp = test::call_service(
-        &mut app,
+        &app,
         test::TestRequest::patch()
             .uri(&format!("/events/{}", created.event_id))
             .insert_header(("Authorization", format!("Bearer {}", other_token)))
@@ -400,18 +399,17 @@ async fn update_event_playlist_requires_valid_provider() -> Result<(), Box<dyn E
         return Ok(());
     };
     let _guard = DB_LOCK.lock().await;
-    reset_tables(&pool, &["events", "payment_providers"])
-        .await?;
+    reset_tables(&pool, &["events", "payment_providers"]).await?;
 
     let secret = "secret";
     let admin_email = "admin@example.com";
     let state = build_state(pool.clone(), secret, &[admin_email]);
-    let mut app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
+    let app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
 
     let token = admin_token(secret, admin_email).expect("token");
 
     let resp = test::call_service(
-        &mut app,
+        &app,
         test::TestRequest::post()
             .uri("/events")
             .insert_header(("Authorization", format!("Bearer {}", token.clone())))
@@ -438,7 +436,7 @@ async fn update_event_playlist_requires_valid_provider() -> Result<(), Box<dyn E
     let created: Event = test::read_body_json(resp).await;
 
     let resp = test::call_service(
-        &mut app,
+        &app,
         test::TestRequest::patch()
             .uri(&format!("/events/{}", created.event_id))
             .insert_header(("Authorization", format!("Bearer {}", token)))
@@ -473,18 +471,17 @@ async fn update_event_playlist_requires_valid_url() -> Result<(), Box<dyn Error>
         return Ok(());
     };
     let _guard = DB_LOCK.lock().await;
-    reset_tables(&pool, &["events", "payment_providers"])
-        .await?;
+    reset_tables(&pool, &["events", "payment_providers"]).await?;
 
     let secret = "secret";
     let admin_email = "admin@example.com";
     let state = build_state(pool.clone(), secret, &[admin_email]);
-    let mut app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
+    let app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
 
     let token = admin_token(secret, admin_email).expect("token");
 
     let resp = test::call_service(
-        &mut app,
+        &app,
         test::TestRequest::post()
             .uri("/events")
             .insert_header(("Authorization", format!("Bearer {}", token.clone())))
@@ -511,7 +508,7 @@ async fn update_event_playlist_requires_valid_url() -> Result<(), Box<dyn Error>
     let created: Event = test::read_body_json(resp).await;
 
     let resp = test::call_service(
-        &mut app,
+        &app,
         test::TestRequest::patch()
             .uri(&format!("/events/{}", created.event_id))
             .insert_header(("Authorization", format!("Bearer {}", token)))
@@ -546,18 +543,17 @@ async fn update_event_playlist_can_clear_fields() -> Result<(), Box<dyn Error>> 
         return Ok(());
     };
     let _guard = DB_LOCK.lock().await;
-    reset_tables(&pool, &["events", "payment_providers"])
-        .await?;
+    reset_tables(&pool, &["events", "payment_providers"]).await?;
 
     let secret = "secret";
     let admin_email = "admin@example.com";
     let state = build_state(pool.clone(), secret, &[admin_email]);
-    let mut app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
+    let app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
 
     let token = admin_token(secret, admin_email).expect("token");
 
     let resp = test::call_service(
-        &mut app,
+        &app,
         test::TestRequest::post()
             .uri("/events")
             .insert_header(("Authorization", format!("Bearer {}", token.clone())))
@@ -585,7 +581,7 @@ async fn update_event_playlist_can_clear_fields() -> Result<(), Box<dyn Error>> 
     assert_eq!(created.playlist_provider.as_deref(), Some("spotify"));
 
     let resp = test::call_service(
-        &mut app,
+        &app,
         test::TestRequest::patch()
             .uri(&format!("/events/{}", created.event_id))
             .insert_header(("Authorization", format!("Bearer {}", token)))

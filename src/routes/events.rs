@@ -221,7 +221,9 @@ fn normalize_playlist_payload(
         (Some(_), None) | (None, Some(_)) => {
             return Err(HttpResponse::BadRequest().json(ErrorResponse {
                 error: "invalid_playlist".into(),
-                details: Some("playlist_url et playlist_provider doivent être renseignés ensemble".into()),
+                details: Some(
+                    "playlist_url et playlist_provider doivent être renseignés ensemble".into(),
+                ),
             }));
         }
         _ => {}
@@ -248,7 +250,7 @@ fn normalize_playlist_payload(
             return Err(HttpResponse::InternalServerError().json(ErrorResponse {
                 error: "playlist_validation_error".into(),
                 details: None,
-            }))
+            }));
         }
     };
 
@@ -707,7 +709,7 @@ pub async fn replace_event(
     }
 
     let payload = payload.into_inner();
-     let mut updated_fields = vec!["name", "description", "date", "time", "location"];
+    let mut updated_fields = vec!["name", "description", "date", "time", "location"];
     if payload.name_event.trim().is_empty()
         || payload.description.trim().is_empty()
         || payload.address.trim().is_empty()
@@ -735,20 +737,20 @@ pub async fn replace_event(
     } else {
         payload.payment_per_person.unwrap_or(false)
     };
-     let (playlist_provider, playlist_url) = match normalize_playlist_payload(
-         payload.playlist_provider,
-         payload.playlist_url,
-         false,
-         false,
-     ) {
-         Ok(values) => values,
-         Err(resp) => return resp,
-     };
-     if playlist_provider.is_some() || playlist_url.is_some() {
-         updated_fields.push("playlist");
-     }
+    let (playlist_provider, playlist_url) = match normalize_playlist_payload(
+        payload.playlist_provider,
+        payload.playlist_url,
+        false,
+        false,
+    ) {
+        Ok(values) => values,
+        Err(resp) => return resp,
+    };
+    if playlist_provider.is_some() || playlist_url.is_some() {
+        updated_fields.push("playlist");
+    }
 
-     let res = sqlx::query_as::<_, Event>(
+    let res = sqlx::query_as::<_, Event>(
          "UPDATE events
           SET name_event = $1, description = $2, date_event = $3, start_time = $4, 
               invitation_deadline = $5, address = $6, latitude = $7, longitude = $8, payment_provider_id = $9, payment_identifier = $10,
@@ -948,7 +950,9 @@ pub async fn update_event(
     if provider_cleared ^ url_cleared {
         return HttpResponse::BadRequest().json(ErrorResponse {
             error: "invalid_playlist".into(),
-            details: Some("playlist_url et playlist_provider doivent être renseignés ensemble".into()),
+            details: Some(
+                "playlist_url et playlist_provider doivent être renseignés ensemble".into(),
+            ),
         });
     }
     let merged_playlist_provider = payload
@@ -971,11 +975,10 @@ pub async fn update_event(
         }
     };
 
-    let (invitation_deadline_set, invitation_deadline_value) =
-        match invitation_deadline_update {
-            Some(value) => (true, value),
-            None => (false, None),
-        };
+    let (invitation_deadline_set, invitation_deadline_value) = match invitation_deadline_update {
+        Some(value) => (true, value),
+        None => (false, None),
+    };
 
     let res = sqlx::query_as::<_, Event>(
         "UPDATE events
@@ -1019,7 +1022,7 @@ pub async fn update_event(
 
     match res {
         Ok(Some(event)) => {
-            if updated_fields.iter().any(|field| *field == "playlist") {
+            if updated_fields.contains(&"playlist") {
                 info!(
                     "playlist updated event_id={} provider={}",
                     event.event_id,
