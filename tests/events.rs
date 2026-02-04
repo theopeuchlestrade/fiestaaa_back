@@ -122,6 +122,8 @@ async fn create_event_requires_authentication() -> Result<(), Box<dyn Error>> {
                 payment_identifier: None,
                 payment_requested_amount: None,
                 payment_per_person: None,
+                playlist_url: None,
+                playlist_provider: None,
             })
             .to_request(),
     )
@@ -164,6 +166,8 @@ async fn create_event_allows_authenticated_user() -> Result<(), Box<dyn Error>> 
                 payment_identifier: None,
                 payment_requested_amount: None,
                 payment_per_person: None,
+                playlist_url: None,
+                playlist_provider: None,
             })
             .to_request(),
     )
@@ -209,6 +213,8 @@ async fn events_crud_flow() -> Result<(), Box<dyn Error>> {
                 payment_identifier: Some("PARTY2024".to_string()),
                 payment_requested_amount: None,
                 payment_per_person: None,
+                playlist_url: Some("https://open.spotify.com/playlist/test".to_string()),
+                playlist_provider: Some("spotify".to_string()),
             })
             .to_request(),
     )
@@ -217,6 +223,7 @@ async fn events_crud_flow() -> Result<(), Box<dyn Error>> {
     let created: Event = test::read_body_json(resp).await;
     assert_eq!(created.name_event, "Summer Party");
     assert_eq!(created.payment_provider_id, Some(provider_id));
+    assert_eq!(created.playlist_provider.as_deref(), Some("spotify"));
     assert_eq!(created.owner_email, admin_email);
 
     // List events
@@ -245,6 +252,8 @@ async fn events_crud_flow() -> Result<(), Box<dyn Error>> {
                 payment_identifier: Some("MEGAPARTY2024".to_string()),
                 payment_requested_amount: None,
                 payment_per_person: None,
+                playlist_url: None,
+                playlist_provider: None,
             })
             .to_request(),
     )
@@ -274,6 +283,8 @@ async fn events_crud_flow() -> Result<(), Box<dyn Error>> {
                 payment_identifier: None,
                 payment_requested_amount: None,
                 payment_per_person: None,
+                playlist_url: None,
+                playlist_provider: None,
             })
             .to_request(),
     )
@@ -300,6 +311,303 @@ async fn events_crud_flow() -> Result<(), Box<dyn Error>> {
         .await?;
     assert_eq!(remaining.0, 0);
 
+    Ok(())
+}
+
+#[tokio::test]
+async fn update_event_playlist_requires_creator_or_admin() -> Result<(), Box<dyn Error>> {
+    let Some(pool) = obtain_pool().await else {
+        eprintln!("Skipping events tests: DATABASE_URL or TEST_DATABASE_URL not set");
+        return Ok(());
+    };
+    let _guard = DB_LOCK.lock().await;
+    reset_tables(&pool, &["events", "payment_providers", "users"]).await?;
+
+    let secret = "secret";
+    let admin_email = "admin@example.com";
+    let state = build_state(pool.clone(), secret, &[admin_email]);
+    let app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
+
+    let creator_email = "creator@example.com";
+    let other_email = "other@example.com";
+    seed_user(&pool, creator_email).await?;
+    seed_user(&pool, other_email).await?;
+
+    let creator_token = admin_token(secret, creator_email).expect("token");
+    let other_token = admin_token(secret, other_email).expect("token");
+
+    let resp = test::call_service(
+        &app,
+        test::TestRequest::post()
+            .uri("/events")
+            .insert_header(("Authorization", format!("Bearer {}", creator_token.clone())))
+            .set_json(&EventPayload {
+                name_event: "Playlist Party".to_string(),
+                description: "Music matters".to_string(),
+                date_event: NaiveDate::from_ymd_opt(2024, 7, 10).unwrap(),
+                start_time: NaiveTime::from_hms_opt(20, 0, 0).unwrap(),
+                invitation_deadline: None,
+                address: "123 Party Street".to_string(),
+                latitude: None,
+                longitude: None,
+                payment_provider_id: None,
+                payment_identifier: None,
+                payment_requested_amount: None,
+                payment_per_person: None,
+                playlist_url: None,
+                playlist_provider: None,
+            })
+            .to_request(),
+    )
+    .await;
+    assert_eq!(resp.status(), StatusCode::CREATED);
+    let created: Event = test::read_body_json(resp).await;
+
+    let resp = test::call_service(
+        &app,
+        test::TestRequest::patch()
+            .uri(&format!("/events/{}", created.event_id))
+            .insert_header(("Authorization", format!("Bearer {}", other_token)))
+            .set_json(&EventPatchPayload {
+                name_event: None,
+                description: None,
+                date_event: None,
+                start_time: None,
+                invitation_deadline: None,
+                address: None,
+                latitude: None,
+                longitude: None,
+                payment_provider_id: None,
+                payment_identifier: None,
+                payment_requested_amount: None,
+                payment_per_person: None,
+                playlist_url: Some(Some("https://open.spotify.com/playlist/test".to_string())),
+                playlist_provider: Some(Some("spotify".to_string())),
+            })
+            .to_request(),
+    )
+    .await;
+
+    assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+    Ok(())
+}
+
+#[tokio::test]
+async fn update_event_playlist_requires_valid_provider() -> Result<(), Box<dyn Error>> {
+    let Some(pool) = obtain_pool().await else {
+        eprintln!("Skipping events tests: DATABASE_URL or TEST_DATABASE_URL not set");
+        return Ok(());
+    };
+    let _guard = DB_LOCK.lock().await;
+    reset_tables(&pool, &["events", "payment_providers"]).await?;
+
+    let secret = "secret";
+    let admin_email = "admin@example.com";
+    let state = build_state(pool.clone(), secret, &[admin_email]);
+    let app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
+
+    let token = admin_token(secret, admin_email).expect("token");
+
+    let resp = test::call_service(
+        &app,
+        test::TestRequest::post()
+            .uri("/events")
+            .insert_header(("Authorization", format!("Bearer {}", token.clone())))
+            .set_json(&EventPayload {
+                name_event: "Playlist Party".to_string(),
+                description: "Music matters".to_string(),
+                date_event: NaiveDate::from_ymd_opt(2024, 7, 10).unwrap(),
+                start_time: NaiveTime::from_hms_opt(20, 0, 0).unwrap(),
+                invitation_deadline: None,
+                address: "123 Party Street".to_string(),
+                latitude: None,
+                longitude: None,
+                payment_provider_id: None,
+                payment_identifier: None,
+                payment_requested_amount: None,
+                payment_per_person: None,
+                playlist_url: None,
+                playlist_provider: None,
+            })
+            .to_request(),
+    )
+    .await;
+    assert_eq!(resp.status(), StatusCode::CREATED);
+    let created: Event = test::read_body_json(resp).await;
+
+    let resp = test::call_service(
+        &app,
+        test::TestRequest::patch()
+            .uri(&format!("/events/{}", created.event_id))
+            .insert_header(("Authorization", format!("Bearer {}", token)))
+            .set_json(&EventPatchPayload {
+                name_event: None,
+                description: None,
+                date_event: None,
+                start_time: None,
+                invitation_deadline: None,
+                address: None,
+                latitude: None,
+                longitude: None,
+                payment_provider_id: None,
+                payment_identifier: None,
+                payment_requested_amount: None,
+                payment_per_person: None,
+                playlist_url: Some(Some("https://open.spotify.com/playlist/test".to_string())),
+                playlist_provider: Some(Some("spotify".to_string())),
+            })
+            .to_request(),
+    )
+    .await;
+
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    Ok(())
+}
+
+#[tokio::test]
+async fn update_event_playlist_requires_valid_url() -> Result<(), Box<dyn Error>> {
+    let Some(pool) = obtain_pool().await else {
+        eprintln!("Skipping events tests: DATABASE_URL or TEST_DATABASE_URL not set");
+        return Ok(());
+    };
+    let _guard = DB_LOCK.lock().await;
+    reset_tables(&pool, &["events", "payment_providers"]).await?;
+
+    let secret = "secret";
+    let admin_email = "admin@example.com";
+    let state = build_state(pool.clone(), secret, &[admin_email]);
+    let app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
+
+    let token = admin_token(secret, admin_email).expect("token");
+
+    let resp = test::call_service(
+        &app,
+        test::TestRequest::post()
+            .uri("/events")
+            .insert_header(("Authorization", format!("Bearer {}", token.clone())))
+            .set_json(&EventPayload {
+                name_event: "Playlist Party".to_string(),
+                description: "Music matters".to_string(),
+                date_event: NaiveDate::from_ymd_opt(2024, 7, 10).unwrap(),
+                start_time: NaiveTime::from_hms_opt(20, 0, 0).unwrap(),
+                invitation_deadline: None,
+                address: "123 Party Street".to_string(),
+                latitude: None,
+                longitude: None,
+                payment_provider_id: None,
+                payment_identifier: None,
+                payment_requested_amount: None,
+                payment_per_person: None,
+                playlist_url: None,
+                playlist_provider: None,
+            })
+            .to_request(),
+    )
+    .await;
+    assert_eq!(resp.status(), StatusCode::CREATED);
+    let created: Event = test::read_body_json(resp).await;
+
+    let resp = test::call_service(
+        &app,
+        test::TestRequest::patch()
+            .uri(&format!("/events/{}", created.event_id))
+            .insert_header(("Authorization", format!("Bearer {}", token)))
+            .set_json(&EventPatchPayload {
+                name_event: None,
+                description: None,
+                date_event: None,
+                start_time: None,
+                invitation_deadline: None,
+                address: None,
+                latitude: None,
+                longitude: None,
+                payment_provider_id: None,
+                payment_identifier: None,
+                payment_requested_amount: None,
+                payment_per_person: None,
+                playlist_url: Some(Some("https://example.com/playlist".to_string())),
+                playlist_provider: Some(Some("spotify".to_string())),
+            })
+            .to_request(),
+    )
+    .await;
+
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    Ok(())
+}
+
+#[tokio::test]
+async fn update_event_playlist_can_clear_fields() -> Result<(), Box<dyn Error>> {
+    let Some(pool) = obtain_pool().await else {
+        eprintln!("Skipping events tests: DATABASE_URL or TEST_DATABASE_URL not set");
+        return Ok(());
+    };
+    let _guard = DB_LOCK.lock().await;
+    reset_tables(&pool, &["events", "payment_providers"]).await?;
+
+    let secret = "secret";
+    let admin_email = "admin@example.com";
+    let state = build_state(pool.clone(), secret, &[admin_email]);
+    let app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
+
+    let token = admin_token(secret, admin_email).expect("token");
+
+    let resp = test::call_service(
+        &app,
+        test::TestRequest::post()
+            .uri("/events")
+            .insert_header(("Authorization", format!("Bearer {}", token.clone())))
+            .set_json(&EventPayload {
+                name_event: "Playlist Party".to_string(),
+                description: "Music matters".to_string(),
+                date_event: NaiveDate::from_ymd_opt(2024, 7, 10).unwrap(),
+                start_time: NaiveTime::from_hms_opt(20, 0, 0).unwrap(),
+                invitation_deadline: None,
+                address: "123 Party Street".to_string(),
+                latitude: None,
+                longitude: None,
+                payment_provider_id: None,
+                payment_identifier: None,
+                payment_requested_amount: None,
+                payment_per_person: None,
+                playlist_url: Some("https://open.spotify.com/playlist/test".to_string()),
+                playlist_provider: Some("spotify".to_string()),
+            })
+            .to_request(),
+    )
+    .await;
+    assert_eq!(resp.status(), StatusCode::CREATED);
+    let created: Event = test::read_body_json(resp).await;
+    assert_eq!(created.playlist_provider.as_deref(), Some("spotify"));
+
+    let resp = test::call_service(
+        &app,
+        test::TestRequest::patch()
+            .uri(&format!("/events/{}", created.event_id))
+            .insert_header(("Authorization", format!("Bearer {}", token)))
+            .set_json(&EventPatchPayload {
+                name_event: None,
+                description: None,
+                date_event: None,
+                start_time: None,
+                invitation_deadline: None,
+                address: None,
+                latitude: None,
+                longitude: None,
+                payment_provider_id: None,
+                payment_identifier: None,
+                payment_requested_amount: None,
+                payment_per_person: None,
+                playlist_url: Some(None),
+                playlist_provider: Some(None),
+            })
+            .to_request(),
+    )
+    .await;
+    assert_eq!(resp.status(), StatusCode::OK);
+    let updated: Event = test::read_body_json(resp).await;
+    assert!(updated.playlist_url.is_none());
+    assert!(updated.playlist_provider.is_none());
     Ok(())
 }
 
@@ -352,6 +660,8 @@ async fn event_items_reservation_flow() -> Result<(), Box<dyn Error>> {
                 payment_identifier: None,
                 payment_requested_amount: None,
                 payment_per_person: None,
+                playlist_url: None,
+                playlist_provider: None,
             })
             .to_request(),
     )
@@ -514,6 +824,8 @@ async fn create_event_rejects_unknown_payment_provider() -> Result<(), Box<dyn E
                 payment_identifier: Some("INVALID".to_string()),
                 payment_requested_amount: None,
                 payment_per_person: None,
+                playlist_url: None,
+                playlist_provider: None,
             })
             .to_request(),
     )
@@ -558,6 +870,8 @@ async fn event_validates_empty_fields() -> Result<(), Box<dyn Error>> {
                 payment_identifier: None,
                 payment_requested_amount: None,
                 payment_per_person: None,
+                playlist_url: None,
+                playlist_provider: None,
             })
             .to_request(),
     )
@@ -583,6 +897,8 @@ async fn event_validates_empty_fields() -> Result<(), Box<dyn Error>> {
                 payment_identifier: None,
                 payment_requested_amount: None,
                 payment_per_person: None,
+                playlist_url: None,
+                playlist_provider: None,
             })
             .to_request(),
     )
@@ -608,6 +924,8 @@ async fn event_validates_empty_fields() -> Result<(), Box<dyn Error>> {
                 payment_identifier: None,
                 payment_requested_amount: None,
                 payment_per_person: None,
+                playlist_url: None,
+                playlist_provider: None,
             })
             .to_request(),
     )

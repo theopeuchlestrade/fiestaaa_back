@@ -120,6 +120,8 @@ pub struct Event {
     pub payment_requested_amount: Option<f64>,
     #[serde(default)]
     pub payment_per_person: bool,
+    pub playlist_url: Option<String>,
+    pub playlist_provider: Option<String>,
     pub owner_email: String,
 }
 
@@ -137,6 +139,8 @@ pub struct EventPayload {
     pub payment_identifier: Option<String>,
     pub payment_requested_amount: Option<f64>,
     pub payment_per_person: Option<bool>,
+    pub playlist_url: Option<String>,
+    pub playlist_provider: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
@@ -153,6 +157,8 @@ pub struct EventPatchPayload {
     pub payment_identifier: Option<String>,
     pub payment_requested_amount: Option<f64>,
     pub payment_per_person: Option<bool>,
+    pub playlist_url: Option<Option<String>>,
+    pub playlist_provider: Option<Option<String>>,
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema, FromRow)]
