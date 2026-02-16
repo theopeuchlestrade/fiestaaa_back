@@ -58,6 +58,7 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(carpools::leave_carpool)
         .service(events::search_address)
         .service(events::list_event_items)
+        .service(events::list_event_item_summary)
         .service(events::list_event_item_contributions)
         .service(events::attach_event_item)
         .service(events::create_custom_event_item)

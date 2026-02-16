@@ -8,7 +8,8 @@ use common::{DB_LOCK, build_state, obtain_pool, reset_tables};
 use fiestaaa_back::{
     auth::{encode_jwt, hash_password, now_ts},
     models::{
-        Claims, Event, EventItemReservationPayload, EventItemView, EventPatchPayload, EventPayload,
+        Claims, Event, EventItemCategorySummary, EventItemReservationPayload, EventItemView,
+        EventPatchPayload, EventPayload,
     },
     routes,
 };
@@ -683,6 +684,11 @@ async fn event_items_reservation_flow() -> Result<(), Box<dyn Error>> {
     assert_eq!(resp.status(), StatusCode::OK);
     let listed: Vec<EventItemView> = test::read_body_json(resp).await;
     assert!(listed.iter().any(|item| item.item_id == item_id));
+    let seeded = listed
+        .iter()
+        .find(|item| item.item_id == item_id)
+        .expect("seeded event item");
+    assert_eq!(seeded.item_category, "autre");
 
     // Seed two users
     let user_one = "alice@example.com";
@@ -786,6 +792,24 @@ async fn event_items_reservation_flow() -> Result<(), Box<dyn Error>> {
         .find(|item| item.item_id == item_id)
         .expect("event item exists");
     assert_eq!(punch.reserved_quantity, 3);
+
+    let resp = test::call_service(
+        &app,
+        test::TestRequest::get()
+            .uri(&format!("/events/{}/items/summary", event.event_id))
+            .to_request(),
+    )
+    .await;
+    assert_eq!(resp.status(), StatusCode::OK);
+    let summary: Vec<EventItemCategorySummary> = test::read_body_json(resp).await;
+    assert_eq!(summary.len(), 5);
+    let other = summary
+        .iter()
+        .find(|entry| entry.category == "autre")
+        .expect("autre category exists");
+    assert_eq!(other.item_count, 1);
+    assert_eq!(other.max_quantity, 5);
+    assert_eq!(other.reserved_quantity, 3);
 
     Ok(())
 }

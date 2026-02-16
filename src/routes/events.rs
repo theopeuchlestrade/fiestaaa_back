@@ -12,10 +12,10 @@ use crate::{
     auth::extract_claims_from_auth,
     models::{
         AddressSuggestion, ErrorResponse, Event, EventCustomItemPayload, EventItemAttachPayload,
-        EventItemReservationPayload, EventItemView, EventPatchPayload, EventPayload,
-        EventPollCreatePayload, EventPollVotePayload, ItemContribution, PollOptionView,
-        PollOptionVoter, PollView, ShareClaimPayload, ShareClaimResponse, ShareTokenResponse,
-        StatusResponse,
+        EventItemCategorySummary, EventItemReservationPayload, EventItemView, EventPatchPayload,
+        EventPayload, EventPollCreatePayload, EventPollVotePayload, ItemContribution,
+        PollOptionView, PollOptionVoter, PollView, ShareClaimPayload, ShareClaimResponse,
+        ShareTokenResponse, StatusResponse,
     },
     notifications::{NotificationRequest, event_member_user_ids, notify_users},
     realtime::{event_types, publish_event, publish_global},
@@ -39,6 +39,23 @@ fn invalid_item_kind_response() -> HttpResponse {
     HttpResponse::BadRequest().json(ErrorResponse {
         error: "invalid_payload".into(),
         details: Some("item_kind doit être 'need' ou 'bring'".into()),
+    })
+}
+
+fn normalize_item_category(value: &str) -> Option<String> {
+    let normalized = value.trim().to_lowercase();
+    match normalized.as_str() {
+        "soft" | "alcool" | "sale" | "sucre" | "autre" => Some(normalized),
+        _ => None,
+    }
+}
+
+fn invalid_item_category_response() -> HttpResponse {
+    HttpResponse::BadRequest().json(ErrorResponse {
+        error: "invalid_payload".into(),
+        details: Some(
+            "item_category doit être 'soft', 'alcool', 'sale', 'sucre' ou 'autre'".into(),
+        ),
     })
 }
 
@@ -1391,6 +1408,7 @@ pub async fn list_event_items(
                 ei.quantity AS reserved_quantity,
                 i.unit_label,
                 i.item_kind,
+                i.item_category,
                 cu.email AS created_by_email,
                 cu.handle AS created_by_handle,
                 cu.avatar_url AS created_by_avatar_url
@@ -1407,6 +1425,58 @@ pub async fn list_event_items(
 
     match result {
         Ok(items) => HttpResponse::Ok().json(items),
+        Err(_) => server_error(),
+    }
+}
+
+#[utoipa::path(
+    get,
+    path = "/events/{event_id}/items/summary",
+    tag = "events",
+    responses(
+        (status = 200, description = "Résumé des quantités par catégorie", body = [EventItemCategorySummary]),
+        (status = 404, description = "Événement introuvable", body = ErrorResponse),
+        (status = 500, description = "Erreur base de données", body = ErrorResponse)
+    ),
+    params(
+        ("event_id" = i64, Path, description = "Identifiant de l'événement")
+    )
+)]
+#[get("/events/{event_id}/items/summary")]
+pub async fn list_event_item_summary(
+    state: web::Data<AppState>,
+    event_id: web::Path<i64>,
+) -> impl Responder {
+    if let Err(resp) = ensure_event_exists(&state.db, *event_id).await {
+        return resp;
+    }
+
+    let result = sqlx::query_as::<_, EventItemCategorySummary>(
+        "SELECT c.category,
+                COALESCE(SUM(ei.max_quantity), 0)::INT AS max_quantity,
+                COALESCE(SUM(ei.quantity), 0)::INT AS reserved_quantity,
+                COUNT(ei.item_id)::INT AS item_count
+         FROM (VALUES ('soft'), ('alcool'), ('sale'), ('sucre'), ('autre')) AS c(category)
+         LEFT JOIN items i
+           ON i.item_category = c.category
+         LEFT JOIN events_items ei
+           ON ei.item_id = i.item_id
+          AND ei.event_id = $1
+         GROUP BY c.category
+         ORDER BY CASE c.category
+             WHEN 'soft' THEN 1
+             WHEN 'alcool' THEN 2
+             WHEN 'sale' THEN 3
+             WHEN 'sucre' THEN 4
+             ELSE 5
+         END",
+    )
+    .bind(*event_id)
+    .fetch_all(&state.db)
+    .await;
+
+    match result {
+        Ok(summary) => HttpResponse::Ok().json(summary),
         Err(_) => server_error(),
     }
 }
@@ -1603,6 +1673,7 @@ pub async fn create_custom_event_item(
         max_quantity,
         unit_label,
         item_kind,
+        item_category,
     } = payload;
 
     let name_trimmed = name_item.trim().to_string();
@@ -1632,6 +1703,14 @@ pub async fn create_custom_event_item(
         }
     };
 
+    let item_category = match item_category {
+        Some(raw) => match normalize_item_category(&raw) {
+            Some(value) => value,
+            None => return invalid_item_category_response(),
+        },
+        None => "autre".to_string(),
+    };
+
     if item_kind == "need" && !is_owner {
         return HttpResponse::Forbidden().json(ErrorResponse {
             error: "forbidden".into(),
@@ -1653,11 +1732,13 @@ pub async fn create_custom_event_item(
          WHERE ei.event_id = $1
            AND lower(i.name_item) = $2
            AND i.item_kind = $3
+           AND i.item_category = $4
          FOR UPDATE",
     )
     .bind(*event_id)
     .bind(&normalized_name)
     .bind(item_kind.as_str())
+    .bind(item_category.as_str())
     .fetch_optional(&mut *tx)
     .await
     .map_err(|_| server_error());
@@ -1705,8 +1786,8 @@ pub async fn create_custom_event_item(
         };
 
         match sqlx::query_scalar::<_, i64>(
-            "INSERT INTO items (type_id, name_item, max_quantity, unit_label, item_kind)
-             VALUES ($1, $2, $3, $4, $5)
+            "INSERT INTO items (type_id, name_item, max_quantity, unit_label, item_kind, item_category)
+             VALUES ($1, $2, $3, $4, $5, $6)
              RETURNING item_id",
         )
         .bind(default_type_id)
@@ -1714,6 +1795,7 @@ pub async fn create_custom_event_item(
         .bind(max_quantity)
         .bind(unit_label.as_str())
         .bind(item_kind.as_str())
+        .bind(item_category.as_str())
         .fetch_one(&mut *tx)
         .await
         {
@@ -2858,6 +2940,7 @@ async fn fetch_event_item_view(
                 ei.quantity AS reserved_quantity,
                 i.unit_label,
                 i.item_kind,
+                i.item_category,
                 cu.email AS created_by_email,
                 cu.handle AS created_by_handle,
                 cu.avatar_url AS created_by_avatar_url

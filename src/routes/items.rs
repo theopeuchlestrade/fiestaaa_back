@@ -39,6 +39,23 @@ fn invalid_item_kind() -> HttpResponse {
     })
 }
 
+fn normalize_item_category(value: &str) -> Option<String> {
+    let normalized = value.trim().to_lowercase();
+    match normalized.as_str() {
+        "soft" | "alcool" | "sale" | "sucre" | "autre" => Some(normalized),
+        _ => None,
+    }
+}
+
+fn invalid_item_category() -> HttpResponse {
+    HttpResponse::BadRequest().json(ErrorResponse {
+        error: "invalid_payload".into(),
+        details: Some(
+            "item_category doit être 'soft', 'alcool', 'sale', 'sucre' ou 'autre'".into(),
+        ),
+    })
+}
+
 #[utoipa::path(
     get,
     path = "/items",
@@ -51,7 +68,7 @@ fn invalid_item_kind() -> HttpResponse {
 #[get("/items")]
 pub async fn list_items(state: web::Data<AppState>) -> impl Responder {
     let res = sqlx::query_as::<_, Item>(
-        "SELECT item_id, type_id, name_item, max_quantity, unit_label, item_kind
+        "SELECT item_id, type_id, name_item, max_quantity, unit_label, item_kind, item_category
          FROM items
          ORDER BY item_id",
     )
@@ -96,6 +113,7 @@ pub async fn create_item(
         max_quantity,
         unit_label,
         item_kind,
+        item_category,
     } = payload;
 
     if name_item.trim().is_empty() || max_quantity <= 0 || unit_label.trim().is_empty() {
@@ -113,16 +131,25 @@ pub async fn create_item(
         None => "need".to_string(),
     };
 
+    let item_category = match item_category {
+        Some(raw) => match normalize_item_category(&raw) {
+            Some(value) => value,
+            None => return invalid_item_category(),
+        },
+        None => "autre".to_string(),
+    };
+
     let res = sqlx::query_as::<_, Item>(
-        "INSERT INTO items (type_id, name_item, max_quantity, unit_label, item_kind)
-         VALUES ($1, $2, $3, $4, $5)
-         RETURNING item_id, type_id, name_item, max_quantity, unit_label, item_kind",
+        "INSERT INTO items (type_id, name_item, max_quantity, unit_label, item_kind, item_category)
+         VALUES ($1, $2, $3, $4, $5, $6)
+         RETURNING item_id, type_id, name_item, max_quantity, unit_label, item_kind, item_category",
     )
     .bind(type_id)
     .bind(name_item.trim())
     .bind(max_quantity)
     .bind(unit_label.trim())
     .bind(item_kind)
+    .bind(item_category)
     .fetch_one(&state.db)
     .await;
 
@@ -175,6 +202,7 @@ pub async fn replace_item(
         max_quantity,
         unit_label,
         item_kind,
+        item_category,
     } = payload;
 
     if name_item.trim().is_empty() || max_quantity <= 0 || unit_label.trim().is_empty() {
@@ -192,11 +220,21 @@ pub async fn replace_item(
         None => None,
     };
 
-    let previous_kind = if item_kind.is_some() {
-        match sqlx::query_scalar::<_, String>("SELECT item_kind FROM items WHERE item_id = $1")
-            .bind(*item_id)
-            .fetch_optional(&state.db)
-            .await
+    let item_category = match item_category {
+        Some(raw) => match normalize_item_category(&raw) {
+            Some(value) => Some(value),
+            None => return invalid_item_category(),
+        },
+        None => None,
+    };
+
+    let previous_values = if item_kind.is_some() || item_category.is_some() {
+        match sqlx::query_as::<_, (String, String)>(
+            "SELECT item_kind, item_category FROM items WHERE item_id = $1",
+        )
+        .bind(*item_id)
+        .fetch_optional(&state.db)
+        .await
         {
             Ok(Some(value)) => Some(value),
             Ok(None) => {
@@ -222,28 +260,36 @@ pub async fn replace_item(
              name_item = $2,
              max_quantity = $3,
              unit_label = $4,
-             item_kind = COALESCE($5, item_kind)
-         WHERE item_id = $6
-         RETURNING item_id, type_id, name_item, max_quantity, unit_label, item_kind",
+             item_kind = COALESCE($5, item_kind),
+             item_category = COALESCE($6, item_category)
+         WHERE item_id = $7
+         RETURNING item_id, type_id, name_item, max_quantity, unit_label, item_kind, item_category",
     )
     .bind(type_id)
     .bind(name_item.trim())
     .bind(max_quantity)
     .bind(unit_label.trim())
     .bind(item_kind.as_deref())
+    .bind(item_category.as_deref())
     .bind(*item_id)
     .fetch_optional(&state.db)
     .await;
 
     match res {
         Ok(Some(item)) => {
-            if let Some(previous) = previous_kind
-                && previous != item.item_kind
-            {
-                info!(
-                    "item_kind_changed item_id={} from={} to={}",
-                    item.item_id, previous, item.item_kind
-                );
+            if let Some((previous_kind, previous_category)) = previous_values {
+                if previous_kind != item.item_kind {
+                    info!(
+                        "item_kind_changed item_id={} from={} to={}",
+                        item.item_id, previous_kind, item.item_kind
+                    );
+                }
+                if previous_category != item.item_category {
+                    info!(
+                        "item_category_changed item_id={} from={} to={}",
+                        item.item_id, previous_category, item.item_category
+                    );
+                }
             }
             HttpResponse::Ok().json(item)
         }
@@ -298,6 +344,7 @@ pub async fn update_item(
         max_quantity,
         unit_label,
         item_kind,
+        item_category,
     } = payload;
 
     if name_item.as_ref().is_some_and(|v| v.trim().is_empty()) {
@@ -327,11 +374,21 @@ pub async fn update_item(
         None => None,
     };
 
-    let previous_kind = if item_kind.is_some() {
-        match sqlx::query_scalar::<_, String>("SELECT item_kind FROM items WHERE item_id = $1")
-            .bind(*item_id)
-            .fetch_optional(&state.db)
-            .await
+    let item_category = match item_category {
+        Some(raw) => match normalize_item_category(&raw) {
+            Some(value) => Some(value),
+            None => return invalid_item_category(),
+        },
+        None => None,
+    };
+
+    let previous_values = if item_kind.is_some() || item_category.is_some() {
+        match sqlx::query_as::<_, (String, String)>(
+            "SELECT item_kind, item_category FROM items WHERE item_id = $1",
+        )
+        .bind(*item_id)
+        .fetch_optional(&state.db)
+        .await
         {
             Ok(Some(value)) => Some(value),
             Ok(None) => {
@@ -357,9 +414,10 @@ pub async fn update_item(
              name_item = COALESCE($2, name_item),
              max_quantity = COALESCE($3, max_quantity),
              unit_label = COALESCE($4, unit_label),
-             item_kind = COALESCE($5, item_kind)
-         WHERE item_id = $6
-         RETURNING item_id, type_id, name_item, max_quantity, unit_label, item_kind",
+             item_kind = COALESCE($5, item_kind),
+             item_category = COALESCE($6, item_category)
+         WHERE item_id = $7
+         RETURNING item_id, type_id, name_item, max_quantity, unit_label, item_kind, item_category",
     )
     .bind(type_id)
     .bind(
@@ -376,19 +434,26 @@ pub async fn update_item(
             .filter(|v| !v.is_empty()),
     )
     .bind(item_kind.as_deref())
+    .bind(item_category.as_deref())
     .bind(*item_id)
     .fetch_optional(&state.db)
     .await;
 
     match res {
         Ok(Some(item)) => {
-            if let Some(previous) = previous_kind
-                && previous != item.item_kind
-            {
-                info!(
-                    "item_kind_changed item_id={} from={} to={}",
-                    item.item_id, previous, item.item_kind
-                );
+            if let Some((previous_kind, previous_category)) = previous_values {
+                if previous_kind != item.item_kind {
+                    info!(
+                        "item_kind_changed item_id={} from={} to={}",
+                        item.item_id, previous_kind, item.item_kind
+                    );
+                }
+                if previous_category != item.item_category {
+                    info!(
+                        "item_category_changed item_id={} from={} to={}",
+                        item.item_id, previous_category, item.item_category
+                    );
+                }
             }
             HttpResponse::Ok().json(item)
         }
