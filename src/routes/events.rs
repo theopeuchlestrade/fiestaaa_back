@@ -42,6 +42,38 @@ fn invalid_item_kind_response() -> HttpResponse {
     })
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum EventItemsScope {
+    All,
+    Mine,
+    ToCover,
+    Completed,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct EventItemsQuery {
+    #[serde(default)]
+    pub scope: Option<String>,
+}
+
+fn normalize_event_items_scope(value: &str) -> Option<EventItemsScope> {
+    let normalized = value.trim().to_lowercase();
+    match normalized.as_str() {
+        "all" => Some(EventItemsScope::All),
+        "mine" => Some(EventItemsScope::Mine),
+        "to_cover" => Some(EventItemsScope::ToCover),
+        "completed" => Some(EventItemsScope::Completed),
+        _ => None,
+    }
+}
+
+fn invalid_items_scope_response() -> HttpResponse {
+    HttpResponse::BadRequest().json(ErrorResponse {
+        error: "invalid_payload".into(),
+        details: Some("scope doit être 'all', 'mine', 'to_cover' ou 'completed'".into()),
+    })
+}
+
 async fn fetch_event_owner_email(db: &PgPool, event_id: i64) -> Result<String, HttpResponse> {
     let owner =
         sqlx::query_scalar::<_, String>("SELECT owner_email FROM events WHERE event_id = $1")
@@ -1365,21 +1397,48 @@ pub async fn claim_share_link(
     tag = "events",
     responses(
         (status = 200, description = "Items configurés pour l'événement", body = [EventItemView]),
+        (status = 400, description = "Scope invalide", body = ErrorResponse),
+        (status = 401, description = "Authentification requise pour scope=mine", body = ErrorResponse),
         (status = 404, description = "Événement introuvable", body = ErrorResponse),
         (status = 500, description = "Erreur base de données", body = ErrorResponse)
     ),
     params(
-        ("event_id" = i64, Path, description = "Identifiant de l'événement")
+        ("event_id" = i64, Path, description = "Identifiant de l'événement"),
+        ("scope" = Option<String>, Query, description = "Filtre: all, mine, to_cover, completed")
     )
 )]
 #[get("/events/{event_id}/items")]
 pub async fn list_event_items(
     state: web::Data<AppState>,
+    req: HttpRequest,
     event_id: web::Path<i64>,
+    query: web::Query<EventItemsQuery>,
 ) -> impl Responder {
+    let scope = match query.scope.as_deref() {
+        Some(raw) => match normalize_event_items_scope(raw) {
+            Some(value) => value,
+            None => return invalid_items_scope_response(),
+        },
+        None => EventItemsScope::All,
+    };
+
     if let Err(resp) = ensure_event_exists(&state.db, *event_id).await {
         return resp;
     }
+
+    let mine_user = if scope == EventItemsScope::Mine {
+        let email = match claims_email(&req, state.get_ref()) {
+            Ok(value) => value,
+            Err(resp) => return resp,
+        };
+        let user_id = match fetch_user_id(&state.db, &email).await {
+            Ok(value) => value,
+            Err(resp) => return resp,
+        };
+        Some((email, user_id))
+    } else {
+        None
+    };
 
     let result = sqlx::query_as::<_, EventItemView>(
         "SELECT ei.event_id,
@@ -1406,7 +1465,44 @@ pub async fn list_event_items(
     .await;
 
     match result {
-        Ok(items) => HttpResponse::Ok().json(items),
+        Ok(mut items) => {
+            if let Some((mine_email, mine_user_id)) = mine_user {
+                let contributed_ids = match sqlx::query_scalar::<_, i64>(
+                    "SELECT item_id FROM user_items WHERE event_id = $1 AND user_id = $2",
+                )
+                .bind(*event_id)
+                .bind(mine_user_id)
+                .fetch_all(&state.db)
+                .await
+                {
+                    Ok(ids) => ids.into_iter().collect::<HashSet<_>>(),
+                    Err(_) => return server_error(),
+                };
+
+                items.retain(|item| {
+                    item.created_by_email
+                        .as_ref()
+                        .is_some_and(|email| email.eq_ignore_ascii_case(&mine_email))
+                        || contributed_ids.contains(&item.item_id)
+                });
+            }
+
+            match scope {
+                EventItemsScope::All | EventItemsScope::Mine => {}
+                EventItemsScope::ToCover => {
+                    items.retain(|item| {
+                        item.item_kind == "need" && item.reserved_quantity < item.max_quantity
+                    });
+                }
+                EventItemsScope::Completed => {
+                    items.retain(|item| {
+                        item.item_kind == "need" && item.reserved_quantity >= item.max_quantity
+                    });
+                }
+            }
+
+            HttpResponse::Ok().json(items)
+        }
         Err(_) => server_error(),
     }
 }

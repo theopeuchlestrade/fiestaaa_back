@@ -12,6 +12,7 @@ use fiestaaa_back::{
     },
     routes,
 };
+use serde_json::Value;
 use sqlx::PgPool;
 
 fn admin_token(secret: &str, email: &str) -> Option<String> {
@@ -56,6 +57,34 @@ async fn seed_item(
     .bind(type_id)
     .bind(item_name)
     .bind(max_quantity)
+    .fetch_one(pool)
+    .await
+}
+
+async fn seed_item_with_kind(
+    pool: &PgPool,
+    type_name: &str,
+    item_name: &str,
+    max_quantity: i32,
+    unit_label: &str,
+    item_kind: &str,
+) -> sqlx::Result<i64> {
+    let type_id =
+        sqlx::query_scalar::<_, i64>("INSERT INTO item_types (type) VALUES ($1) RETURNING type_id")
+            .bind(type_name)
+            .fetch_one(pool)
+            .await?;
+
+    sqlx::query_scalar::<_, i64>(
+        "INSERT INTO items (type_id, name_item, max_quantity, unit_label, item_kind)
+         VALUES ($1, $2, $3, $4, $5)
+         RETURNING item_id",
+    )
+    .bind(type_id)
+    .bind(item_name)
+    .bind(max_quantity)
+    .bind(unit_label)
+    .bind(item_kind)
     .fetch_one(pool)
     .await
 }
@@ -786,6 +815,194 @@ async fn event_items_reservation_flow() -> Result<(), Box<dyn Error>> {
         .find(|item| item.item_id == item_id)
         .expect("event item exists");
     assert_eq!(punch.reserved_quantity, 3);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn event_items_scope_filters() -> Result<(), Box<dyn Error>> {
+    let Some(pool) = obtain_pool().await else {
+        eprintln!("Skipping events tests: DATABASE_URL or TEST_DATABASE_URL not set");
+        return Ok(());
+    };
+    let _guard = DB_LOCK.lock().await;
+    reset_tables(
+        &pool,
+        &[
+            "events",
+            "payment_providers",
+            "item_types",
+            "items",
+            "events_items",
+            "user_items",
+            "users",
+        ],
+    )
+    .await?;
+
+    let secret = "secret";
+    let admin_email = "admin@example.com";
+    let state = build_state(pool.clone(), secret, &[admin_email]);
+    let app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
+    let admin_token_value = admin_token(secret, admin_email).expect("token");
+
+    let resp = test::call_service(
+        &app,
+        test::TestRequest::post()
+            .uri("/events")
+            .insert_header((
+                "Authorization",
+                format!("Bearer {}", admin_token_value.clone()),
+            ))
+            .set_json(&EventPayload {
+                name_event: "Scope Party".to_string(),
+                description: "Scope filters".to_string(),
+                date_event: NaiveDate::from_ymd_opt(2024, 8, 1).unwrap(),
+                start_time: NaiveTime::from_hms_opt(18, 30, 0).unwrap(),
+                invitation_deadline: None,
+                address: "Club House".to_string(),
+                latitude: None,
+                longitude: None,
+                payment_provider_id: None,
+                payment_identifier: None,
+                payment_requested_amount: None,
+                payment_per_person: None,
+                playlist_url: None,
+                playlist_provider: None,
+            })
+            .to_request(),
+    )
+    .await;
+    assert_eq!(resp.status(), StatusCode::CREATED);
+    let event: Event = test::read_body_json(resp).await;
+
+    let owner_id = seed_user(&pool, admin_email).await?;
+    let user_email = "alice@example.com";
+    let user_id = seed_user(&pool, user_email).await?;
+    let user_token = admin_token(secret, user_email).expect("token");
+
+    let need_open_item =
+        seed_item_with_kind(&pool, "ScopeNeedOpen", "Glacons", 5, "pieces", "need").await?;
+    let need_completed_item =
+        seed_item_with_kind(&pool, "ScopeNeedDone", "Sodas", 3, "pieces", "need").await?;
+    let bring_item =
+        seed_item_with_kind(&pool, "ScopeBring", "Chips", 1, "sac", "bring").await?;
+
+    sqlx::query(
+        "INSERT INTO events_items (event_id, item_id, max_quantity, quantity, created_by)
+         VALUES ($1, $2, $3, $4, $5)",
+    )
+    .bind(event.event_id)
+    .bind(need_open_item)
+    .bind(5)
+    .bind(2)
+    .bind(owner_id)
+    .execute(&pool)
+    .await?;
+
+    sqlx::query(
+        "INSERT INTO events_items (event_id, item_id, max_quantity, quantity, created_by)
+         VALUES ($1, $2, $3, $4, $5)",
+    )
+    .bind(event.event_id)
+    .bind(need_completed_item)
+    .bind(3)
+    .bind(3)
+    .bind(owner_id)
+    .execute(&pool)
+    .await?;
+
+    sqlx::query(
+        "INSERT INTO events_items (event_id, item_id, max_quantity, quantity, created_by)
+         VALUES ($1, $2, $3, $4, $5)",
+    )
+    .bind(event.event_id)
+    .bind(bring_item)
+    .bind(1)
+    .bind(0)
+    .bind(user_id)
+    .execute(&pool)
+    .await?;
+
+    sqlx::query(
+        "INSERT INTO user_items (user_id, event_id, item_id, quantity)
+         VALUES ($1, $2, $3, $4)",
+    )
+    .bind(user_id)
+    .bind(event.event_id)
+    .bind(need_open_item)
+    .bind(2)
+    .execute(&pool)
+    .await?;
+
+    let all_resp = test::call_service(
+        &app,
+        test::TestRequest::get()
+            .uri(&format!("/events/{}/items?scope=all", event.event_id))
+            .to_request(),
+    )
+    .await;
+    assert_eq!(all_resp.status(), StatusCode::OK);
+    let all_items: Vec<EventItemView> = test::read_body_json(all_resp).await;
+    assert_eq!(all_items.len(), 3);
+
+    let to_cover_resp = test::call_service(
+        &app,
+        test::TestRequest::get()
+            .uri(&format!("/events/{}/items?scope=to_cover", event.event_id))
+            .to_request(),
+    )
+    .await;
+    assert_eq!(to_cover_resp.status(), StatusCode::OK);
+    let to_cover_items: Vec<EventItemView> = test::read_body_json(to_cover_resp).await;
+    assert_eq!(to_cover_items.len(), 1);
+    assert_eq!(to_cover_items[0].item_id, need_open_item);
+
+    let completed_resp = test::call_service(
+        &app,
+        test::TestRequest::get()
+            .uri(&format!("/events/{}/items?scope=completed", event.event_id))
+            .to_request(),
+    )
+    .await;
+    assert_eq!(completed_resp.status(), StatusCode::OK);
+    let completed_items: Vec<EventItemView> = test::read_body_json(completed_resp).await;
+    assert_eq!(completed_items.len(), 1);
+    assert_eq!(completed_items[0].item_id, need_completed_item);
+
+    let mine_unauthorized = test::call_service(
+        &app,
+        test::TestRequest::get()
+            .uri(&format!("/events/{}/items?scope=mine", event.event_id))
+            .to_request(),
+    )
+    .await;
+    assert_eq!(mine_unauthorized.status(), StatusCode::UNAUTHORIZED);
+
+    let mine_resp = test::call_service(
+        &app,
+        test::TestRequest::get()
+            .uri(&format!("/events/{}/items?scope=mine", event.event_id))
+            .insert_header(("Authorization", format!("Bearer {}", user_token)))
+            .to_request(),
+    )
+    .await;
+    assert_eq!(mine_resp.status(), StatusCode::OK);
+    let mine_items: Vec<EventItemView> = test::read_body_json(mine_resp).await;
+    assert_eq!(mine_items.len(), 2);
+    assert!(mine_items.iter().any(|item| item.item_id == need_open_item));
+    assert!(mine_items.iter().any(|item| item.item_id == bring_item));
+
+    let invalid_scope_resp = test::call_service(
+        &app,
+        test::TestRequest::get()
+            .uri(&format!("/events/{}/items?scope=unknown", event.event_id))
+            .to_request(),
+    )
+    .await;
+    assert_eq!(invalid_scope_resp.status(), StatusCode::BAD_REQUEST);
+    let invalid_body: Value = test::read_body_json(invalid_scope_resp).await;
+    assert_eq!(invalid_body["error"], "invalid_payload");
 
     Ok(())
 }
