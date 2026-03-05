@@ -122,6 +122,8 @@ pub struct Event {
     pub payment_per_person: bool,
     pub playlist_url: Option<String>,
     pub playlist_provider: Option<String>,
+    #[serde(default)]
+    pub enabled_features: Vec<String>,
     pub owner_email: String,
 }
 
@@ -141,6 +143,7 @@ pub struct EventPayload {
     pub payment_per_person: Option<bool>,
     pub playlist_url: Option<String>,
     pub playlist_provider: Option<String>,
+    pub enabled_features: Option<Vec<String>>,
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
@@ -159,6 +162,7 @@ pub struct EventPatchPayload {
     pub payment_per_person: Option<bool>,
     pub playlist_url: Option<Option<String>>,
     pub playlist_provider: Option<Option<String>>,
+    pub enabled_features: Option<Vec<String>>,
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema, FromRow)]
