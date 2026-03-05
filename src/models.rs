@@ -501,3 +501,56 @@ pub struct CarpoolLeaveResponse {
     pub seats_total: i32,
     pub message: String,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{InvitationPayload, LoginPayload, OAuthPayload};
+
+    #[test]
+    fn login_payload_accepts_email_and_handle_aliases() {
+        let email_payload: LoginPayload = serde_json::from_value(serde_json::json!({
+            "email": "user@example.com",
+            "password": "secret"
+        }))
+        .expect("email payload");
+        assert_eq!(email_payload.identifier, "user@example.com");
+
+        let handle_payload: LoginPayload = serde_json::from_value(serde_json::json!({
+            "handle": "party_handle",
+            "password": "secret"
+        }))
+        .expect("handle payload");
+        assert_eq!(handle_payload.identifier, "party_handle");
+    }
+
+    #[test]
+    fn invitation_payload_accepts_email_and_handle_aliases() {
+        let email_payload: InvitationPayload = serde_json::from_value(serde_json::json!({
+            "email": "guest@example.com"
+        }))
+        .expect("email payload");
+        assert_eq!(email_payload.identifier, "guest@example.com");
+
+        let handle_payload: InvitationPayload = serde_json::from_value(serde_json::json!({
+            "handle": "guest_handle"
+        }))
+        .expect("handle payload");
+        assert_eq!(handle_payload.identifier, "guest_handle");
+    }
+
+    #[test]
+    fn oauth_payload_accepts_snake_case_and_camel_case_tokens() {
+        let payload: OAuthPayload = serde_json::from_value(serde_json::json!({
+            "id_token": "id-token",
+            "accessToken": "access-token",
+            "email": "user@example.com",
+            "name": "User"
+        }))
+        .expect("oauth payload");
+
+        assert_eq!(payload.id_token.as_deref(), Some("id-token"));
+        assert_eq!(payload.access_token.as_deref(), Some("access-token"));
+        assert_eq!(payload.email.as_deref(), Some("user@example.com"));
+        assert_eq!(payload.name.as_deref(), Some("User"));
+    }
+}
