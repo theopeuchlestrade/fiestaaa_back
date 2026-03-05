@@ -900,8 +900,7 @@ async fn event_items_scope_filters() -> Result<(), Box<dyn Error>> {
         seed_item_with_kind(&pool, "ScopeNeedOpen", "Glacons", 5, "pieces", "need").await?;
     let need_completed_item =
         seed_item_with_kind(&pool, "ScopeNeedDone", "Sodas", 3, "pieces", "need").await?;
-    let bring_item =
-        seed_item_with_kind(&pool, "ScopeBring", "Chips", 1, "sac", "bring").await?;
+    let bring_item = seed_item_with_kind(&pool, "ScopeBring", "Chips", 1, "sac", "bring").await?;
 
     sqlx::query(
         "INSERT INTO events_items (event_id, item_id, max_quantity, quantity, created_by)
