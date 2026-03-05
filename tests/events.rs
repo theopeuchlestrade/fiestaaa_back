@@ -139,6 +139,7 @@ async fn create_event_requires_authentication() -> Result<(), Box<dyn Error>> {
         test::TestRequest::post()
             .uri("/events")
             .set_json(&EventPayload {
+                enabled_features: None,
                 name_event: "Summer Party".to_string(),
                 description: "The best party of the summer".to_string(),
                 date_event: NaiveDate::from_ymd_opt(2024, 7, 1).unwrap(),
@@ -183,6 +184,7 @@ async fn create_event_allows_authenticated_user() -> Result<(), Box<dyn Error>> 
             .uri("/events")
             .insert_header(("Authorization", format!("Bearer {}", token)))
             .set_json(&EventPayload {
+                enabled_features: None,
                 name_event: "Summer Party".to_string(),
                 description: "The best party of the summer".to_string(),
                 date_event: NaiveDate::from_ymd_opt(2024, 7, 1).unwrap(),
@@ -230,6 +232,7 @@ async fn events_crud_flow() -> Result<(), Box<dyn Error>> {
             .uri("/events")
             .insert_header(("Authorization", format!("Bearer {}", token.clone())))
             .set_json(&EventPayload {
+                enabled_features: None,
                 name_event: "Summer Party".to_string(),
                 description: "The best party of the summer".to_string(),
                 date_event: NaiveDate::from_ymd_opt(2024, 7, 1).unwrap(),
@@ -269,6 +272,7 @@ async fn events_crud_flow() -> Result<(), Box<dyn Error>> {
             .uri(&format!("/events/{}", created.event_id))
             .insert_header(("Authorization", format!("Bearer {}", token.clone())))
             .set_json(&EventPayload {
+                enabled_features: None,
                 name_event: "Mega Summer Party".to_string(),
                 description: "The BIGGEST party of the summer".to_string(),
                 date_event: NaiveDate::from_ymd_opt(2024, 7, 2).unwrap(),
@@ -300,6 +304,7 @@ async fn events_crud_flow() -> Result<(), Box<dyn Error>> {
             .uri(&format!("/events/{}", created.event_id))
             .insert_header(("Authorization", format!("Bearer {}", token.clone())))
             .set_json(&EventPatchPayload {
+                enabled_features: None,
                 name_event: Some("Super Mega Summer Party".to_string()),
                 description: None,
                 date_event: None,
@@ -371,6 +376,7 @@ async fn update_event_playlist_requires_creator_or_admin() -> Result<(), Box<dyn
             .uri("/events")
             .insert_header(("Authorization", format!("Bearer {}", creator_token.clone())))
             .set_json(&EventPayload {
+                enabled_features: None,
                 name_event: "Playlist Party".to_string(),
                 description: "Music matters".to_string(),
                 date_event: NaiveDate::from_ymd_opt(2024, 7, 10).unwrap(),
@@ -398,6 +404,7 @@ async fn update_event_playlist_requires_creator_or_admin() -> Result<(), Box<dyn
             .uri(&format!("/events/{}", created.event_id))
             .insert_header(("Authorization", format!("Bearer {}", other_token)))
             .set_json(&EventPatchPayload {
+                enabled_features: None,
                 name_event: None,
                 description: None,
                 date_event: None,
@@ -443,6 +450,7 @@ async fn update_event_playlist_requires_valid_provider() -> Result<(), Box<dyn E
             .uri("/events")
             .insert_header(("Authorization", format!("Bearer {}", token.clone())))
             .set_json(&EventPayload {
+                enabled_features: None,
                 name_event: "Playlist Party".to_string(),
                 description: "Music matters".to_string(),
                 date_event: NaiveDate::from_ymd_opt(2024, 7, 10).unwrap(),
@@ -470,6 +478,7 @@ async fn update_event_playlist_requires_valid_provider() -> Result<(), Box<dyn E
             .uri(&format!("/events/{}", created.event_id))
             .insert_header(("Authorization", format!("Bearer {}", token)))
             .set_json(&EventPatchPayload {
+                enabled_features: None,
                 name_event: None,
                 description: None,
                 date_event: None,
@@ -515,6 +524,7 @@ async fn update_event_playlist_requires_valid_url() -> Result<(), Box<dyn Error>
             .uri("/events")
             .insert_header(("Authorization", format!("Bearer {}", token.clone())))
             .set_json(&EventPayload {
+                enabled_features: None,
                 name_event: "Playlist Party".to_string(),
                 description: "Music matters".to_string(),
                 date_event: NaiveDate::from_ymd_opt(2024, 7, 10).unwrap(),
@@ -542,6 +552,7 @@ async fn update_event_playlist_requires_valid_url() -> Result<(), Box<dyn Error>
             .uri(&format!("/events/{}", created.event_id))
             .insert_header(("Authorization", format!("Bearer {}", token)))
             .set_json(&EventPatchPayload {
+                enabled_features: None,
                 name_event: None,
                 description: None,
                 date_event: None,
@@ -587,6 +598,7 @@ async fn update_event_playlist_can_clear_fields() -> Result<(), Box<dyn Error>> 
             .uri("/events")
             .insert_header(("Authorization", format!("Bearer {}", token.clone())))
             .set_json(&EventPayload {
+                enabled_features: None,
                 name_event: "Playlist Party".to_string(),
                 description: "Music matters".to_string(),
                 date_event: NaiveDate::from_ymd_opt(2024, 7, 10).unwrap(),
@@ -615,6 +627,7 @@ async fn update_event_playlist_can_clear_fields() -> Result<(), Box<dyn Error>> 
             .uri(&format!("/events/{}", created.event_id))
             .insert_header(("Authorization", format!("Bearer {}", token)))
             .set_json(&EventPatchPayload {
+                enabled_features: None,
                 name_event: None,
                 description: None,
                 date_event: None,
@@ -677,6 +690,7 @@ async fn event_items_reservation_flow() -> Result<(), Box<dyn Error>> {
                 format!("Bearer {}", admin_token_value.clone()),
             ))
             .set_json(&EventPayload {
+                enabled_features: None,
                 name_event: "Tasting Night".to_string(),
                 description: "Bring your best drinks".to_string(),
                 date_event: NaiveDate::from_ymd_opt(2024, 8, 1).unwrap(),
@@ -855,6 +869,7 @@ async fn event_items_scope_filters() -> Result<(), Box<dyn Error>> {
                 format!("Bearer {}", admin_token_value.clone()),
             ))
             .set_json(&EventPayload {
+                enabled_features: None,
                 name_event: "Scope Party".to_string(),
                 description: "Scope filters".to_string(),
                 date_event: NaiveDate::from_ymd_opt(2024, 8, 1).unwrap(),
@@ -1029,6 +1044,7 @@ async fn create_event_rejects_unknown_payment_provider() -> Result<(), Box<dyn E
             .uri("/events")
             .insert_header(("Authorization", format!("Bearer {}", token)))
             .set_json(&EventPayload {
+                enabled_features: None,
                 name_event: "Summer Party".to_string(),
                 description: "The best party of the summer".to_string(),
                 date_event: NaiveDate::from_ymd_opt(2024, 7, 1).unwrap(),
@@ -1075,6 +1091,7 @@ async fn event_validates_empty_fields() -> Result<(), Box<dyn Error>> {
             .uri("/events")
             .insert_header(("Authorization", format!("Bearer {}", token.clone())))
             .set_json(&EventPayload {
+                enabled_features: None,
                 name_event: "".to_string(),
                 description: "Description".to_string(),
                 date_event: NaiveDate::from_ymd_opt(2024, 7, 1).unwrap(),
@@ -1102,6 +1119,7 @@ async fn event_validates_empty_fields() -> Result<(), Box<dyn Error>> {
             .uri("/events")
             .insert_header(("Authorization", format!("Bearer {}", token.clone())))
             .set_json(&EventPayload {
+                enabled_features: None,
                 name_event: "Event".to_string(),
                 description: "".to_string(),
                 date_event: NaiveDate::from_ymd_opt(2024, 7, 1).unwrap(),
@@ -1129,6 +1147,7 @@ async fn event_validates_empty_fields() -> Result<(), Box<dyn Error>> {
             .uri("/events")
             .insert_header(("Authorization", format!("Bearer {}", token)))
             .set_json(&EventPayload {
+                enabled_features: None,
                 name_event: "Event".to_string(),
                 description: "Description".to_string(),
                 date_event: NaiveDate::from_ymd_opt(2024, 7, 1).unwrap(),

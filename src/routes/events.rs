@@ -221,6 +221,109 @@ fn validate_invitation_deadline(
 const PLAYLIST_SPOTIFY_REGEX: &str = r"^https?://open\.spotify\.com/.+$";
 const PLAYLIST_APPLE_REGEX: &str = r"^https?://music\.apple\.com/.+$";
 const PLAYLIST_DEEZER_REGEX: &str = r"^https?://(www\.)?deezer\.com/.+$";
+const FEATURE_CARPOOLS: &str = "carpools";
+const FEATURE_POLLS: &str = "polls";
+const FEATURE_ITEMS: &str = "items";
+const FEATURE_PLAYLIST: &str = "playlist";
+const FEATURE_PAYMENT: &str = "payment";
+const DEFAULT_EVENT_FEATURES: [&str; 3] = [FEATURE_CARPOOLS, FEATURE_POLLS, FEATURE_ITEMS];
+const ALLOWED_EVENT_FEATURES: [&str; 5] = [
+    FEATURE_CARPOOLS,
+    FEATURE_POLLS,
+    FEATURE_ITEMS,
+    FEATURE_PLAYLIST,
+    FEATURE_PAYMENT,
+];
+
+fn default_enabled_features() -> Vec<String> {
+    DEFAULT_EVENT_FEATURES
+        .iter()
+        .map(|feature| (*feature).to_string())
+        .collect()
+}
+
+fn append_feature(features: &mut Vec<String>, feature: &str) {
+    if !features.iter().any(|value| value == feature) {
+        features.push(feature.to_string());
+    }
+}
+
+fn normalize_enabled_features(features: Vec<String>) -> Result<Vec<String>, HttpResponse> {
+    let mut seen = HashSet::new();
+    let mut normalized = Vec::new();
+
+    for feature in features {
+        let value = feature.trim().to_lowercase();
+        if value.is_empty() {
+            continue;
+        }
+        if !ALLOWED_EVENT_FEATURES.contains(&value.as_str()) {
+            return Err(HttpResponse::BadRequest().json(ErrorResponse {
+                error: "invalid_enabled_features".into(),
+                details: Some(format!(
+                    "Feature invalide: '{value}'. Valeurs autorisées: {}",
+                    ALLOWED_EVENT_FEATURES.join(", ")
+                )),
+            }));
+        }
+        if seen.insert(value.clone()) {
+            normalized.push(value);
+        }
+    }
+
+    Ok(normalized)
+}
+
+fn has_playlist_metadata(provider: Option<&str>, url: Option<&str>) -> bool {
+    provider.is_some_and(|value| !value.trim().is_empty())
+        && url.is_some_and(|value| !value.trim().is_empty())
+}
+
+fn has_payment_metadata(provider_id: Option<i32>, identifier: Option<&str>) -> bool {
+    provider_id.is_some() && identifier.is_some_and(|value| !value.trim().is_empty())
+}
+
+fn resolve_enabled_features(
+    requested: Option<Vec<String>>,
+    payment_provider_id: Option<i32>,
+    payment_identifier: Option<&str>,
+    playlist_provider: Option<&str>,
+    playlist_url: Option<&str>,
+) -> Result<Vec<String>, HttpResponse> {
+    let features = if let Some(requested_features) = requested {
+        normalize_enabled_features(requested_features)?
+    } else {
+        let mut inferred = default_enabled_features();
+        if has_playlist_metadata(playlist_provider, playlist_url) {
+            append_feature(&mut inferred, FEATURE_PLAYLIST);
+        }
+        if has_payment_metadata(payment_provider_id, payment_identifier) {
+            append_feature(&mut inferred, FEATURE_PAYMENT);
+        }
+        inferred
+    };
+
+    if features.iter().any(|value| value == FEATURE_PLAYLIST)
+        && !has_playlist_metadata(playlist_provider, playlist_url)
+    {
+        return Err(HttpResponse::BadRequest().json(ErrorResponse {
+            error: "invalid_enabled_features".into(),
+            details: Some("playlist nécessite playlist_provider et playlist_url renseignés".into()),
+        }));
+    }
+    if features.iter().any(|value| value == FEATURE_PAYMENT)
+        && !has_payment_metadata(payment_provider_id, payment_identifier)
+    {
+        return Err(HttpResponse::BadRequest().json(ErrorResponse {
+            error: "invalid_enabled_features".into(),
+            details: Some(
+                "payment nécessite payment_provider_id et payment_identifier renseignés".into(),
+            ),
+        }));
+    }
+
+    Ok(features)
+}
 
 fn normalize_playlist_payload(
     provider: Option<String>,
@@ -510,6 +613,7 @@ pub async fn get_event(
                 payment_per_person,
                 playlist_url,
                 playlist_provider,
+                enabled_features,
                 owner_email
          FROM events
          WHERE event_id = $1",
@@ -563,6 +667,7 @@ pub async fn list_events(state: web::Data<AppState>, req: HttpRequest) -> impl R
                 e.payment_per_person,
                 e.playlist_url,
                 e.playlist_provider,
+                e.enabled_features,
                 e.owner_email
          FROM events e
          WHERE lower(e.owner_email) = lower($1)
@@ -660,11 +765,21 @@ pub async fn create_event(
         Ok(values) => values,
         Err(resp) => return resp,
     };
+    let enabled_features = match resolve_enabled_features(
+        payload.enabled_features,
+        payment_provider_id,
+        payment_identifier.as_deref(),
+        playlist_provider.as_deref(),
+        playlist_url.as_deref(),
+    ) {
+        Ok(values) => values,
+        Err(resp) => return resp,
+    };
 
     let res = sqlx::query_as::<_, Event>(
-        "INSERT INTO events (name_event, description, date_event, start_time, invitation_deadline, address, latitude, longitude, payment_provider_id, payment_identifier, payment_requested_amount, payment_per_person, playlist_url, playlist_provider, owner_email)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
-         RETURNING event_id, name_event, description, date_event, start_time, invitation_deadline, address, latitude, longitude, payment_provider_id, payment_identifier, payment_requested_amount, payment_per_person, playlist_url, playlist_provider, owner_email",
+        "INSERT INTO events (name_event, description, date_event, start_time, invitation_deadline, address, latitude, longitude, payment_provider_id, payment_identifier, payment_requested_amount, payment_per_person, playlist_url, playlist_provider, enabled_features, owner_email)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+         RETURNING event_id, name_event, description, date_event, start_time, invitation_deadline, address, latitude, longitude, payment_provider_id, payment_identifier, payment_requested_amount, payment_per_person, playlist_url, playlist_provider, enabled_features, owner_email",
     )
     .bind(payload.name_event.trim())
     .bind(payload.description.trim())
@@ -680,6 +795,7 @@ pub async fn create_event(
     .bind(payment_per_person)
     .bind(&playlist_url)
     .bind(&playlist_provider)
+    .bind(&enabled_features)
     .bind(owner_email)
     .fetch_one(&state.db)
     .await;
@@ -741,6 +857,7 @@ pub async fn replace_event(
     }
 
     let payload = payload.into_inner();
+    let enabled_features_requested = payload.enabled_features.is_some();
     let mut updated_fields = vec!["name", "description", "date", "time", "location"];
     if payload.name_event.trim().is_empty()
         || payload.description.trim().is_empty()
@@ -781,14 +898,27 @@ pub async fn replace_event(
     if playlist_provider.is_some() || playlist_url.is_some() {
         updated_fields.push("playlist");
     }
+    let enabled_features = match resolve_enabled_features(
+        payload.enabled_features,
+        payment_provider_id,
+        payment_identifier.as_deref(),
+        playlist_provider.as_deref(),
+        playlist_url.as_deref(),
+    ) {
+        Ok(values) => values,
+        Err(resp) => return resp,
+    };
+    if enabled_features_requested {
+        updated_fields.push("features");
+    }
 
     let res = sqlx::query_as::<_, Event>(
          "UPDATE events
           SET name_event = $1, description = $2, date_event = $3, start_time = $4, 
               invitation_deadline = $5, address = $6, latitude = $7, longitude = $8, payment_provider_id = $9, payment_identifier = $10,
-              payment_requested_amount = $11, payment_per_person = $12, playlist_url = $13, playlist_provider = $14
-          WHERE event_id = $15
-         RETURNING event_id, name_event, description, date_event, start_time, invitation_deadline, address, latitude, longitude, payment_provider_id, payment_identifier, payment_requested_amount, payment_per_person, playlist_url, playlist_provider, owner_email",
+              payment_requested_amount = $11, payment_per_person = $12, playlist_url = $13, playlist_provider = $14, enabled_features = $15
+          WHERE event_id = $16
+         RETURNING event_id, name_event, description, date_event, start_time, invitation_deadline, address, latitude, longitude, payment_provider_id, payment_identifier, payment_requested_amount, payment_per_person, playlist_url, playlist_provider, enabled_features, owner_email",
      )
     .bind(payload.name_event.trim())
     .bind(payload.description.trim())
@@ -804,6 +934,7 @@ pub async fn replace_event(
     .bind(payment_per_person)
     .bind(&playlist_url)
     .bind(&playlist_provider)
+    .bind(&enabled_features)
     .bind(*event_id)
     .fetch_optional(&state.db)
     .await;
@@ -908,6 +1039,9 @@ pub async fn update_event(
     if payload.playlist_url.is_some() || payload.playlist_provider.is_some() {
         updated_fields.push("playlist");
     }
+    if payload.enabled_features.is_some() {
+        updated_fields.push("features");
+    }
     if payload
         .name_event
         .as_ref()
@@ -943,6 +1077,7 @@ pub async fn update_event(
         current_invitation_deadline,
         current_playlist_provider,
         current_playlist_url,
+        current_enabled_features,
     ) = match fetch_event_payment_info(&state.db, *event_id).await {
         Ok(info) => info,
         Err(resp) => return resp,
@@ -1006,6 +1141,20 @@ pub async fn update_event(
             Err(resp) => return resp,
         }
     };
+    let enabled_features_input = payload
+        .enabled_features
+        .clone()
+        .unwrap_or(current_enabled_features);
+    let enabled_features = match resolve_enabled_features(
+        Some(enabled_features_input),
+        payment_provider_id,
+        payment_identifier.as_deref(),
+        playlist_provider.as_deref(),
+        playlist_url.as_deref(),
+    ) {
+        Ok(values) => values,
+        Err(resp) => return resp,
+    };
 
     let (invitation_deadline_set, invitation_deadline_value) = match invitation_deadline_update {
         Some(value) => (true, value),
@@ -1027,9 +1176,10 @@ pub async fn update_event(
              payment_requested_amount = COALESCE($12, payment_requested_amount),
              payment_per_person = $13,
              playlist_url = CASE WHEN $14 THEN $15 ELSE playlist_url END,
-             playlist_provider = CASE WHEN $16 THEN $17 ELSE playlist_provider END
-         WHERE event_id = $18
-         RETURNING event_id, name_event, description, date_event, start_time, invitation_deadline, address, latitude, longitude, payment_provider_id, payment_identifier, payment_requested_amount, payment_per_person, playlist_url, playlist_provider, owner_email",
+             playlist_provider = CASE WHEN $16 THEN $17 ELSE playlist_provider END,
+             enabled_features = $18
+         WHERE event_id = $19
+         RETURNING event_id, name_event, description, date_event, start_time, invitation_deadline, address, latitude, longitude, payment_provider_id, payment_identifier, payment_requested_amount, payment_per_person, playlist_url, playlist_provider, enabled_features, owner_email",
     )
     .bind(payload.name_event.as_ref().map(|v| v.trim()).filter(|v| !v.is_empty()))
     .bind(payload.description.as_ref().map(|v| v.trim()).filter(|v| !v.is_empty()))
@@ -1048,6 +1198,7 @@ pub async fn update_event(
     .bind(playlist_url)
     .bind(playlist_provider_set)
     .bind(playlist_provider)
+    .bind(&enabled_features)
     .bind(*event_id)
     .fetch_optional(&state.db)
     .await;
@@ -1298,7 +1449,7 @@ pub async fn claim_share_link(
     };
 
     let event = sqlx::query_as::<_, Event>(
-        "SELECT event_id, name_event, description, date_event, start_time, invitation_deadline, address, latitude, longitude, payment_provider_id, payment_identifier, payment_requested_amount, payment_per_person, playlist_url, playlist_provider, owner_email
+        "SELECT event_id, name_event, description, date_event, start_time, invitation_deadline, address, latitude, longitude, payment_provider_id, payment_identifier, payment_requested_amount, payment_per_person, playlist_url, playlist_provider, enabled_features, owner_email
          FROM events
          WHERE event_id = $1",
     )
@@ -2901,11 +3052,24 @@ async fn fetch_event_payment_info(
         Option<NaiveDate>,
         Option<String>,
         Option<String>,
+        Vec<String>,
     ),
     HttpResponse,
 > {
-    let row = sqlx::query_as::<_, (Option<i32>, Option<String>, bool, NaiveDate, Option<NaiveDate>, Option<String>, Option<String>)>(
-        "SELECT payment_provider_id, payment_identifier, payment_per_person, date_event, invitation_deadline, playlist_provider, playlist_url FROM events WHERE event_id = $1",
+    let row = sqlx::query_as::<
+        _,
+        (
+            Option<i32>,
+            Option<String>,
+            bool,
+            NaiveDate,
+            Option<NaiveDate>,
+            Option<String>,
+            Option<String>,
+            Vec<String>,
+        ),
+    >(
+        "SELECT payment_provider_id, payment_identifier, payment_per_person, date_event, invitation_deadline, playlist_provider, playlist_url, enabled_features FROM events WHERE event_id = $1",
     )
     .bind(event_id)
     .fetch_optional(db)
