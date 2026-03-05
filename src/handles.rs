@@ -137,3 +137,29 @@ fn pick_word(rng: &mut OsRng) -> &'static str {
     let idx = (rng.next_u64() as usize) % HANDLE_WORDS.len();
     HANDLE_WORDS[idx]
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{is_valid_handle, looks_like_email, normalize_handle};
+
+    #[test]
+    fn normalize_handle_trims_and_lowercases() {
+        let candidate = normalize_handle("  Fresh_Handle  ");
+        assert_eq!(candidate.normalized, "fresh_handle");
+    }
+
+    #[test]
+    fn is_valid_handle_accepts_supported_patterns_only() {
+        assert!(is_valid_handle("fresh.handle_42"));
+        assert!(!is_valid_handle("abc"));
+        assert!(!is_valid_handle("-starts-with-dash"));
+        assert!(!is_valid_handle("ends-with-dash-"));
+        assert!(!is_valid_handle("contains space"));
+    }
+
+    #[test]
+    fn looks_like_email_detects_at_sign() {
+        assert!(looks_like_email("user@example.com"));
+        assert!(!looks_like_email("plain_handle"));
+    }
+}
