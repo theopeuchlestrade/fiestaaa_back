@@ -166,3 +166,25 @@ pub fn extract_claims_from_auth(req: &HttpRequest, secret: &str) -> Result<Claim
     let token = &header_val[prefix.len()..];
     decode_jwt(token, secret)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{hash_password, validate_password_strength, verify_password};
+
+    #[test]
+    fn password_hash_round_trip_verifies_plaintext() {
+        let password = "Sup3rSecurePass!";
+        let hash = hash_password(password).expect("hash");
+
+        assert!(verify_password(&hash, password));
+        assert!(!verify_password(&hash, "wrong-password"));
+    }
+
+    #[test]
+    fn password_strength_requires_length_and_character_diversity() {
+        assert!(validate_password_strength("Sup3rSecurePass!").is_ok());
+        assert!(validate_password_strength("short").is_err());
+        assert!(validate_password_strength("longbutnouppercase1!").is_err());
+        assert!(validate_password_strength("LongButNoDigit!").is_err());
+    }
+}
