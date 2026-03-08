@@ -124,6 +124,20 @@ async fn issue_realtime_ticket_requires_event_membership() -> Result<(), Box<dyn
     .await;
 
     assert_eq!(member_resp.status(), StatusCode::OK);
+    assert_eq!(
+        member_resp
+            .headers()
+            .get("cache-control")
+            .and_then(|value| value.to_str().ok()),
+        Some("no-store")
+    );
+    assert_eq!(
+        member_resp
+            .headers()
+            .get("pragma")
+            .and_then(|value| value.to_str().ok()),
+        Some("no-cache")
+    );
     let ticket: RealtimeTicketResponse = test::read_body_json(member_resp).await;
     assert_eq!(ticket.event_id, Some(event_id));
     assert!(!ticket.ticket.is_empty());

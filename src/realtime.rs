@@ -3,6 +3,7 @@ use std::time::{Duration, Instant};
 use actix::prelude::*;
 use actix_web::{
     HttpRequest, HttpResponse, get,
+    http::header::{CACHE_CONTROL, PRAGMA},
     web::{self, Data},
 };
 use actix_web_actors::ws;
@@ -150,11 +151,14 @@ pub async fn issue_realtime_ticket(
         &ticket_claims,
         &EncodingKey::from_secret(state.jwt_secret.as_bytes()),
     ) {
-        Ok(ticket) => HttpResponse::Ok().json(RealtimeTicketResponse {
-            ticket,
-            expires_at,
-            event_id: query.event_id,
-        }),
+        Ok(ticket) => HttpResponse::Ok()
+            .insert_header((CACHE_CONTROL, "no-store"))
+            .insert_header((PRAGMA, "no-cache"))
+            .json(RealtimeTicketResponse {
+                ticket,
+                expires_at,
+                event_id: query.event_id,
+            }),
         Err(_) => HttpResponse::InternalServerError().json(ErrorResponse {
             error: "ticket_creation_failed".into(),
             details: None,

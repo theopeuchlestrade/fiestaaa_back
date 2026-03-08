@@ -1,7 +1,11 @@
 use actix_cors::Cors;
 use actix_files::Files;
 use actix_web::http::header::{AUTHORIZATION, CONTENT_TYPE};
-use actix_web::{App, HttpServer, middleware::Logger, web};
+use actix_web::{
+    App, HttpServer,
+    middleware::{DefaultHeaders, Logger},
+    web,
+};
 use fiestaaa_back::{cleanup, config, db, docs, notifications, routes, state};
 use redis::Client as RedisClient;
 use std::collections::HashSet;
@@ -75,6 +79,16 @@ async fn main() -> std::io::Result<()> {
         App::new()
             .app_data(state.clone())
             .wrap(Logger::new(r#"%a "%m %U" %s %b %T"#))
+            .wrap(
+                DefaultHeaders::new()
+                    .add(("X-Content-Type-Options", "nosniff"))
+                    .add(("X-Frame-Options", "DENY"))
+                    .add(("Referrer-Policy", "no-referrer"))
+                    .add((
+                        "Permissions-Policy",
+                        "camera=(), microphone=(), geolocation=(), payment=(), usb=()",
+                    )),
+            )
             .wrap(cors)
             .configure(routes::configure)
             .service(Files::new("/media/avatars", &cfg.avatar_upload_dir).prefer_utf8(true))

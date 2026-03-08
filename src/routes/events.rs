@@ -427,6 +427,11 @@ fn normalize_playlist_payload(
             details: Some("playlist_url doit correspondre au provider sélectionné".into()),
         }));
     }
+    ensure_safe_absolute_http_url(
+        &playlist_url,
+        "invalid_playlist_url",
+        "playlist_url doit utiliser http ou https",
+    )?;
 
     Ok((Some(provider), Some(playlist_url)))
 }
@@ -3629,6 +3634,24 @@ fn clean_payment_value(value: Option<String>) -> Option<String> {
     })
 }
 
+fn ensure_safe_absolute_http_url(
+    value: &str,
+    error: &str,
+    details: &str,
+) -> Result<(), HttpResponse> {
+    if let Ok(url) = reqwest::Url::parse(value) {
+        let scheme = url.scheme().to_ascii_lowercase();
+        if (scheme != "http" && scheme != "https") || url.host_str().is_none() {
+            return Err(HttpResponse::BadRequest().json(ErrorResponse {
+                error: error.into(),
+                details: Some(details.into()),
+            }));
+        }
+    }
+
+    Ok(())
+}
+
 async fn fetch_provider_validation(
     db: &PgPool,
     provider_id: i32,
@@ -3670,6 +3693,11 @@ async fn normalize_payment_info(
                     )),
                 }));
             }
+            ensure_safe_absolute_http_url(
+                &link,
+                "invalid_payment_link",
+                "Le lien de paiement doit utiliser http ou https",
+            )?;
             Ok((Some(id), Some(link)))
         }
         (Some(id), None) => Ok((Some(id), None)),
