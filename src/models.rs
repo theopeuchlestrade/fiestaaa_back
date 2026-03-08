@@ -111,6 +111,8 @@ pub struct Event {
     pub description: String,
     pub date_event: chrono::NaiveDate,
     pub start_time: chrono::NaiveTime,
+    pub end_date: Option<chrono::NaiveDate>,
+    pub end_time: Option<chrono::NaiveTime>,
     pub invitation_deadline: Option<chrono::NaiveDate>,
     pub address: String,
     pub latitude: Option<f64>,
@@ -133,6 +135,8 @@ pub struct EventPayload {
     pub description: String,
     pub date_event: chrono::NaiveDate,
     pub start_time: chrono::NaiveTime,
+    pub end_date: Option<chrono::NaiveDate>,
+    pub end_time: Option<chrono::NaiveTime>,
     pub invitation_deadline: Option<chrono::NaiveDate>,
     pub address: String,
     pub latitude: Option<f64>,
@@ -152,6 +156,8 @@ pub struct EventPatchPayload {
     pub description: Option<String>,
     pub date_event: Option<chrono::NaiveDate>,
     pub start_time: Option<chrono::NaiveTime>,
+    pub end_date: Option<Option<chrono::NaiveDate>>,
+    pub end_time: Option<Option<chrono::NaiveTime>>,
     pub invitation_deadline: Option<Option<chrono::NaiveDate>>,
     pub address: Option<String>,
     pub latitude: Option<f64>,
@@ -182,6 +188,65 @@ pub struct EventItemView {
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct EventExpensePayload {
+    pub title: String,
+    pub amount_cents: i64,
+    pub paid_by_user_id: Option<i64>,
+    pub note: Option<String>,
+    pub expense_date: Option<chrono::DateTime<chrono::Utc>>,
+    pub participant_user_ids: Vec<i64>,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct EventExpenseParticipantView {
+    pub user_id: i64,
+    pub handle: Option<String>,
+    pub avatar_url: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct EventExpenseView {
+    pub expense_id: i64,
+    pub event_id: i64,
+    pub paid_by_user_id: i64,
+    pub paid_by_handle: Option<String>,
+    pub paid_by_avatar_url: Option<String>,
+    pub title: String,
+    pub amount_cents: i64,
+    pub note: Option<String>,
+    pub expense_date: chrono::DateTime<chrono::Utc>,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    pub participants: Vec<EventExpenseParticipantView>,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct EventExpenseBalanceView {
+    pub user_id: i64,
+    pub handle: Option<String>,
+    pub avatar_url: Option<String>,
+    pub paid_cents: i64,
+    pub owed_cents: i64,
+    pub balance_cents: i64,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct EventExpenseSettlementView {
+    pub from_user_id: i64,
+    pub from_handle: Option<String>,
+    pub to_user_id: i64,
+    pub to_handle: Option<String>,
+    pub amount_cents: i64,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct EventExpensesSummaryView {
+    pub currency: String,
+    pub total_expenses_cents: i64,
+    pub balances: Vec<EventExpenseBalanceView>,
+    pub settlements: Vec<EventExpenseSettlementView>,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct EventItemAttachPayload {
     pub item_id: i64,
     pub max_quantity: i32,
@@ -203,6 +268,7 @@ pub struct EventCustomItemPayload {
 #[derive(Debug, Serialize, Deserialize, ToSchema, FromRow)]
 pub struct Invitation {
     pub event_id: i64,
+    pub user_id: Option<i64>,
     pub email: String,
     pub handle: Option<String>,
     pub avatar_url: Option<String>,

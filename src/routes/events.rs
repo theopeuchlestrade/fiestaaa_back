@@ -11,7 +11,9 @@ use uuid::Uuid;
 use crate::{
     auth::extract_claims_from_auth,
     models::{
-        AddressSuggestion, ErrorResponse, Event, EventCustomItemPayload, EventItemAttachPayload,
+        AddressSuggestion, ErrorResponse, Event, EventCustomItemPayload, EventExpenseBalanceView,
+        EventExpenseParticipantView, EventExpensePayload, EventExpenseSettlementView,
+        EventExpenseView, EventExpensesSummaryView, EventItemAttachPayload,
         EventItemReservationPayload, EventItemView, EventPatchPayload, EventPayload,
         EventPollCreatePayload, EventPollVotePayload, ItemContribution, PollOptionView,
         PollOptionVoter, PollView, ShareClaimPayload, ShareClaimResponse, ShareTokenResponse,
@@ -19,6 +21,7 @@ use crate::{
     },
     notifications::{NotificationRequest, event_member_user_ids, notify_users},
     realtime::{event_types, publish_event, publish_global},
+    routes::event_access::{ensure_event_writable, fetch_event_timing},
     state::AppState,
 };
 
@@ -218,6 +221,33 @@ fn validate_invitation_deadline(
     Ok(())
 }
 
+fn validate_event_schedule(
+    start_date: NaiveDate,
+    start_time: chrono::NaiveTime,
+    end_date: Option<NaiveDate>,
+    end_time: Option<chrono::NaiveTime>,
+) -> Result<(), HttpResponse> {
+    match (end_date, end_time) {
+        (None, None) => Ok(()),
+        (Some(end_date), Some(end_time)) => {
+            if (end_date, end_time) < (start_date, start_time) {
+                Err(HttpResponse::BadRequest().json(ErrorResponse {
+                    error: "invalid_event_schedule".into(),
+                    details: Some(
+                        "La date et heure de fin doivent être après le début de l'événement".into(),
+                    ),
+                }))
+            } else {
+                Ok(())
+            }
+        }
+        _ => Err(HttpResponse::BadRequest().json(ErrorResponse {
+            error: "invalid_event_schedule".into(),
+            details: Some("end_date et end_time doivent être renseignés ensemble".into()),
+        })),
+    }
+}
+
 const PLAYLIST_SPOTIFY_REGEX: &str = r"^https?://open\.spotify\.com/.+$";
 const PLAYLIST_APPLE_REGEX: &str = r"^https?://music\.apple\.com/.+$";
 const PLAYLIST_DEEZER_REGEX: &str = r"^https?://(www\.)?deezer\.com/.+$";
@@ -226,13 +256,15 @@ const FEATURE_POLLS: &str = "polls";
 const FEATURE_ITEMS: &str = "items";
 const FEATURE_PLAYLIST: &str = "playlist";
 const FEATURE_PAYMENT: &str = "payment";
+const FEATURE_EXPENSES: &str = "expenses";
 const DEFAULT_EVENT_FEATURES: [&str; 3] = [FEATURE_CARPOOLS, FEATURE_POLLS, FEATURE_ITEMS];
-const ALLOWED_EVENT_FEATURES: [&str; 5] = [
+const ALLOWED_EVENT_FEATURES: [&str; 6] = [
     FEATURE_CARPOOLS,
     FEATURE_POLLS,
     FEATURE_ITEMS,
     FEATURE_PLAYLIST,
     FEATURE_PAYMENT,
+    FEATURE_EXPENSES,
 ];
 
 fn default_enabled_features() -> Vec<String> {
@@ -603,6 +635,8 @@ pub async fn get_event(
                 description,
                 date_event,
                 start_time,
+                end_date,
+                end_time,
                 invitation_deadline,
                 address,
                 latitude,
@@ -657,6 +691,8 @@ pub async fn list_events(state: web::Data<AppState>, req: HttpRequest) -> impl R
                 e.description,
                 e.date_event,
                 e.start_time,
+                e.end_date,
+                e.end_time,
                 e.invitation_deadline,
                 e.address,
                 e.latitude,
@@ -737,6 +773,14 @@ pub async fn create_event(
             details: Some("Latitude et longitude doivent être renseignées ensemble".into()),
         });
     }
+    if let Err(resp) = validate_event_schedule(
+        payload.date_event,
+        payload.start_time,
+        payload.end_date,
+        payload.end_time,
+    ) {
+        return resp;
+    }
     if let Err(resp) = validate_invitation_deadline(payload.invitation_deadline, payload.date_event)
     {
         return resp;
@@ -777,14 +821,16 @@ pub async fn create_event(
     };
 
     let res = sqlx::query_as::<_, Event>(
-        "INSERT INTO events (name_event, description, date_event, start_time, invitation_deadline, address, latitude, longitude, payment_provider_id, payment_identifier, payment_requested_amount, payment_per_person, playlist_url, playlist_provider, enabled_features, owner_email)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
-         RETURNING event_id, name_event, description, date_event, start_time, invitation_deadline, address, latitude, longitude, payment_provider_id, payment_identifier, payment_requested_amount, payment_per_person, playlist_url, playlist_provider, enabled_features, owner_email",
+        "INSERT INTO events (name_event, description, date_event, start_time, end_date, end_time, invitation_deadline, address, latitude, longitude, payment_provider_id, payment_identifier, payment_requested_amount, payment_per_person, playlist_url, playlist_provider, enabled_features, owner_email)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+         RETURNING event_id, name_event, description, date_event, start_time, end_date, end_time, invitation_deadline, address, latitude, longitude, payment_provider_id, payment_identifier, payment_requested_amount, payment_per_person, playlist_url, playlist_provider, enabled_features, owner_email",
     )
     .bind(payload.name_event.trim())
     .bind(payload.description.trim())
     .bind(payload.date_event)
     .bind(payload.start_time)
+    .bind(payload.end_date)
+    .bind(payload.end_time)
     .bind(payload.invitation_deadline)
     .bind(payload.address.trim())
     .bind(payload.latitude)
@@ -855,6 +901,9 @@ pub async fn replace_event(
     if let Err(resp) = ensure_event_owner(&req, state.get_ref(), *event_id).await {
         return resp;
     }
+    if let Err(resp) = ensure_event_writable(&state.db, *event_id).await {
+        return resp;
+    }
 
     let payload = payload.into_inner();
     let enabled_features_requested = payload.enabled_features.is_some();
@@ -869,6 +918,21 @@ pub async fn replace_event(
                 "Les champs name_event, description et address ne peuvent pas être vides".into(),
             ),
         });
+    }
+    if let Err(resp) = validate_event_schedule(
+        payload.date_event,
+        payload.start_time,
+        payload.end_date,
+        payload.end_time,
+    ) {
+        return resp;
+    }
+    if payload.end_date.is_some() || payload.end_time.is_some() {
+        updated_fields.push("duration");
+    }
+    if let Err(resp) = validate_invitation_deadline(payload.invitation_deadline, payload.date_event)
+    {
+        return resp;
     }
 
     let (payment_provider_id, payment_identifier) = match normalize_payment_info(
@@ -914,16 +978,18 @@ pub async fn replace_event(
 
     let res = sqlx::query_as::<_, Event>(
          "UPDATE events
-          SET name_event = $1, description = $2, date_event = $3, start_time = $4, 
-              invitation_deadline = $5, address = $6, latitude = $7, longitude = $8, payment_provider_id = $9, payment_identifier = $10,
-              payment_requested_amount = $11, payment_per_person = $12, playlist_url = $13, playlist_provider = $14, enabled_features = $15
-          WHERE event_id = $16
-         RETURNING event_id, name_event, description, date_event, start_time, invitation_deadline, address, latitude, longitude, payment_provider_id, payment_identifier, payment_requested_amount, payment_per_person, playlist_url, playlist_provider, enabled_features, owner_email",
+          SET name_event = $1, description = $2, date_event = $3, start_time = $4, end_date = $5, end_time = $6,
+              invitation_deadline = $7, address = $8, latitude = $9, longitude = $10, payment_provider_id = $11, payment_identifier = $12,
+              payment_requested_amount = $13, payment_per_person = $14, playlist_url = $15, playlist_provider = $16, enabled_features = $17
+          WHERE event_id = $18
+         RETURNING event_id, name_event, description, date_event, start_time, end_date, end_time, invitation_deadline, address, latitude, longitude, payment_provider_id, payment_identifier, payment_requested_amount, payment_per_person, playlist_url, playlist_provider, enabled_features, owner_email",
      )
     .bind(payload.name_event.trim())
     .bind(payload.description.trim())
     .bind(payload.date_event)
     .bind(payload.start_time)
+    .bind(payload.end_date)
+    .bind(payload.end_time)
     .bind(payload.invitation_deadline)
     .bind(payload.address.trim())
     .bind(payload.latitude)
@@ -1015,6 +1081,9 @@ pub async fn update_event(
     if let Err(resp) = ensure_event_owner(&req, state.get_ref(), *event_id).await {
         return resp;
     }
+    if let Err(resp) = ensure_event_writable(&state.db, *event_id).await {
+        return resp;
+    }
 
     let payload = payload.into_inner();
     let mut updated_fields: Vec<&str> = Vec::new();
@@ -1029,6 +1098,9 @@ pub async fn update_event(
     }
     if payload.start_time.is_some() {
         updated_fields.push("time");
+    }
+    if payload.end_date.is_some() || payload.end_time.is_some() {
+        updated_fields.push("duration");
     }
     if payload.address.is_some() || payload.latitude.is_some() || payload.longitude.is_some() {
         updated_fields.push("location");
@@ -1074,6 +1146,9 @@ pub async fn update_event(
         current_identifier,
         current_payment_per_person,
         current_date_event,
+        current_start_time,
+        current_end_date,
+        current_end_time,
         current_invitation_deadline,
         current_playlist_provider,
         current_playlist_url,
@@ -1098,6 +1173,17 @@ pub async fn update_event(
             .unwrap_or(current_payment_per_person)
     };
     let target_date_event = payload.date_event.unwrap_or(current_date_event);
+    let target_start_time = payload.start_time.unwrap_or(current_start_time);
+    let target_end_date = payload.end_date.unwrap_or(current_end_date);
+    let target_end_time = payload.end_time.unwrap_or(current_end_time);
+    if let Err(resp) = validate_event_schedule(
+        target_date_event,
+        target_start_time,
+        target_end_date,
+        target_end_time,
+    ) {
+        return resp;
+    }
     let invitation_deadline_update = payload.invitation_deadline;
     let target_deadline = invitation_deadline_update.unwrap_or(current_invitation_deadline);
     if let Err(resp) = validate_invitation_deadline(target_deadline, target_date_event) {
@@ -1160,6 +1246,14 @@ pub async fn update_event(
         Some(value) => (true, value),
         None => (false, None),
     };
+    let (end_date_set, end_date_value) = match payload.end_date {
+        Some(value) => (true, value),
+        None => (false, None),
+    };
+    let (end_time_set, end_time_value) = match payload.end_time {
+        Some(value) => (true, value),
+        None => (false, None),
+    };
 
     let res = sqlx::query_as::<_, Event>(
         "UPDATE events
@@ -1167,24 +1261,30 @@ pub async fn update_event(
              description = COALESCE($2, description),
              date_event = COALESCE($3, date_event),
              start_time = COALESCE($4, start_time),
-             invitation_deadline = CASE WHEN $5 THEN $6 ELSE invitation_deadline END,
-             address = COALESCE($7, address),
-             latitude = COALESCE($8, latitude),
-             longitude = COALESCE($9, longitude),
-             payment_provider_id = COALESCE($10, payment_provider_id),
-             payment_identifier = COALESCE($11, payment_identifier),
-             payment_requested_amount = COALESCE($12, payment_requested_amount),
-             payment_per_person = $13,
-             playlist_url = CASE WHEN $14 THEN $15 ELSE playlist_url END,
-             playlist_provider = CASE WHEN $16 THEN $17 ELSE playlist_provider END,
-             enabled_features = $18
-         WHERE event_id = $19
-         RETURNING event_id, name_event, description, date_event, start_time, invitation_deadline, address, latitude, longitude, payment_provider_id, payment_identifier, payment_requested_amount, payment_per_person, playlist_url, playlist_provider, enabled_features, owner_email",
+             end_date = CASE WHEN $5 THEN $6 ELSE end_date END,
+             end_time = CASE WHEN $7 THEN $8 ELSE end_time END,
+             invitation_deadline = CASE WHEN $9 THEN $10 ELSE invitation_deadline END,
+             address = COALESCE($11, address),
+             latitude = COALESCE($12, latitude),
+             longitude = COALESCE($13, longitude),
+             payment_provider_id = COALESCE($14, payment_provider_id),
+             payment_identifier = COALESCE($15, payment_identifier),
+             payment_requested_amount = COALESCE($16, payment_requested_amount),
+             payment_per_person = $17,
+             playlist_url = CASE WHEN $18 THEN $19 ELSE playlist_url END,
+             playlist_provider = CASE WHEN $20 THEN $21 ELSE playlist_provider END,
+             enabled_features = $22
+         WHERE event_id = $23
+         RETURNING event_id, name_event, description, date_event, start_time, end_date, end_time, invitation_deadline, address, latitude, longitude, payment_provider_id, payment_identifier, payment_requested_amount, payment_per_person, playlist_url, playlist_provider, enabled_features, owner_email",
     )
     .bind(payload.name_event.as_ref().map(|v| v.trim()).filter(|v| !v.is_empty()))
     .bind(payload.description.as_ref().map(|v| v.trim()).filter(|v| !v.is_empty()))
     .bind(payload.date_event)
     .bind(payload.start_time)
+    .bind(end_date_set)
+    .bind(end_date_value)
+    .bind(end_time_set)
+    .bind(end_time_value)
     .bind(invitation_deadline_set)
     .bind(invitation_deadline_value)
     .bind(payload.address.as_ref().map(|v| v.trim()).filter(|v| !v.is_empty()))
@@ -1273,6 +1373,9 @@ pub async fn delete_event(
     if let Err(resp) = ensure_event_owner(&req, state.get_ref(), *event_id).await {
         return resp;
     }
+    if let Err(resp) = ensure_event_writable(&state.db, *event_id).await {
+        return resp;
+    }
 
     let res = sqlx::query("DELETE FROM events WHERE event_id = $1")
         .bind(*event_id)
@@ -1337,6 +1440,9 @@ pub async fn create_share_link(
     };
 
     if let Err(resp) = ensure_event_owner(&req, state.get_ref(), *event_id).await {
+        return resp;
+    }
+    if let Err(resp) = ensure_event_writable(&state.db, *event_id).await {
         return resp;
     }
 
@@ -1447,9 +1553,12 @@ pub async fn claim_share_link(
         Ok(v) => v,
         Err(_) => return server_error(),
     };
+    if let Err(resp) = ensure_event_writable(&state.db, event_id).await {
+        return resp;
+    }
 
     let event = sqlx::query_as::<_, Event>(
-        "SELECT event_id, name_event, description, date_event, start_time, invitation_deadline, address, latitude, longitude, payment_provider_id, payment_identifier, payment_requested_amount, payment_per_person, playlist_url, playlist_provider, enabled_features, owner_email
+        "SELECT event_id, name_event, description, date_event, start_time, end_date, end_time, invitation_deadline, address, latitude, longitude, payment_provider_id, payment_identifier, payment_requested_amount, payment_per_person, playlist_url, playlist_provider, enabled_features, owner_email
          FROM events
          WHERE event_id = $1",
     )
@@ -1730,6 +1839,9 @@ pub async fn attach_event_item(
     if let Err(resp) = ensure_event_owner(&req, state.get_ref(), *event_id).await {
         return resp;
     }
+    if let Err(resp) = ensure_event_writable(&state.db, *event_id).await {
+        return resp;
+    }
 
     let creator_email = match claims_email(&req, state.get_ref()) {
         Ok(email) => email,
@@ -1825,6 +1937,9 @@ pub async fn create_custom_event_item(
     payload: web::Json<EventCustomItemPayload>,
 ) -> impl Responder {
     if let Err(resp) = ensure_event_member(&req, state.get_ref(), *event_id).await {
+        return resp;
+    }
+    if let Err(resp) = ensure_event_writable(&state.db, *event_id).await {
         return resp;
     }
 
@@ -2063,6 +2178,9 @@ pub async fn reserve_event_item(
     if let Err(resp) = ensure_event_exists(&state.db, event_id).await {
         return resp;
     }
+    if let Err(resp) = ensure_event_writable(&state.db, event_id).await {
+        return resp;
+    }
     let mut tx = match state.db.begin().await {
         Ok(tx) => tx,
         Err(_) => return server_error(),
@@ -2215,6 +2333,9 @@ pub async fn delete_event_item(
     let (event_id, item_id) = path.into_inner();
 
     if let Err(resp) = ensure_event_exists(&state.db, event_id).await {
+        return resp;
+    }
+    if let Err(resp) = ensure_event_writable(&state.db, event_id).await {
         return resp;
     }
 
@@ -2372,6 +2493,9 @@ pub async fn create_event_poll(
     };
 
     if let Err(resp) = ensure_event_owner(&req, state.get_ref(), *event_id).await {
+        return resp;
+    }
+    if let Err(resp) = ensure_event_writable(&state.db, *event_id).await {
         return resp;
     }
 
@@ -2577,6 +2701,9 @@ pub async fn vote_event_poll(
     if let Err(resp) = ensure_event_member(&req, state.get_ref(), event_id).await {
         return resp;
     }
+    if let Err(resp) = ensure_event_writable(&state.db, event_id).await {
+        return resp;
+    }
 
     let poll_row = sqlx::query(
         "SELECT event_id, allow_multiple, expires_at FROM event_polls WHERE poll_id = $1",
@@ -2746,6 +2873,9 @@ pub async fn delete_event_poll(
     if let Err(resp) = ensure_event_exists(&state.db, event_id).await {
         return resp;
     }
+    if let Err(resp) = ensure_event_writable(&state.db, event_id).await {
+        return resp;
+    }
 
     let owner_email = match fetch_event_owner_email(&state.db, event_id).await {
         Ok(email) => email,
@@ -2822,6 +2952,331 @@ pub async fn delete_event_poll(
             })
         }
         Err(_) => server_error(),
+    }
+}
+
+#[utoipa::path(
+    get,
+    path = "/events/{event_id}/expenses",
+    tag = "events",
+    responses(
+        (status = 200, description = "Dépenses partagées de l'événement", body = [EventExpenseView]),
+        (status = 403, description = "Non autorisé", body = ErrorResponse),
+        (status = 404, description = "Événement introuvable", body = ErrorResponse)
+    ),
+    params(
+        ("event_id" = i64, Path, description = "Identifiant de l'événement")
+    )
+)]
+#[get("/events/{event_id}/expenses")]
+pub async fn list_event_expenses(
+    state: web::Data<AppState>,
+    req: HttpRequest,
+    event_id: web::Path<i64>,
+) -> impl Responder {
+    if let Err(resp) = ensure_event_member(&req, state.get_ref(), *event_id).await {
+        return resp;
+    }
+
+    match fetch_event_expenses(&state.db, *event_id).await {
+        Ok(expenses) => HttpResponse::Ok().json(expenses),
+        Err(resp) => resp,
+    }
+}
+
+#[utoipa::path(
+    post,
+    path = "/events/{event_id}/expenses",
+    tag = "events",
+    request_body = EventExpensePayload,
+    responses(
+        (status = 201, description = "Dépense créée", body = EventExpenseView),
+        (status = 400, description = "Payload invalide", body = ErrorResponse),
+        (status = 403, description = "Non autorisé", body = ErrorResponse),
+        (status = 404, description = "Événement introuvable", body = ErrorResponse)
+    ),
+    params(
+        ("event_id" = i64, Path, description = "Identifiant de l'événement")
+    )
+)]
+#[post("/events/{event_id}/expenses")]
+pub async fn create_event_expense(
+    state: web::Data<AppState>,
+    req: HttpRequest,
+    event_id: web::Path<i64>,
+    payload: web::Json<EventExpensePayload>,
+) -> impl Responder {
+    let claims = match extract_claims_from_auth(&req, &state.jwt_secret) {
+        Ok(c) => c,
+        Err(resp) => return resp,
+    };
+
+    if let Err(resp) = ensure_event_member(&req, state.get_ref(), *event_id).await {
+        return resp;
+    }
+    if let Err(resp) = ensure_event_writable(&state.db, *event_id).await {
+        return resp;
+    }
+
+    let requester_id = match fetch_user_id(&state.db, &claims.sub).await {
+        Ok(id) => id,
+        Err(resp) => return resp,
+    };
+
+    let payload = payload.into_inner();
+    let title = payload.title.trim().to_string();
+    if title.is_empty() {
+        return HttpResponse::BadRequest().json(ErrorResponse {
+            error: "invalid_payload".into(),
+            details: Some("Le titre de la dépense est requis".into()),
+        });
+    }
+    if payload.amount_cents <= 0 {
+        return HttpResponse::BadRequest().json(ErrorResponse {
+            error: "invalid_payload".into(),
+            details: Some("Le montant doit être supérieur à 0".into()),
+        });
+    }
+
+    let mut participant_user_ids = payload.participant_user_ids;
+    participant_user_ids.sort_unstable();
+    participant_user_ids.dedup();
+    if participant_user_ids.is_empty() {
+        return HttpResponse::BadRequest().json(ErrorResponse {
+            error: "invalid_payload".into(),
+            details: Some("Au moins un participant est requis pour la dépense".into()),
+        });
+    }
+
+    let members = match fetch_event_member_directory(&state.db, *event_id).await {
+        Ok(values) => values,
+        Err(resp) => return resp,
+    };
+    let member_ids: HashSet<i64> = members.keys().copied().collect();
+    let paid_by_user_id = payload.paid_by_user_id.unwrap_or(requester_id);
+    if !member_ids.contains(&paid_by_user_id) {
+        return HttpResponse::BadRequest().json(ErrorResponse {
+            error: "invalid_payer".into(),
+            details: Some("Le payeur doit appartenir à la fiestaaa".into()),
+        });
+    }
+    if !participant_user_ids
+        .iter()
+        .all(|user_id| member_ids.contains(user_id))
+    {
+        return HttpResponse::BadRequest().json(ErrorResponse {
+            error: "invalid_participants".into(),
+            details: Some("Tous les participants doivent appartenir à la fiestaaa".into()),
+        });
+    }
+
+    let note = payload
+        .note
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
+    let expense_date = payload.expense_date.unwrap_or_else(Utc::now);
+
+    let mut tx = match state.db.begin().await {
+        Ok(tx) => tx,
+        Err(_) => return server_error(),
+    };
+
+    let expense_id = match sqlx::query_scalar::<_, i64>(
+        "INSERT INTO event_expenses (event_id, paid_by_user_id, created_by_user_id, title, amount_cents, note, expense_date)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)
+         RETURNING expense_id",
+    )
+    .bind(*event_id)
+    .bind(paid_by_user_id)
+    .bind(requester_id)
+    .bind(&title)
+    .bind(payload.amount_cents)
+    .bind(&note)
+    .bind(expense_date)
+    .fetch_one(&mut *tx)
+    .await
+    {
+        Ok(id) => id,
+        Err(_) => {
+            let _ = tx.rollback().await;
+            return server_error();
+        }
+    };
+
+    for participant_user_id in participant_user_ids {
+        if (sqlx::query(
+            "INSERT INTO event_expense_participants (expense_id, user_id, share_weight)
+             VALUES ($1, $2, 1)",
+        )
+        .bind(expense_id)
+        .bind(participant_user_id)
+        .execute(&mut *tx)
+        .await)
+            .is_err()
+        {
+            let _ = tx.rollback().await;
+            return server_error();
+        }
+    }
+
+    if tx.commit().await.is_err() {
+        return server_error();
+    }
+
+    publish_event(
+        &state.redis_client,
+        *event_id,
+        &json!({
+            "type": "event_expenses_changed",
+            "event_id": *event_id,
+            "expense_id": expense_id,
+        }),
+    )
+    .await;
+
+    match fetch_event_expense_view(&state.db, expense_id).await {
+        Ok(expense) => HttpResponse::Created().json(expense),
+        Err(resp) => resp,
+    }
+}
+
+#[utoipa::path(
+    delete,
+    path = "/events/{event_id}/expenses/{expense_id}",
+    tag = "events",
+    responses(
+        (status = 200, description = "Dépense supprimée", body = StatusResponse),
+        (status = 403, description = "Non autorisé", body = ErrorResponse),
+        (status = 404, description = "Dépense introuvable", body = ErrorResponse)
+    ),
+    params(
+        ("event_id" = i64, Path, description = "Identifiant de l'événement"),
+        ("expense_id" = i64, Path, description = "Identifiant de la dépense")
+    )
+)]
+#[delete("/events/{event_id}/expenses/{expense_id}")]
+pub async fn delete_event_expense(
+    state: web::Data<AppState>,
+    req: HttpRequest,
+    path: web::Path<(i64, i64)>,
+) -> impl Responder {
+    let claims = match extract_claims_from_auth(&req, &state.jwt_secret) {
+        Ok(c) => c,
+        Err(resp) => return resp,
+    };
+
+    let (event_id, expense_id) = path.into_inner();
+
+    if let Err(resp) = ensure_event_member(&req, state.get_ref(), event_id).await {
+        return resp;
+    }
+    if let Err(resp) = ensure_event_writable(&state.db, event_id).await {
+        return resp;
+    }
+
+    let requester_id = match fetch_user_id(&state.db, &claims.sub).await {
+        Ok(id) => id,
+        Err(resp) => return resp,
+    };
+    let owner_email = match fetch_event_owner_email(&state.db, event_id).await {
+        Ok(email) => email,
+        Err(resp) => return resp,
+    };
+    let is_owner = owner_email.eq_ignore_ascii_case(&claims.sub);
+
+    let expense_row = match sqlx::query(
+        "SELECT paid_by_user_id, created_by_user_id
+         FROM event_expenses
+         WHERE expense_id = $1 AND event_id = $2",
+    )
+    .bind(expense_id)
+    .bind(event_id)
+    .fetch_optional(&state.db)
+    .await
+    {
+        Ok(Some(row)) => row,
+        Ok(None) => {
+            return HttpResponse::NotFound().json(ErrorResponse {
+                error: "expense_not_found".into(),
+                details: None,
+            });
+        }
+        Err(_) => return server_error(),
+    };
+
+    let paid_by_user_id: i64 = match expense_row.try_get("paid_by_user_id") {
+        Ok(value) => value,
+        Err(_) => return server_error(),
+    };
+    let created_by_user_id: i64 = match expense_row.try_get("created_by_user_id") {
+        Ok(value) => value,
+        Err(_) => return server_error(),
+    };
+    if !is_owner && requester_id != paid_by_user_id && requester_id != created_by_user_id {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            error: "forbidden".into(),
+            details: Some(
+                "Seuls le créateur, le payeur ou l'organisateur peuvent supprimer cette dépense"
+                    .into(),
+            ),
+        });
+    }
+
+    match sqlx::query("DELETE FROM event_expenses WHERE expense_id = $1 AND event_id = $2")
+        .bind(expense_id)
+        .bind(event_id)
+        .execute(&state.db)
+        .await
+    {
+        Ok(result) if result.rows_affected() == 0 => HttpResponse::NotFound().json(ErrorResponse {
+            error: "expense_not_found".into(),
+            details: None,
+        }),
+        Ok(_) => {
+            publish_event(
+                &state.redis_client,
+                event_id,
+                &json!({
+                    "type": "event_expenses_changed",
+                    "event_id": event_id,
+                    "expense_id": expense_id,
+                }),
+            )
+            .await;
+            HttpResponse::Ok().json(StatusResponse {
+                status: "deleted".into(),
+            })
+        }
+        Err(_) => server_error(),
+    }
+}
+
+#[utoipa::path(
+    get,
+    path = "/events/{event_id}/expenses/summary",
+    tag = "events",
+    responses(
+        (status = 200, description = "Résumé des dépenses partagées", body = EventExpensesSummaryView),
+        (status = 403, description = "Non autorisé", body = ErrorResponse),
+        (status = 404, description = "Événement introuvable", body = ErrorResponse)
+    ),
+    params(
+        ("event_id" = i64, Path, description = "Identifiant de l'événement")
+    )
+)]
+#[get("/events/{event_id}/expenses/summary")]
+pub async fn get_event_expenses_summary(
+    state: web::Data<AppState>,
+    req: HttpRequest,
+    event_id: web::Path<i64>,
+) -> impl Responder {
+    if let Err(resp) = ensure_event_member(&req, state.get_ref(), *event_id).await {
+        return resp;
+    }
+
+    match build_event_expenses_summary(&state.db, *event_id).await {
+        Ok(summary) => HttpResponse::Ok().json(summary),
+        Err(resp) => resp,
     }
 }
 
@@ -2960,6 +3415,257 @@ async fn fetch_poll_views(
     Ok(polls)
 }
 
+async fn fetch_event_member_directory(
+    db: &PgPool,
+    event_id: i64,
+) -> Result<HashMap<i64, (Option<String>, Option<String>)>, HttpResponse> {
+    let rows = sqlx::query(
+        "SELECT DISTINCT u.id, u.handle, u.avatar_url
+         FROM users u
+         WHERE lower(u.email) = lower((SELECT owner_email FROM events WHERE event_id = $1))
+         UNION
+         SELECT DISTINCT u.id, u.handle, u.avatar_url
+         FROM invitations i
+         JOIN users u ON u.id = i.user_id
+         WHERE i.event_id = $1
+           AND i.status = 'Accepted'",
+    )
+    .bind(event_id)
+    .fetch_all(db)
+    .await
+    .map_err(|_| server_error())?;
+
+    let mut members = HashMap::new();
+    for row in rows {
+        let user_id: i64 = row.get("id");
+        let handle: Option<String> = row.get("handle");
+        let avatar_url: Option<String> = row.get("avatar_url");
+        members.insert(user_id, (handle, avatar_url));
+    }
+    Ok(members)
+}
+
+async fn fetch_event_expense_view(
+    db: &PgPool,
+    expense_id: i64,
+) -> Result<EventExpenseView, HttpResponse> {
+    let expenses = fetch_event_expenses_by_ids(db, &[expense_id]).await?;
+    expenses.into_iter().next().ok_or_else(|| {
+        HttpResponse::NotFound().json(ErrorResponse {
+            error: "expense_not_found".into(),
+            details: None,
+        })
+    })
+}
+
+async fn fetch_event_expenses(
+    db: &PgPool,
+    event_id: i64,
+) -> Result<Vec<EventExpenseView>, HttpResponse> {
+    let expense_ids = sqlx::query_scalar::<_, i64>(
+        "SELECT expense_id
+         FROM event_expenses
+         WHERE event_id = $1
+         ORDER BY expense_date DESC, expense_id DESC",
+    )
+    .bind(event_id)
+    .fetch_all(db)
+    .await
+    .map_err(|_| server_error())?;
+
+    fetch_event_expenses_by_ids(db, &expense_ids).await
+}
+
+async fn fetch_event_expenses_by_ids(
+    db: &PgPool,
+    expense_ids: &[i64],
+) -> Result<Vec<EventExpenseView>, HttpResponse> {
+    if expense_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let expense_rows = sqlx::query(
+        "SELECT ee.expense_id,
+                ee.event_id,
+                ee.paid_by_user_id,
+                u.handle AS paid_by_handle,
+                u.avatar_url AS paid_by_avatar_url,
+                ee.title,
+                ee.amount_cents,
+                ee.note,
+                ee.expense_date,
+                ee.created_at
+         FROM event_expenses ee
+         JOIN users u ON u.id = ee.paid_by_user_id
+         WHERE ee.expense_id = ANY($1)
+         ORDER BY ee.expense_date DESC, ee.expense_id DESC",
+    )
+    .bind(expense_ids)
+    .fetch_all(db)
+    .await
+    .map_err(|_| server_error())?;
+
+    let participant_rows = sqlx::query(
+        "SELECT ep.expense_id, ep.user_id, u.handle, u.avatar_url
+         FROM event_expense_participants ep
+         JOIN users u ON u.id = ep.user_id
+         WHERE ep.expense_id = ANY($1)
+         ORDER BY ep.expense_id, lower(u.handle), ep.user_id",
+    )
+    .bind(expense_ids)
+    .fetch_all(db)
+    .await
+    .map_err(|_| server_error())?;
+
+    let mut participants_by_expense: HashMap<i64, Vec<EventExpenseParticipantView>> =
+        HashMap::new();
+    for row in participant_rows {
+        let expense_id: i64 = row.get("expense_id");
+        participants_by_expense
+            .entry(expense_id)
+            .or_default()
+            .push(EventExpenseParticipantView {
+                user_id: row.get("user_id"),
+                handle: row.get("handle"),
+                avatar_url: row.get("avatar_url"),
+            });
+    }
+
+    let mut expenses = Vec::new();
+    for row in expense_rows {
+        let expense_id: i64 = row.get("expense_id");
+        expenses.push(EventExpenseView {
+            expense_id,
+            event_id: row.get("event_id"),
+            paid_by_user_id: row.get("paid_by_user_id"),
+            paid_by_handle: row.get("paid_by_handle"),
+            paid_by_avatar_url: row.get("paid_by_avatar_url"),
+            title: row.get("title"),
+            amount_cents: row.get("amount_cents"),
+            note: row.get("note"),
+            expense_date: row.get("expense_date"),
+            created_at: row.get("created_at"),
+            participants: participants_by_expense
+                .remove(&expense_id)
+                .unwrap_or_default(),
+        });
+    }
+
+    Ok(expenses)
+}
+
+async fn build_event_expenses_summary(
+    db: &PgPool,
+    event_id: i64,
+) -> Result<EventExpensesSummaryView, HttpResponse> {
+    let _ = fetch_event_timing(db, event_id).await?;
+    let members = fetch_event_member_directory(db, event_id).await?;
+    let expenses = fetch_event_expenses(db, event_id).await?;
+
+    let mut balances_by_user: HashMap<i64, (i64, i64)> = members
+        .keys()
+        .copied()
+        .map(|user_id| (user_id, (0, 0)))
+        .collect();
+    let mut total_expenses_cents = 0_i64;
+
+    for expense in expenses {
+        total_expenses_cents += expense.amount_cents;
+        balances_by_user
+            .entry(expense.paid_by_user_id)
+            .or_insert((0, 0))
+            .0 += expense.amount_cents;
+
+        let mut participant_ids: Vec<i64> = expense
+            .participants
+            .into_iter()
+            .map(|item| item.user_id)
+            .collect();
+        participant_ids.sort_unstable();
+        participant_ids.dedup();
+        if participant_ids.is_empty() {
+            continue;
+        }
+
+        let participant_count = participant_ids.len() as i64;
+        let share_cents = expense.amount_cents / participant_count;
+        let remainder = expense.amount_cents % participant_count;
+
+        for (index, participant_id) in participant_ids.into_iter().enumerate() {
+            let extra_cent = if (index as i64) < remainder { 1 } else { 0 };
+            balances_by_user.entry(participant_id).or_insert((0, 0)).1 += share_cents + extra_cent;
+        }
+    }
+
+    let mut balances: Vec<EventExpenseBalanceView> = balances_by_user
+        .into_iter()
+        .map(|(user_id, (paid_cents, owed_cents))| {
+            let (handle, avatar_url) = members.get(&user_id).cloned().unwrap_or((None, None));
+            EventExpenseBalanceView {
+                user_id,
+                handle,
+                avatar_url,
+                paid_cents,
+                owed_cents,
+                balance_cents: paid_cents - owed_cents,
+            }
+        })
+        .collect();
+
+    balances.sort_by(|a, b| {
+        b.balance_cents
+            .cmp(&a.balance_cents)
+            .then_with(|| a.handle.cmp(&b.handle))
+            .then_with(|| a.user_id.cmp(&b.user_id))
+    });
+
+    let mut creditors: Vec<(usize, i64)> = balances
+        .iter()
+        .enumerate()
+        .filter_map(|(index, item)| (item.balance_cents > 0).then_some((index, item.balance_cents)))
+        .collect();
+    let mut debtors: Vec<(usize, i64)> = balances
+        .iter()
+        .enumerate()
+        .filter_map(|(index, item)| {
+            (item.balance_cents < 0).then_some((index, -item.balance_cents))
+        })
+        .collect();
+
+    let mut settlements = Vec::new();
+    let mut creditor_index = 0_usize;
+    let mut debtor_index = 0_usize;
+    while creditor_index < creditors.len() && debtor_index < debtors.len() {
+        let (creditor_balance_index, creditor_amount) = creditors[creditor_index];
+        let (debtor_balance_index, debtor_amount) = debtors[debtor_index];
+        let transfer_amount = creditor_amount.min(debtor_amount);
+
+        settlements.push(EventExpenseSettlementView {
+            from_user_id: balances[debtor_balance_index].user_id,
+            from_handle: balances[debtor_balance_index].handle.clone(),
+            to_user_id: balances[creditor_balance_index].user_id,
+            to_handle: balances[creditor_balance_index].handle.clone(),
+            amount_cents: transfer_amount,
+        });
+
+        creditors[creditor_index].1 -= transfer_amount;
+        debtors[debtor_index].1 -= transfer_amount;
+        if creditors[creditor_index].1 == 0 {
+            creditor_index += 1;
+        }
+        if debtors[debtor_index].1 == 0 {
+            debtor_index += 1;
+        }
+    }
+
+    Ok(EventExpensesSummaryView {
+        currency: "EUR".into(),
+        total_expenses_cents,
+        balances,
+        settlements,
+    })
+}
+
 fn clean_payment_value(value: Option<String>) -> Option<String> {
     value.and_then(|v| {
         let trimmed = v.trim();
@@ -3049,6 +3755,9 @@ async fn fetch_event_payment_info(
         Option<String>,
         bool,
         NaiveDate,
+        chrono::NaiveTime,
+        Option<NaiveDate>,
+        Option<chrono::NaiveTime>,
         Option<NaiveDate>,
         Option<String>,
         Option<String>,
@@ -3063,13 +3772,16 @@ async fn fetch_event_payment_info(
             Option<String>,
             bool,
             NaiveDate,
+            chrono::NaiveTime,
+            Option<NaiveDate>,
+            Option<chrono::NaiveTime>,
             Option<NaiveDate>,
             Option<String>,
             Option<String>,
             Vec<String>,
         ),
     >(
-        "SELECT payment_provider_id, payment_identifier, payment_per_person, date_event, invitation_deadline, playlist_provider, playlist_url, enabled_features FROM events WHERE event_id = $1",
+        "SELECT payment_provider_id, payment_identifier, payment_per_person, date_event, start_time, end_date, end_time, invitation_deadline, playlist_provider, playlist_url, enabled_features FROM events WHERE event_id = $1",
     )
     .bind(event_id)
     .fetch_optional(db)

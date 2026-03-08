@@ -9,6 +9,7 @@ use crate::{
         ErrorResponse, QRCodeGenerateResponse, QRCodeScanPayload, QRCodeScanResponse,
         QRCodeStatsResponse,
     },
+    routes::event_access::ensure_event_writable,
     state::AppState,
 };
 
@@ -97,6 +98,9 @@ pub async fn generate_my_qr_code(
         Ok(e) => e,
         Err(resp) => return resp,
     };
+    if let Err(resp) = ensure_event_writable(&state.db, *event_id).await {
+        return resp;
+    }
 
     let user_id = match get_user_id_from_email(&state.db, &requester_email).await {
         Ok(id) => id,
@@ -224,6 +228,9 @@ pub async fn scan_qr_code(
         Ok(email) => email,
         Err(resp) => return resp,
     };
+    if let Err(resp) = ensure_event_writable(&state.db, *event_id).await {
+        return resp;
+    }
 
     // Parse the UUID token
     let qr_token = match Uuid::parse_str(&payload.token) {
