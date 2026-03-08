@@ -70,6 +70,13 @@ pub struct MeResponse {
     pub avatar_url: Option<String>,
 }
 
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct RealtimeTicketResponse {
+    pub ticket: String,
+    pub expires_at: chrono::DateTime<chrono::Utc>,
+    pub event_id: Option<i64>,
+}
+
 #[derive(Serialize, ToSchema)]
 pub struct HealthResponse {
     pub status: String,

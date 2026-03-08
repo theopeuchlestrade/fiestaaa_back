@@ -68,6 +68,7 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(events::create_custom_event_item)
         .service(events::reserve_event_item)
         .service(events::delete_event_item)
+        .service(realtime::issue_realtime_ticket)
         .service(realtime::websocket)
         .service(friends::list_friends)
         .service(friends::search_friends)

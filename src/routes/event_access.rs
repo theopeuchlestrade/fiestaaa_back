@@ -1,7 +1,7 @@
 use actix_web::HttpResponse;
 use chrono::{NaiveDate, NaiveDateTime, NaiveTime, Utc};
 use serde::Serialize;
-use sqlx::PgPool;
+use sqlx::{PgPool, Row};
 
 use crate::models::ErrorResponse;
 
@@ -87,6 +87,55 @@ pub async fn ensure_event_writable(db: &PgPool, event_id: i64) -> Result<(), Htt
         }))
     } else {
         Ok(())
+    }
+}
+
+pub async fn ensure_event_member_email(
+    db: &PgPool,
+    event_id: i64,
+    email: &str,
+) -> Result<(), HttpResponse> {
+    let owner_row = sqlx::query("SELECT owner_email FROM events WHERE event_id = $1")
+        .bind(event_id)
+        .fetch_optional(db)
+        .await
+        .map_err(|_| server_error())?;
+
+    let Some(owner_row) = owner_row else {
+        return Err(HttpResponse::NotFound().json(ErrorResponse {
+            error: "event_not_found".into(),
+            details: None,
+        }));
+    };
+
+    let owner_email: String = owner_row.get("owner_email");
+    if owner_email.eq_ignore_ascii_case(email) {
+        return Ok(());
+    }
+
+    let is_member = sqlx::query_scalar::<_, bool>(
+        "SELECT EXISTS(
+            SELECT 1
+            FROM invitations i
+            JOIN users u ON u.id = i.user_id
+            WHERE i.event_id = $1
+              AND i.status = 'Accepted'
+              AND lower(u.email) = lower($2)
+        )",
+    )
+    .bind(event_id)
+    .bind(email)
+    .fetch_one(db)
+    .await
+    .map_err(|_| server_error())?;
+
+    if is_member {
+        Ok(())
+    } else {
+        Err(HttpResponse::Forbidden().json(ErrorResponse {
+            error: "forbidden".into(),
+            details: Some("Accès refusé à cette fiestaaa".into()),
+        }))
     }
 }
 

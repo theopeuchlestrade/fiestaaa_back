@@ -20,7 +20,7 @@ use crate::{
         StatusResponse,
     },
     notifications::{NotificationRequest, event_member_user_ids, notify_users},
-    realtime::{event_types, publish_event, publish_global},
+    realtime::{event_types, publish_event, publish_event_type, publish_global_type},
     routes::event_access::{ensure_event_writable, fetch_event_timing},
     state::AppState,
 };
@@ -848,15 +848,7 @@ pub async fn create_event(
 
     match res {
         Ok(event) => {
-            publish_global(
-                &state.redis_client,
-                &json!({
-                    "type": event_types::EVENTS_CHANGED,
-                    "action": "created",
-                    "event_id": event.event_id,
-                }),
-            )
-            .await;
+            publish_global_type(&state.redis_client, event_types::EVENTS_CHANGED).await;
             HttpResponse::Created().json(event)
         }
         Err(Error::Database(db_err)) if db_err.code().as_deref() == Some("23503") => {
@@ -1024,15 +1016,7 @@ pub async fn replace_event(
                 &json!({"type": event_types::EVENT_UPDATED, "event_id": event.event_id}),
             )
             .await;
-            publish_global(
-                &state.redis_client,
-                &json!({
-                    "type": event_types::EVENTS_CHANGED,
-                    "action": "updated",
-                    "event_id": event.event_id,
-                }),
-            )
-            .await;
+            publish_global_type(&state.redis_client, event_types::EVENTS_CHANGED).await;
             HttpResponse::Ok().json(event)
         }
         Ok(None) => HttpResponse::NotFound().json(ErrorResponse {
@@ -1322,15 +1306,7 @@ pub async fn update_event(
                 &json!({"type": event_types::EVENT_UPDATED, "event_id": event.event_id}),
             )
             .await;
-            publish_global(
-                &state.redis_client,
-                &json!({
-                    "type": event_types::EVENTS_CHANGED,
-                    "action": "updated",
-                    "event_id": event.event_id,
-                }),
-            )
-            .await;
+            publish_global_type(&state.redis_client, event_types::EVENTS_CHANGED).await;
             HttpResponse::Ok().json(event)
         }
         Ok(None) => HttpResponse::NotFound().json(ErrorResponse {
@@ -1394,15 +1370,7 @@ pub async fn delete_event(
                 &json!({"type": event_types::EVENT_DELETED, "event_id": *event_id}),
             )
             .await;
-            publish_global(
-                &state.redis_client,
-                &json!({
-                    "type": event_types::EVENTS_CHANGED,
-                    "action": "deleted",
-                    "event_id": *event_id,
-                }),
-            )
-            .await;
+            publish_global_type(&state.redis_client, event_types::EVENTS_CHANGED).await;
             HttpResponse::Ok().json(StatusResponse {
                 status: "deleted".into(),
             })
@@ -1623,29 +1591,13 @@ pub async fn claim_share_link(
     }
 
     if invitation_inserted {
-        publish_event(
+        publish_event_type(
             &state.redis_client,
             event.event_id,
-            &json!({
-                "type": event_types::EVENT_INVITATIONS_CHANGED,
-                "event_id": event.event_id,
-                "action": "created",
-                "status": "Waiting",
-                "email": claims.sub.clone(),
-            }),
+            event_types::EVENT_INVITATIONS_CHANGED,
         )
         .await;
-        publish_global(
-            &state.redis_client,
-            &json!({
-                "type": event_types::INVITATIONS_CHANGED,
-                "event_id": event.event_id,
-                "action": "created",
-                "status": "Waiting",
-                "email": claims.sub,
-            }),
-        )
-        .await;
+        publish_global_type(&state.redis_client, event_types::INVITATIONS_CHANGED).await;
     }
 
     HttpResponse::Ok().json(ShareClaimResponse { event })
