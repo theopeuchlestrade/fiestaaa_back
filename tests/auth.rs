@@ -403,7 +403,7 @@ async fn login_rejects_invalid_credentials() -> Result<(), Box<dyn Error>> {
 }
 
 #[tokio::test]
-async fn login_explains_when_email_is_not_verified_yet() -> Result<(), Box<dyn Error>> {
+async fn login_keeps_pending_registrations_indistinguishable() -> Result<(), Box<dyn Error>> {
     let Some(pool) = obtain_pool().await else {
         eprintln!("Skipping auth tests: DATABASE_URL or TEST_DATABASE_URL not set");
         return Ok(());
@@ -435,12 +435,12 @@ async fn login_explains_when_email_is_not_verified_yet() -> Result<(), Box<dyn E
             .to_request(),
     )
     .await;
-    assert_eq!(login_resp.status(), StatusCode::FORBIDDEN);
+    assert_eq!(login_resp.status(), StatusCode::UNAUTHORIZED);
 
     let body: Value = test::read_body_json(login_resp).await;
     assert_eq!(
         body.get("error").and_then(|value| value.as_str()),
-        Some("email_not_verified")
+        Some("invalid_credentials")
     );
 
     Ok(())

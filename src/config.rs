@@ -69,6 +69,8 @@ pub struct AppConfig {
     pub cors_allowed_origins: Vec<String>,
     pub auth_rate_limit_max_attempts: usize,
     pub auth_rate_limit_window_seconds: u64,
+    pub invitation_rate_limit_max_attempts: usize,
+    pub invitation_rate_limit_window_seconds: u64,
 }
 
 impl AppConfig {
@@ -187,6 +189,16 @@ impl AppConfig {
             .ok()
             .and_then(|v| v.parse().ok())
             .unwrap_or(60);
+        let invitation_rate_limit_max_attempts =
+            std::env::var("INVITATION_RATE_LIMIT_MAX_ATTEMPTS")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(10);
+        let invitation_rate_limit_window_seconds =
+            std::env::var("INVITATION_RATE_LIMIT_WINDOW_SECONDS")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(300);
         Self {
             host,
             port,
@@ -218,6 +230,8 @@ impl AppConfig {
             cors_allowed_origins,
             auth_rate_limit_max_attempts,
             auth_rate_limit_window_seconds,
+            invitation_rate_limit_max_attempts,
+            invitation_rate_limit_window_seconds,
         }
     }
 }

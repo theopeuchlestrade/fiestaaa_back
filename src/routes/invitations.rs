@@ -22,6 +22,37 @@ fn claims_email(req: &HttpRequest, state: &AppState) -> Result<String, HttpRespo
     Ok(claims.sub.to_lowercase())
 }
 
+fn invitation_rate_limit_remote(req: &HttpRequest, state: &AppState) -> String {
+    if state.trust_proxy_headers {
+        return req
+            .connection_info()
+            .realip_remote_addr()
+            .unwrap_or("unknown")
+            .to_string();
+    }
+
+    req.peer_addr()
+        .map(|addr| addr.ip().to_string())
+        .unwrap_or_else(|| "unknown".to_string())
+}
+
+async fn enforce_invitation_rate_limit(
+    req: &HttpRequest,
+    state: &AppState,
+    owner_email: &str,
+) -> Result<(), HttpResponse> {
+    let remote = invitation_rate_limit_remote(req, state);
+    let key = format!("invitation:email:{}:{remote}", owner_email.to_lowercase());
+    if state.invitation_rate_limiter.allow(&key).await {
+        Ok(())
+    } else {
+        Err(HttpResponse::TooManyRequests().json(ErrorResponse {
+            error: "rate_limited".into(),
+            details: Some("too many email invitations".into()),
+        }))
+    }
+}
+
 async fn fetch_event_owner_email(db: &sqlx::PgPool, event_id: i64) -> Result<String, HttpResponse> {
     let owner =
         sqlx::query_scalar::<_, String>("SELECT owner_email FROM events WHERE event_id = $1")
@@ -207,20 +238,6 @@ fn parse_identifier(raw: &str) -> Result<TargetIdentifier, HttpResponse> {
 
 async fn fetch_user_by_email(db: &sqlx::PgPool, email: &str) -> Result<UserIdentity, HttpResponse> {
     let _ = ensure_avatar_column(db).await;
-    match find_user_by_email(db, email).await? {
-        Some(u) => Ok(u),
-        None => Err(HttpResponse::NotFound().json(ErrorResponse {
-            error: "user_not_found".into(),
-            details: None,
-        })),
-    }
-}
-
-async fn find_user_by_email(
-    db: &sqlx::PgPool,
-    email: &str,
-) -> Result<Option<UserIdentity>, HttpResponse> {
-    let _ = ensure_avatar_column(db).await;
     let normalized = email.trim().to_lowercase();
     if normalized.is_empty() {
         return Err(HttpResponse::BadRequest().json(ErrorResponse {
@@ -238,6 +255,12 @@ async fn find_user_by_email(
     .map_err(|_| {
         HttpResponse::InternalServerError().json(ErrorResponse {
             error: "db_error".into(),
+            details: None,
+        })
+    })?
+    .ok_or_else(|| {
+        HttpResponse::NotFound().json(ErrorResponse {
+            error: "user_not_found".into(),
             details: None,
         })
     })
@@ -468,13 +491,79 @@ async fn send_invitation_email(
     }
 }
 
-async fn invite_unregistered_user(
+fn accepted_email_invitation_response() -> HttpResponse {
+    HttpResponse::Accepted().json(StatusResponse {
+        status: "email_sent".into(),
+    })
+}
+
+async fn invite_email_target(
     state: &AppState,
     event_id: i64,
     invitee_email: &str,
     owner_email: &str,
 ) -> Result<HttpResponse, HttpResponse> {
+    let normalized_invitee = invitee_email.trim().to_lowercase();
+    if normalized_invitee.is_empty() {
+        return Err(HttpResponse::BadRequest().json(ErrorResponse {
+            error: "invalid_email".into(),
+            details: Some("email is required".into()),
+        }));
+    }
+    if normalized_invitee.eq_ignore_ascii_case(owner_email) {
+        return Ok(accepted_email_invitation_response());
+    }
+
     let event = fetch_event_email_metadata(&state.db, event_id).await?;
+
+    let already_invited = sqlx::query_scalar::<_, bool>(
+        "SELECT EXISTS(
+            SELECT 1
+            FROM invitations i
+            JOIN users u ON u.id = i.user_id
+            WHERE i.event_id = $1
+              AND lower(u.email) = lower($2)
+              AND i.status <> 'Expired'
+        )",
+    )
+    .bind(event_id)
+    .bind(&normalized_invitee)
+    .fetch_one(&state.db)
+    .await
+    .map_err(|_| {
+        HttpResponse::InternalServerError().json(ErrorResponse {
+            error: "db_error".into(),
+            details: None,
+        })
+    })?;
+    if already_invited {
+        return Ok(accepted_email_invitation_response());
+    }
+
+    let existing_pending = sqlx::query_scalar::<_, bool>(
+        "SELECT EXISTS(
+            SELECT 1
+            FROM event_share_tokens
+            WHERE event_id = $1
+              AND lower(target_email) = lower($2)
+              AND target_email IS NOT NULL
+              AND used_at IS NULL
+              AND expires_at >= NOW()
+        )",
+    )
+    .bind(event_id)
+    .bind(&normalized_invitee)
+    .fetch_one(&state.db)
+    .await
+    .map_err(|_| {
+        HttpResponse::InternalServerError().json(ErrorResponse {
+            error: "db_error".into(),
+            details: None,
+        })
+    })?;
+    if existing_pending {
+        return Ok(accepted_email_invitation_response());
+    }
 
     let mut tx = state.db.begin().await.map_err(|_| {
         HttpResponse::InternalServerError().json(ErrorResponse {
@@ -493,7 +582,7 @@ async fn invite_unregistered_user(
     .bind(token)
     .bind(event_id)
     .bind(owner_email)
-    .bind(invitee_email.to_lowercase())
+    .bind(&normalized_invitee)
     .bind(expires_at)
     .execute(&mut *tx)
     .await)
@@ -514,12 +603,25 @@ async fn invite_unregistered_user(
     }
 
     let share_link = build_share_link(&state.app_base_url, &token);
+    if let Err(resp) =
+        send_invitation_email(state, &normalized_invitee, owner_email, &share_link, &event).await
+    {
+        let _ = sqlx::query("DELETE FROM event_share_tokens WHERE token = $1")
+            .bind(token)
+            .execute(&state.db)
+            .await;
+        return Err(resp);
+    }
 
-    send_invitation_email(state, invitee_email, owner_email, &share_link, &event).await?;
+    publish_event_type(
+        &state.redis_client,
+        event_id,
+        event_types::EVENT_INVITATIONS_CHANGED,
+    )
+    .await;
+    publish_global_type(&state.redis_client, event_types::INVITATIONS_CHANGED).await;
 
-    Ok(HttpResponse::Accepted().json(StatusResponse {
-        status: "email_sent".into(),
-    }))
+    Ok(accepted_email_invitation_response())
 }
 
 async fn insert_invitation_for_user(
@@ -598,6 +700,26 @@ pub async fn list_event_invitations(
          JOIN events e ON e.event_id = i.event_id
          WHERE i.event_id = $1
            AND lower(u.email) <> lower(e.owner_email)
+         UNION ALL
+         SELECT pending.event_id,
+                NULL::BIGINT AS user_id,
+                pending.target_email AS email,
+                NULL::TEXT AS handle,
+                NULL::TEXT AS avatar_url,
+                'Waiting'::text AS status,
+                pending.created_at AS date_invi,
+                e.name_event AS event_name
+         FROM (
+             SELECT DISTINCT ON (lower(target_email))
+                    event_id, target_email, created_at
+             FROM event_share_tokens
+             WHERE event_id = $1
+               AND target_email IS NOT NULL
+               AND used_at IS NULL
+               AND expires_at >= NOW()
+             ORDER BY lower(target_email), created_at DESC
+         ) pending
+         JOIN events e ON e.event_id = pending.event_id
          ORDER BY date_invi DESC",
     )
     .bind(*event_id)
@@ -619,11 +741,12 @@ pub async fn list_event_invitations(
     request_body = InvitationPayload,
     responses(
         (status = 201, description = "Invitation créée", body = Invitation),
-        (status = 202, description = "Invitation envoyée par email", body = StatusResponse),
+        (status = 202, description = "Invitation email acceptée pour traitement", body = StatusResponse),
         (status = 400, description = "Payload invalide", body = ErrorResponse),
         (status = 403, description = "Non autorisé", body = ErrorResponse),
         (status = 404, description = "Événement ou utilisateur introuvable", body = ErrorResponse),
-        (status = 409, description = "Invitation existante", body = ErrorResponse)
+        (status = 409, description = "Invitation existante", body = ErrorResponse),
+        (status = 429, description = "Trop d'invitations email", body = ErrorResponse)
     )
 )]
 #[post("/events/{event_id}/invitations")]
@@ -680,70 +803,14 @@ pub async fn create_invitation(
 
     match identifier {
         TargetIdentifier::Email(email) => {
-            let user = match find_user_by_email(&state.db, &email).await {
-                Ok(u) => u,
-                Err(resp) => return resp,
-            };
-
-            if let Some(user) = user {
-                match insert_invitation_for_user(&state.db, *event_id, &user).await {
-                    Ok(Some(inv)) => {
-                        publish_event_type(
-                            &state.redis_client,
-                            *event_id,
-                            event_types::EVENT_INVITATIONS_CHANGED,
-                        )
-                        .await;
-                        publish_global_type(&state.redis_client, event_types::INVITATIONS_CHANGED)
-                            .await;
-                        let event_name =
-                            inv.event_name.clone().unwrap_or("un événement".to_string());
-                        let title = format!("Invitation à {event_name}");
-                        let body = format!("{} t'a invité(e) à {event_name}", owner_email);
-                        let dedup = format!("invite_received:{}", *event_id);
-                        notify_users(
-                            &state.notifications,
-                            &state.db,
-                            &[user.id],
-                            NotificationRequest {
-                                title: &title,
-                                body: &body,
-                                data: json!({
-                                    "type": "invite_received",
-                                    "event_id": *event_id,
-                                    "event_name": inv.event_name.clone()
-                                }),
-                                dedup_base_key: Some(dedup.as_str()),
-                                dedup_ttl: Some(600),
-                            },
-                        )
-                        .await;
-                        HttpResponse::Created().json(inv)
-                    }
-                    Ok(None) => HttpResponse::Conflict().json(ErrorResponse {
-                        error: "invitation_exists".into(),
-                        details: None,
-                    }),
-                    Err(sqlx::Error::Database(db_err))
-                        if db_err.code().as_deref() == Some("23505") =>
-                    {
-                        HttpResponse::Conflict().json(ErrorResponse {
-                            error: "invitation_exists".into(),
-                            details: None,
-                        })
-                    }
-                    Err(_) => HttpResponse::InternalServerError().json(ErrorResponse {
-                        error: "db_error".into(),
-                        details: None,
-                    }),
-                }
-            } else {
-                match invite_unregistered_user(state.get_ref(), *event_id, &email, &owner_email)
-                    .await
-                {
-                    Ok(resp) => resp,
-                    Err(resp) => resp,
-                }
+            if let Err(resp) =
+                enforce_invitation_rate_limit(&req, state.get_ref(), &owner_email).await
+            {
+                return resp;
+            }
+            match invite_email_target(state.get_ref(), *event_id, &email, &owner_email).await {
+                Ok(resp) => resp,
+                Err(resp) => resp,
             }
         }
         TargetIdentifier::Handle(handle) => {

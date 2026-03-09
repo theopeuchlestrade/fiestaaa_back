@@ -12,10 +12,7 @@ use crate::{
         build_cleared_session_cookie, build_session_cookie, encode_jwt, fetch_user_auth,
         hash_password, now_ts, random_password_token, validate_password_strength, verify_password,
     },
-    handles::{
-        generate_unique_handle, handle_available, is_valid_handle, looks_like_email,
-        normalize_handle,
-    },
+    handles::{generate_unique_handle, handle_available, is_valid_handle, normalize_handle},
     models::{
         AppleClaims, Claims, CompleteRegistrationPayload, ErrorResponse, LoginPayload,
         OAuthPayload, RegisterPayload, StatusResponse, TokenResponse, VerifyEmailPayload,
@@ -117,33 +114,6 @@ async fn pending_handle_exists(db: &PgPool, handle: &str) -> Result<bool, sqlx::
 
 async fn registration_handle_available(db: &PgPool, handle: &str) -> Result<bool, sqlx::Error> {
     Ok(handle_available(db, handle).await? && !pending_handle_exists(db, handle).await?)
-}
-
-async fn fetch_pending_registration_for_login(
-    db: &PgPool,
-    identifier: &str,
-) -> Result<Option<PendingRegistrationRow>, sqlx::Error> {
-    let trimmed = identifier.trim();
-    if looks_like_email(trimmed) {
-        sqlx::query_as::<_, PendingRegistrationRow>(
-            "SELECT email, verification_expires_at
-             FROM pending_registrations
-             WHERE lower(email) = lower($1)",
-        )
-        .bind(trimmed)
-        .fetch_optional(db)
-        .await
-    } else {
-        let normalized = normalize_handle(trimmed).normalized;
-        sqlx::query_as::<_, PendingRegistrationRow>(
-            "SELECT email, verification_expires_at
-             FROM pending_registrations
-             WHERE lower(handle) = lower($1)",
-        )
-        .bind(normalized)
-        .fetch_optional(db)
-        .await
-    }
 }
 
 async fn generate_registration_handle(state: &AppState) -> Result<String, HttpResponse> {
@@ -1371,7 +1341,6 @@ pub async fn logout(state: web::Data<AppState>) -> impl Responder {
     request_body = LoginPayload,
     responses(
         (status = 200, description = "Valid credentials", body = TokenResponse),
-        (status = 403, description = "Email not verified yet", body = ErrorResponse),
         (status = 401, description = "Invalid credentials", body = ErrorResponse),
         (status = 500, description = "Database or token creation error", body = ErrorResponse)
     )
@@ -1388,24 +1357,6 @@ pub async fn login(
     let auth_row = match fetch_user_auth(&state.db, &payload.identifier).await {
         Ok(Some(row)) => row,
         Ok(None) => {
-            let pending =
-                match fetch_pending_registration_for_login(&state.db, &payload.identifier).await {
-                    Ok(value) => value,
-                    Err(_) => {
-                        return HttpResponse::InternalServerError().json(ErrorResponse {
-                            error: "db_error".into(),
-                            details: None,
-                        });
-                    }
-                };
-            if let Some(pending) = pending
-                && pending.verification_expires_at >= Utc::now()
-            {
-                return HttpResponse::Forbidden().json(ErrorResponse {
-                    error: "email_not_verified".into(),
-                    details: None,
-                });
-            }
             return HttpResponse::Unauthorized().json(ErrorResponse {
                 error: "invalid_credentials".into(),
                 details: None,

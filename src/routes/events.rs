@@ -1394,7 +1394,7 @@ pub async fn delete_event(
     path = "/events/{event_id}/share",
     tag = "events",
     responses(
-        (status = 201, description = "Lien de partage généré", body = ShareTokenResponse),
+        (status = 201, description = "Lien de partage généré. C'est un bearer token: tout utilisateur authentifié qui l'obtient peut le réclamer jusqu'à expiration ou consommation.", body = ShareTokenResponse),
         (status = 403, description = "Non autorisé", body = ErrorResponse),
         (status = 404, description = "Événement introuvable", body = ErrorResponse),
         (status = 500, description = "Erreur base de données", body = ErrorResponse)
@@ -1645,7 +1645,8 @@ pub async fn claim_share_link(
     responses(
         (status = 200, description = "Items configurés pour l'événement", body = [EventItemView]),
         (status = 400, description = "Scope invalide", body = ErrorResponse),
-        (status = 401, description = "Authentification requise pour scope=mine", body = ErrorResponse),
+        (status = 401, description = "Authentification requise", body = ErrorResponse),
+        (status = 403, description = "Accès réservé aux membres de l'événement", body = ErrorResponse),
         (status = 404, description = "Événement introuvable", body = ErrorResponse),
         (status = 500, description = "Erreur base de données", body = ErrorResponse)
     ),
@@ -1670,6 +1671,9 @@ pub async fn list_event_items(
     };
 
     if let Err(resp) = ensure_event_exists(&state.db, *event_id).await {
+        return resp;
+    }
+    if let Err(resp) = ensure_event_member(&req, state.get_ref(), *event_id).await {
         return resp;
     }
 
@@ -2147,6 +2151,11 @@ pub async fn reserve_event_item(
         Err(resp) => return resp,
     };
 
+    let (event_id, item_id) = path.into_inner();
+    if let Err(resp) = ensure_event_member(&req, state.get_ref(), event_id).await {
+        return resp;
+    }
+
     let payload = payload.into_inner();
     if payload.quantity < 0 {
         return HttpResponse::BadRequest().json(ErrorResponse {
@@ -2159,8 +2168,6 @@ pub async fn reserve_event_item(
         Ok(id) => id,
         Err(resp) => return resp,
     };
-
-    let (event_id, item_id) = path.into_inner();
 
     if let Err(resp) = ensure_event_exists(&state.db, event_id).await {
         return resp;

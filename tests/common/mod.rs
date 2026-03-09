@@ -75,5 +75,6 @@ pub fn build_state(pool: PgPool, secret: &str, admin_emails: &[&str]) -> web::Da
         apple_service_id: None,
         google_ios_client_id: None,
         auth_rate_limiter: AuthRateLimiter::new(1000, std::time::Duration::from_secs(60)),
+        invitation_rate_limiter: AuthRateLimiter::new(1000, std::time::Duration::from_secs(60)),
     })
 }

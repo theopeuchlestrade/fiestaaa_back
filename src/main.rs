@@ -73,6 +73,10 @@ async fn main() -> std::io::Result<()> {
             cfg.auth_rate_limit_max_attempts,
             Duration::from_secs(cfg.auth_rate_limit_window_seconds),
         ),
+        invitation_rate_limiter: rate_limit::AuthRateLimiter::new(
+            cfg.invitation_rate_limit_max_attempts,
+            Duration::from_secs(cfg.invitation_rate_limit_window_seconds),
+        ),
     });
 
     // Server

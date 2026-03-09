@@ -29,11 +29,18 @@ fn admin_token(secret: &str, email: &str) -> Option<String> {
 
 async fn seed_user(pool: &PgPool, email: &str) -> sqlx::Result<i64> {
     let hash = hash_password("password").expect("hash");
+    let handle = email
+        .split('@')
+        .next()
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or("user")
+        .replace(|c: char| !c.is_ascii_alphanumeric(), "_");
     sqlx::query_scalar::<_, i64>(
-        "INSERT INTO users (email, password_hash) VALUES ($1, $2) RETURNING id",
+        "INSERT INTO users (email, password_hash, handle) VALUES ($1, $2, $3) RETURNING id",
     )
     .bind(email)
     .bind(hash)
+    .bind(handle)
     .fetch_one(pool)
     .await
 }
@@ -81,7 +88,7 @@ async fn invitations_crud_flow() -> Result<(), Box<dyn Error>> {
             .uri(&format!("/events/{}/invitations", event_id))
             .insert_header(("Authorization", format!("Bearer {}", owner_token.clone())))
             .set_json(&InvitationPayload {
-                identifier: invitee_email.into(),
+                identifier: "guest".into(),
                 status: None,
             })
             .to_request(),
@@ -234,6 +241,90 @@ async fn email_invite_share_token_is_bound_to_target_email() -> Result<(), Box<d
     )
     .await;
     assert_eq!(success_resp.status(), StatusCode::OK);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn email_invites_hide_registered_state_and_appear_as_pending_entries()
+-> Result<(), Box<dyn Error>> {
+    let Some(pool) = obtain_pool().await else {
+        eprintln!("Skipping invitations tests: DATABASE_URL or TEST_DATABASE_URL not set");
+        return Ok(());
+    };
+    let _guard = DB_LOCK.lock().await;
+    reset_tables(
+        &pool,
+        &["event_share_tokens", "invitations", "events", "users"],
+    )
+    .await?;
+
+    let secret = "secret";
+    let owner_email = "owner@example.com";
+    let registered_email = "registered@example.com";
+    let unregistered_email = "future-guest@example.com";
+    let state = build_state(pool.clone(), secret, &[]);
+    let app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
+
+    let event_id = seed_event(&pool, owner_email).await?;
+    let owner_token = admin_token(secret, owner_email).expect("token");
+    let _registered_id = seed_user(&pool, registered_email).await?;
+
+    for email in [registered_email, unregistered_email] {
+        let resp = test::call_service(
+            &app,
+            test::TestRequest::post()
+                .uri(&format!("/events/{}/invitations", event_id))
+                .insert_header(("Authorization", format!("Bearer {}", owner_token.clone())))
+                .set_json(&InvitationPayload {
+                    identifier: email.into(),
+                    status: None,
+                })
+                .to_request(),
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::ACCEPTED);
+    }
+
+    let invitations_resp = test::call_service(
+        &app,
+        test::TestRequest::get()
+            .uri(&format!("/events/{}/invitations", event_id))
+            .insert_header(("Authorization", format!("Bearer {}", owner_token)))
+            .to_request(),
+    )
+    .await;
+    assert_eq!(invitations_resp.status(), StatusCode::OK);
+    let invitations: Vec<Invitation> = test::read_body_json(invitations_resp).await;
+
+    let pending_registered = invitations
+        .iter()
+        .find(|inv| inv.email.eq_ignore_ascii_case(registered_email))
+        .expect("registered email pending entry");
+    assert!(pending_registered.user_id.is_none());
+    assert!(pending_registered.handle.is_none());
+
+    let pending_unregistered = invitations
+        .iter()
+        .find(|inv| inv.email.eq_ignore_ascii_case(unregistered_email))
+        .expect("unregistered email pending entry");
+    assert!(pending_unregistered.user_id.is_none());
+    assert!(pending_unregistered.handle.is_none());
+
+    let share_rows: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM event_share_tokens WHERE event_id = $1 AND target_email IS NOT NULL AND used_at IS NULL",
+    )
+    .bind(event_id)
+    .fetch_one(&pool)
+    .await?;
+    assert_eq!(share_rows, 2);
+
+    let invitation_rows: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM invitations WHERE event_id = $1")
+            .bind(event_id)
+            .fetch_one(&pool)
+            .await?;
+    assert_eq!(invitation_rows, 0);
 
     Ok(())
 }

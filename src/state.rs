@@ -28,4 +28,5 @@ pub struct AppState {
     pub apple_app_id: Option<String>,
     pub apple_service_id: Option<String>,
     pub auth_rate_limiter: AuthRateLimiter,
+    pub invitation_rate_limiter: AuthRateLimiter,
 }
