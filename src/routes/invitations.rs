@@ -506,21 +506,16 @@ async fn invite_unregistered_user(
         }));
     }
 
-    let share_link = build_share_link(&state.app_base_url, &token);
-
-    if let Err(resp) =
-        send_invitation_email(state, invitee_email, owner_email, &share_link, &event).await
-    {
-        let _ = tx.rollback().await;
-        return Err(resp);
-    }
-
     if (tx.commit().await).is_err() {
         return Err(HttpResponse::InternalServerError().json(ErrorResponse {
             error: "db_error".into(),
             details: None,
         }));
     }
+
+    let share_link = build_share_link(&state.app_base_url, &token);
+
+    send_invitation_email(state, invitee_email, owner_email, &share_link, &event).await?;
 
     Ok(HttpResponse::Accepted().json(StatusResponse {
         status: "email_sent".into(),

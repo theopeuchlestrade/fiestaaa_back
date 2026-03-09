@@ -409,27 +409,25 @@ pub async fn register(
     .await;
 
     match res {
-        Ok(_) => match send_verification_email(state.get_ref(), &email, &verification_link).await {
-            Ok(email_sent) => {
-                if tx.commit().await.is_err() {
-                    return HttpResponse::InternalServerError().json(ErrorResponse {
-                        error: "db_error".into(),
-                        details: None,
-                    });
-                }
-                HttpResponse::Created().json(StatusResponse {
+        Ok(_) => {
+            if tx.commit().await.is_err() {
+                return HttpResponse::InternalServerError().json(ErrorResponse {
+                    error: "db_error".into(),
+                    details: None,
+                });
+            }
+
+            match send_verification_email(state.get_ref(), &email, &verification_link).await {
+                Ok(email_sent) => HttpResponse::Created().json(StatusResponse {
                     status: if email_sent {
                         "verification_email_sent".into()
                     } else {
                         "verification_pending".into()
                     },
-                })
+                }),
+                Err(resp) => resp,
             }
-            Err(resp) => {
-                let _ = tx.rollback().await;
-                resp
-            }
-        },
+        }
         Err(e) => {
             let _ = tx.rollback().await;
             match e {
@@ -1203,17 +1201,16 @@ pub async fn login(
     let auth_row = match fetch_user_auth(&state.db, &payload.identifier).await {
         Ok(Some(row)) => row,
         Ok(None) => {
-            let pending = match fetch_pending_registration_for_login(&state.db, &payload.identifier)
-                .await
-            {
-                Ok(value) => value,
-                Err(_) => {
-                    return HttpResponse::InternalServerError().json(ErrorResponse {
-                        error: "db_error".into(),
-                        details: None,
-                    });
-                }
-            };
+            let pending =
+                match fetch_pending_registration_for_login(&state.db, &payload.identifier).await {
+                    Ok(value) => value,
+                    Err(_) => {
+                        return HttpResponse::InternalServerError().json(ErrorResponse {
+                            error: "db_error".into(),
+                            details: None,
+                        });
+                    }
+                };
             if let Some(pending) = pending
                 && pending.verification_expires_at >= Utc::now()
                 && verify_password(&pending.password_hash, &payload.password)
