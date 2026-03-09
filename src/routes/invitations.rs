@@ -12,7 +12,8 @@ use crate::{
         ErrorResponse, Invitation, InvitationPatchPayload, InvitationPayload, StatusResponse,
     },
     notifications::{NotificationRequest, find_user_id_by_email, notify_users},
-    realtime::{event_types, publish_event, publish_global},
+    realtime::{event_types, publish_event, publish_event_type, publish_global_type},
+    routes::event_access::ensure_event_writable,
     state::AppState,
 };
 
@@ -533,7 +534,7 @@ async fn insert_invitation_for_user(
          ON CONFLICT (event_id, user_id)
          DO UPDATE SET status = 'Waiting', date_invi = NOW()
          WHERE invitations.status = 'Expired'
-         RETURNING event_id, $3 AS email, $4 AS handle, $5 AS avatar_url, status, date_invi,
+         RETURNING event_id, user_id, $3 AS email, $4 AS handle, $5 AS avatar_url, status, date_invi,
                    (SELECT name_event FROM events WHERE event_id = $1) AS event_name",
     )
     .bind(event_id)
@@ -574,6 +575,7 @@ pub async fn list_event_invitations(
 
     match sqlx::query_as::<_, Invitation>(
         "SELECT e.event_id,
+                u_owner.id AS user_id,
                 e.owner_email AS email,
                 u_owner.handle AS handle,
                 u_owner.avatar_url AS avatar_url,
@@ -585,6 +587,7 @@ pub async fn list_event_invitations(
          WHERE e.event_id = $1
          UNION ALL
          SELECT i.event_id,
+                u.id AS user_id,
                 u.email,
                 u.handle,
                 u.avatar_url,
@@ -638,6 +641,9 @@ pub async fn create_invitation(
         Ok(owner) => owner,
         Err(resp) => return resp,
     };
+    if let Err(resp) = ensure_event_writable(&state.db, *event_id).await {
+        return resp;
+    }
     if let Err(resp) = expire_overdue_invitations(&state.db).await {
         return resp;
     }
@@ -683,29 +689,14 @@ pub async fn create_invitation(
             if let Some(user) = user {
                 match insert_invitation_for_user(&state.db, *event_id, &user).await {
                     Ok(Some(inv)) => {
-                        publish_event(
+                        publish_event_type(
                             &state.redis_client,
                             *event_id,
-                            &json!({
-                                "type": event_types::EVENT_INVITATIONS_CHANGED,
-                                "event_id": *event_id,
-                                "action": "created",
-                                "status": inv.status.clone(),
-                                "email": inv.email.clone(),
-                            }),
+                            event_types::EVENT_INVITATIONS_CHANGED,
                         )
                         .await;
-                        publish_global(
-                            &state.redis_client,
-                            &json!({
-                                "type": event_types::INVITATIONS_CHANGED,
-                                "event_id": *event_id,
-                                "action": "created",
-                                "status": inv.status.clone(),
-                                "email": inv.email.clone(),
-                            }),
-                        )
-                        .await;
+                        publish_global_type(&state.redis_client, event_types::INVITATIONS_CHANGED)
+                            .await;
                         let event_name =
                             inv.event_name.clone().unwrap_or("un événement".to_string());
                         let title = format!("Invitation à {event_name}");
@@ -765,29 +756,14 @@ pub async fn create_invitation(
             match user {
                 Some(user) => match insert_invitation_for_user(&state.db, *event_id, &user).await {
                     Ok(Some(inv)) => {
-                        publish_event(
+                        publish_event_type(
                             &state.redis_client,
                             *event_id,
-                            &json!({
-                                "type": event_types::EVENT_INVITATIONS_CHANGED,
-                                "event_id": *event_id,
-                                "action": "created",
-                                "status": inv.status.clone(),
-                                "email": inv.email.clone(),
-                            }),
+                            event_types::EVENT_INVITATIONS_CHANGED,
                         )
                         .await;
-                        publish_global(
-                            &state.redis_client,
-                            &json!({
-                                "type": event_types::INVITATIONS_CHANGED,
-                                "event_id": *event_id,
-                                "action": "created",
-                                "status": inv.status.clone(),
-                                "email": inv.email.clone(),
-                            }),
-                        )
-                        .await;
+                        publish_global_type(&state.redis_client, event_types::INVITATIONS_CHANGED)
+                            .await;
                         let event_name =
                             inv.event_name.clone().unwrap_or("un événement".to_string());
                         let title = format!("Invitation à {event_name}");
@@ -858,6 +834,9 @@ pub async fn delete_invitation(
     if let Err(resp) = ensure_event_owner(&req, state.get_ref(), event_id).await {
         return resp;
     }
+    if let Err(resp) = ensure_event_writable(&state.db, event_id).await {
+        return resp;
+    }
     let owner_email = match fetch_event_owner_email(&state.db, event_id).await {
         Ok(owner) => owner,
         Err(resp) => return resp,
@@ -884,27 +863,13 @@ pub async fn delete_invitation(
             details: None,
         }),
         Ok(_) => {
-            publish_event(
+            publish_event_type(
                 &state.redis_client,
                 event_id,
-                &json!({
-                    "type": event_types::EVENT_INVITATIONS_CHANGED,
-                    "event_id": event_id,
-                    "action": "deleted",
-                    "email": email.clone(),
-                }),
+                event_types::EVENT_INVITATIONS_CHANGED,
             )
             .await;
-            publish_global(
-                &state.redis_client,
-                &json!({
-                    "type": event_types::INVITATIONS_CHANGED,
-                    "event_id": event_id,
-                    "action": "deleted",
-                    "email": email,
-                }),
-            )
-            .await;
+            publish_global_type(&state.redis_client, event_types::INVITATIONS_CHANGED).await;
             HttpResponse::Ok().json(StatusResponse {
                 status: "deleted".into(),
             })
@@ -937,7 +902,7 @@ pub async fn list_my_invitations(state: web::Data<AppState>, req: HttpRequest) -
     }
 
     match sqlx::query_as::<_, Invitation>(
-        "SELECT i.event_id, u.email, u.handle, u.avatar_url, i.status, i.date_invi, e.name_event AS event_name
+        "SELECT i.event_id, u.id AS user_id, u.email, u.handle, u.avatar_url, i.status, i.date_invi, e.name_event AS event_name
          FROM invitations i
          JOIN users u ON u.id = i.user_id
          JOIN events e ON e.event_id = i.event_id
@@ -979,6 +944,9 @@ pub async fn respond_invitation(
         Ok(e) => e,
         Err(resp) => return resp,
     };
+    if let Err(resp) = ensure_event_writable(&state.db, *event_id).await {
+        return resp;
+    }
 
     let status = match payload.status.clone() {
         Some(s) if matches!(s.trim(), "Accepted" | "Declined") => s.trim().to_string(),
@@ -1056,6 +1024,7 @@ pub async fn respond_invitation(
          )
          SELECT 
             ui.event_id, 
+            ui.user_id,
             u.email, 
             u.handle, 
             u.avatar_url, 
@@ -1250,29 +1219,13 @@ pub async fn respond_invitation(
         });
     }
 
-    publish_event(
+    publish_event_type(
         &state.redis_client,
         *event_id,
-        &json!({
-            "type": event_types::EVENT_INVITATIONS_CHANGED,
-            "event_id": *event_id,
-            "action": "updated",
-            "status": target_status.as_str(),
-            "email": updated.email.clone(),
-        }),
+        event_types::EVENT_INVITATIONS_CHANGED,
     )
     .await;
-    publish_global(
-        &state.redis_client,
-        &json!({
-            "type": event_types::INVITATIONS_CHANGED,
-            "event_id": *event_id,
-            "action": "updated",
-            "status": target_status.as_str(),
-            "email": updated.email.clone(),
-        }),
-    )
-    .await;
+    publish_global_type(&state.redis_client, event_types::INVITATIONS_CHANGED).await;
     if is_declined {
         publish_event(
             &state.redis_client,

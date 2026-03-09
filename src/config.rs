@@ -1,5 +1,6 @@
 use dotenvy::dotenv;
 use log::warn;
+use std::collections::HashSet;
 
 fn load_resend_api_key() -> Option<String> {
     if let Ok(value) = std::env::var("RESEND_API_KEY") {
@@ -16,6 +17,25 @@ fn load_resend_api_key() -> Option<String> {
         return Some(trimmed.to_string());
     }
     None
+}
+
+fn default_cors_allowed_origins(app_base_url: &str) -> Vec<String> {
+    let mut values = Vec::new();
+    let mut seen = HashSet::new();
+
+    for candidate in [
+        app_base_url.trim().trim_end_matches('/'),
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "http://localhost:5001",
+        "http://127.0.0.1:5001",
+    ] {
+        if !candidate.is_empty() && seen.insert(candidate.to_string()) {
+            values.push(candidate.to_string());
+        }
+    }
+
+    values
 }
 
 pub struct AppConfig {
@@ -142,7 +162,8 @@ impl AppConfig {
                     })
                     .collect()
             })
-            .unwrap_or_default();
+            .filter(|origins: &Vec<String>| !origins.is_empty())
+            .unwrap_or_else(|| default_cors_allowed_origins(&app_base_url));
         Self {
             host,
             port,

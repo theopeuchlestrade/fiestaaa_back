@@ -39,6 +39,22 @@ async fn seed_payment_provider(pool: &PgPool, name: &str) -> sqlx::Result<i32> {
     .await
 }
 
+async fn seed_payment_provider_with_regex(
+    pool: &PgPool,
+    name: &str,
+    validation_regex: &str,
+) -> sqlx::Result<i32> {
+    sqlx::query_scalar::<_, i32>(
+        "INSERT INTO payment_providers (provider_name, url_template, validation_regex)
+         VALUES ($1, 'https://example.com/{identifier}', $2)
+         RETURNING provider_id",
+    )
+    .bind(name)
+    .bind(validation_regex)
+    .fetch_one(pool)
+    .await
+}
+
 async fn seed_item(
     pool: &PgPool,
     type_name: &str,
@@ -144,6 +160,8 @@ async fn create_event_requires_authentication() -> Result<(), Box<dyn Error>> {
                 description: "The best party of the summer".to_string(),
                 date_event: NaiveDate::from_ymd_opt(2024, 7, 1).unwrap(),
                 start_time: NaiveTime::from_hms_opt(20, 0, 0).unwrap(),
+                end_date: None,
+                end_time: None,
                 invitation_deadline: None,
                 address: "123 Party Street".to_string(),
                 latitude: None,
@@ -189,6 +207,8 @@ async fn create_event_allows_authenticated_user() -> Result<(), Box<dyn Error>> 
                 description: "The best party of the summer".to_string(),
                 date_event: NaiveDate::from_ymd_opt(2024, 7, 1).unwrap(),
                 start_time: NaiveTime::from_hms_opt(20, 0, 0).unwrap(),
+                end_date: None,
+                end_time: None,
                 invitation_deadline: None,
                 address: "123 Party Street".to_string(),
                 latitude: None,
@@ -237,6 +257,8 @@ async fn events_crud_flow() -> Result<(), Box<dyn Error>> {
                 description: "The best party of the summer".to_string(),
                 date_event: NaiveDate::from_ymd_opt(2024, 7, 1).unwrap(),
                 start_time: NaiveTime::from_hms_opt(20, 0, 0).unwrap(),
+                end_date: None,
+                end_time: None,
                 invitation_deadline: None,
                 address: "123 Party Street".to_string(),
                 latitude: None,
@@ -277,6 +299,8 @@ async fn events_crud_flow() -> Result<(), Box<dyn Error>> {
                 description: "The BIGGEST party of the summer".to_string(),
                 date_event: NaiveDate::from_ymd_opt(2024, 7, 2).unwrap(),
                 start_time: NaiveTime::from_hms_opt(21, 0, 0).unwrap(),
+                end_date: None,
+                end_time: None,
                 invitation_deadline: None,
                 address: "456 Party Avenue".to_string(),
                 latitude: None,
@@ -309,6 +333,8 @@ async fn events_crud_flow() -> Result<(), Box<dyn Error>> {
                 description: None,
                 date_event: None,
                 start_time: Some(NaiveTime::from_hms_opt(22, 0, 0).unwrap()),
+                end_date: None,
+                end_time: None,
                 invitation_deadline: None,
                 address: None,
                 latitude: None,
@@ -381,6 +407,8 @@ async fn update_event_playlist_requires_creator_or_admin() -> Result<(), Box<dyn
                 description: "Music matters".to_string(),
                 date_event: NaiveDate::from_ymd_opt(2024, 7, 10).unwrap(),
                 start_time: NaiveTime::from_hms_opt(20, 0, 0).unwrap(),
+                end_date: None,
+                end_time: None,
                 invitation_deadline: None,
                 address: "123 Party Street".to_string(),
                 latitude: None,
@@ -409,6 +437,8 @@ async fn update_event_playlist_requires_creator_or_admin() -> Result<(), Box<dyn
                 description: None,
                 date_event: None,
                 start_time: None,
+                end_date: None,
+                end_time: None,
                 invitation_deadline: None,
                 address: None,
                 latitude: None,
@@ -455,6 +485,8 @@ async fn update_event_playlist_requires_valid_provider() -> Result<(), Box<dyn E
                 description: "Music matters".to_string(),
                 date_event: NaiveDate::from_ymd_opt(2024, 7, 10).unwrap(),
                 start_time: NaiveTime::from_hms_opt(20, 0, 0).unwrap(),
+                end_date: None,
+                end_time: None,
                 invitation_deadline: None,
                 address: "123 Party Street".to_string(),
                 latitude: None,
@@ -483,6 +515,8 @@ async fn update_event_playlist_requires_valid_provider() -> Result<(), Box<dyn E
                 description: None,
                 date_event: None,
                 start_time: None,
+                end_date: None,
+                end_time: None,
                 invitation_deadline: None,
                 address: None,
                 latitude: None,
@@ -529,6 +563,8 @@ async fn update_event_playlist_requires_valid_url() -> Result<(), Box<dyn Error>
                 description: "Music matters".to_string(),
                 date_event: NaiveDate::from_ymd_opt(2024, 7, 10).unwrap(),
                 start_time: NaiveTime::from_hms_opt(20, 0, 0).unwrap(),
+                end_date: None,
+                end_time: None,
                 invitation_deadline: None,
                 address: "123 Party Street".to_string(),
                 latitude: None,
@@ -557,6 +593,8 @@ async fn update_event_playlist_requires_valid_url() -> Result<(), Box<dyn Error>
                 description: None,
                 date_event: None,
                 start_time: None,
+                end_date: None,
+                end_time: None,
                 invitation_deadline: None,
                 address: None,
                 latitude: None,
@@ -603,6 +641,8 @@ async fn update_event_playlist_can_clear_fields() -> Result<(), Box<dyn Error>> 
                 description: "Music matters".to_string(),
                 date_event: NaiveDate::from_ymd_opt(2024, 7, 10).unwrap(),
                 start_time: NaiveTime::from_hms_opt(20, 0, 0).unwrap(),
+                end_date: None,
+                end_time: None,
                 invitation_deadline: None,
                 address: "123 Party Street".to_string(),
                 latitude: None,
@@ -632,6 +672,8 @@ async fn update_event_playlist_can_clear_fields() -> Result<(), Box<dyn Error>> 
                 description: None,
                 date_event: None,
                 start_time: None,
+                end_date: None,
+                end_time: None,
                 invitation_deadline: None,
                 address: None,
                 latitude: None,
@@ -695,6 +737,8 @@ async fn event_items_reservation_flow() -> Result<(), Box<dyn Error>> {
                 description: "Bring your best drinks".to_string(),
                 date_event: NaiveDate::from_ymd_opt(2024, 8, 1).unwrap(),
                 start_time: NaiveTime::from_hms_opt(18, 30, 0).unwrap(),
+                end_date: None,
+                end_time: None,
                 invitation_deadline: None,
                 address: "Club House".to_string(),
                 latitude: None,
@@ -874,6 +918,8 @@ async fn event_items_scope_filters() -> Result<(), Box<dyn Error>> {
                 description: "Scope filters".to_string(),
                 date_event: NaiveDate::from_ymd_opt(2024, 8, 1).unwrap(),
                 start_time: NaiveTime::from_hms_opt(18, 30, 0).unwrap(),
+                end_date: None,
+                end_time: None,
                 invitation_deadline: None,
                 address: "Club House".to_string(),
                 latitude: None,
@@ -1048,6 +1094,8 @@ async fn create_event_rejects_unknown_payment_provider() -> Result<(), Box<dyn E
                 description: "The best party of the summer".to_string(),
                 date_event: NaiveDate::from_ymd_opt(2024, 7, 1).unwrap(),
                 start_time: NaiveTime::from_hms_opt(20, 0, 0).unwrap(),
+                end_date: None,
+                end_time: None,
                 invitation_deadline: None,
                 address: "123 Party Street".to_string(),
                 latitude: None,
@@ -1064,6 +1112,57 @@ async fn create_event_rejects_unknown_payment_provider() -> Result<(), Box<dyn E
     .await;
 
     assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    Ok(())
+}
+
+#[tokio::test]
+async fn create_event_rejects_unsafe_absolute_payment_link() -> Result<(), Box<dyn Error>> {
+    let Some(pool) = obtain_pool().await else {
+        eprintln!("Skipping events tests: DATABASE_URL or TEST_DATABASE_URL not set");
+        return Ok(());
+    };
+    let _guard = DB_LOCK.lock().await;
+    reset_tables(&pool, &["events", "payment_providers"]).await?;
+
+    let secret = "secret";
+    let admin_email = "admin@example.com";
+    let state = build_state(pool.clone(), secret, &[admin_email]);
+    let app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
+
+    let provider_id = seed_payment_provider_with_regex(&pool, "LooseProvider", ".*").await?;
+    let token = admin_token(secret, admin_email).expect("token");
+
+    let resp = test::call_service(
+        &app,
+        test::TestRequest::post()
+            .uri("/events")
+            .insert_header(("Authorization", format!("Bearer {}", token)))
+            .set_json(&EventPayload {
+                enabled_features: None,
+                name_event: "Unsafe payment".to_string(),
+                description: "Should be rejected".to_string(),
+                date_event: NaiveDate::from_ymd_opt(2026, 7, 1).unwrap(),
+                start_time: NaiveTime::from_hms_opt(20, 0, 0).unwrap(),
+                end_date: None,
+                end_time: None,
+                invitation_deadline: None,
+                address: "123 Party Street".to_string(),
+                latitude: None,
+                longitude: None,
+                payment_provider_id: Some(provider_id),
+                payment_identifier: Some("javascript:alert(1)".to_string()),
+                payment_requested_amount: None,
+                payment_per_person: None,
+                playlist_url: None,
+                playlist_provider: None,
+            })
+            .to_request(),
+    )
+    .await;
+
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["error"], "invalid_payment_link");
     Ok(())
 }
 
@@ -1095,6 +1194,8 @@ async fn event_validates_empty_fields() -> Result<(), Box<dyn Error>> {
                 description: "Description".to_string(),
                 date_event: NaiveDate::from_ymd_opt(2024, 7, 1).unwrap(),
                 start_time: NaiveTime::from_hms_opt(20, 0, 0).unwrap(),
+                end_date: None,
+                end_time: None,
                 invitation_deadline: None,
                 address: "Address".to_string(),
                 latitude: None,
@@ -1123,6 +1224,8 @@ async fn event_validates_empty_fields() -> Result<(), Box<dyn Error>> {
                 description: "".to_string(),
                 date_event: NaiveDate::from_ymd_opt(2024, 7, 1).unwrap(),
                 start_time: NaiveTime::from_hms_opt(20, 0, 0).unwrap(),
+                end_date: None,
+                end_time: None,
                 invitation_deadline: None,
                 address: "Address".to_string(),
                 latitude: None,
@@ -1151,6 +1254,8 @@ async fn event_validates_empty_fields() -> Result<(), Box<dyn Error>> {
                 description: "Description".to_string(),
                 date_event: NaiveDate::from_ymd_opt(2024, 7, 1).unwrap(),
                 start_time: NaiveTime::from_hms_opt(20, 0, 0).unwrap(),
+                end_date: None,
+                end_time: None,
                 invitation_deadline: None,
                 address: "".to_string(),
                 latitude: None,

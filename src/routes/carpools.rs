@@ -13,6 +13,7 @@ use crate::{
     },
     notifications::{NotificationRequest, notify_users},
     realtime::publish_event,
+    routes::event_access::ensure_event_writable,
     state::AppState,
 };
 
@@ -314,6 +315,9 @@ pub async fn list_event_carpools(
     if let Err(resp) = ensure_event_member(&req, state.get_ref(), *event_id).await {
         return resp;
     }
+    if let Err(resp) = ensure_event_writable(&state.db, *event_id).await {
+        return resp;
+    }
 
     let user_id = match claims_email(&req, &state) {
         Ok(email) => fetch_user_id(&state.db, &email).await.ok(),
@@ -528,6 +532,9 @@ pub async fn update_carpool(
             });
         }
     };
+    if let Err(resp) = ensure_event_writable(&state.db, current.event_id).await {
+        return resp;
+    }
 
     let origin = payload.origin.unwrap_or(current.origin);
     if origin.trim().is_empty() {
@@ -653,6 +660,9 @@ pub async fn delete_carpool(
     if let Err(resp) = ensure_carpool_driver(&req, state.get_ref(), *carpool_id).await {
         return resp;
     }
+    if let Err(resp) = ensure_event_writable(&state.db, current.event_id).await {
+        return resp;
+    }
 
     // Fetch passengers before deletion to notify them
     let passenger_ids = match sqlx::query_scalar::<_, i64>(
@@ -776,6 +786,9 @@ pub async fn join_carpool(
     };
 
     if let Err(resp) = ensure_event_member(&req, state.get_ref(), carpool.event_id).await {
+        return resp;
+    }
+    if let Err(resp) = ensure_event_writable(&state.db, carpool.event_id).await {
         return resp;
     }
 
@@ -991,6 +1004,9 @@ pub async fn leave_carpool(
         }
         Err(_) => return server_error(),
     };
+    if let Err(resp) = ensure_event_writable(&state.db, carpool.event_id).await {
+        return resp;
+    }
 
     let was_joined = match sqlx::query(
         "DELETE FROM carpool_passengers WHERE carpool_id = $1 AND user_id = $2 RETURNING user_id",
