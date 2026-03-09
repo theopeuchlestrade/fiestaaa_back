@@ -1,6 +1,7 @@
 use std::collections::HashSet;
 
 use crate::notifications::NotificationService;
+use crate::rate_limit::AuthRateLimiter;
 use redis::Client as RedisClient;
 use sqlx::{Pool, Postgres};
 
@@ -24,4 +25,5 @@ pub struct AppState {
     pub google_ios_client_id: Option<String>,
     pub apple_app_id: Option<String>,
     pub apple_service_id: Option<String>,
+    pub auth_rate_limiter: AuthRateLimiter,
 }

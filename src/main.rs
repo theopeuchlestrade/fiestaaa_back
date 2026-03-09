@@ -6,9 +6,10 @@ use actix_web::{
     middleware::{DefaultHeaders, Logger},
     web,
 };
-use fiestaaa_back::{cleanup, config, db, docs, notifications, routes, state};
+use fiestaaa_back::{cleanup, config, db, docs, notifications, rate_limit, routes, state};
 use redis::Client as RedisClient;
 use std::collections::HashSet;
+use std::time::Duration;
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
 
@@ -64,6 +65,10 @@ async fn main() -> std::io::Result<()> {
         google_ios_client_id: cfg.google_ios_client_id.clone(),
         apple_app_id: cfg.apple_app_id.clone(),
         apple_service_id: cfg.apple_service_id.clone(),
+        auth_rate_limiter: rate_limit::AuthRateLimiter::new(
+            cfg.auth_rate_limit_max_attempts,
+            Duration::from_secs(cfg.auth_rate_limit_window_seconds),
+        ),
     });
 
     // Server
@@ -71,6 +76,7 @@ async fn main() -> std::io::Result<()> {
         let mut cors = Cors::default()
             .allowed_methods(vec!["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"])
             .allowed_headers(vec![AUTHORIZATION, CONTENT_TYPE])
+            .supports_credentials()
             .max_age(3600);
         for origin in &cfg.cors_allowed_origins {
             cors = cors.allowed_origin(origin);

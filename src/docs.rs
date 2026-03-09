@@ -1,12 +1,12 @@
 use utoipa::OpenApi;
 
 use crate::models::{
-    AddressSuggestion, DeviceRefreshPayload, DeviceRegisterPayload, ErrorResponse, Event,
-    EventCustomItemPayload, EventExpenseBalanceView, EventExpenseParticipantView,
-    EventExpensePayload, EventExpenseSettlementView, EventExpenseView, EventExpensesSummaryView,
-    EventItemAttachPayload, EventItemReservationPayload, EventItemView, EventPatchPayload,
-    EventPayload, EventPollCreatePayload, EventPollVotePayload, Friend, FriendRequest,
-    FriendRequestActionPayload, FriendRequestPayload, FriendSearchResult,
+    AddressSuggestion, DeviceDeletePayload, DeviceRefreshPayload, DeviceRegisterPayload,
+    ErrorResponse, Event, EventCustomItemPayload, EventExpenseBalanceView,
+    EventExpenseParticipantView, EventExpensePayload, EventExpenseSettlementView, EventExpenseView,
+    EventExpensesSummaryView, EventItemAttachPayload, EventItemReservationPayload, EventItemView,
+    EventPatchPayload, EventPayload, EventPollCreatePayload, EventPollVotePayload, Friend,
+    FriendRequest, FriendRequestActionPayload, FriendRequestPayload, FriendSearchResult,
     HandleAvailabilityResponse, HandleUpdatePayload, HealthResponse, Invitation,
     InvitationPatchPayload, InvitationPayload, Item, ItemContribution, ItemPatchPayload,
     ItemPayload, LoginPayload, MeResponse, PaymentProvider, PaymentProviderPatchPayload,
@@ -22,6 +22,7 @@ use crate::models::{
         crate::routes::auth::register,
         crate::routes::auth::login,
         crate::routes::auth::oauth_login,
+        crate::routes::auth::logout,
         crate::routes::health::health,
         crate::routes::events::get_event,
         crate::routes::items::list_items,
@@ -119,6 +120,7 @@ use crate::models::{
             AddressSuggestion,
             DeviceRegisterPayload,
             DeviceRefreshPayload,
+            DeviceDeletePayload,
             RealtimeTicketResponse
         )
     ),

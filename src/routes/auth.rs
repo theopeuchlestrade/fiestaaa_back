@@ -1,16 +1,16 @@
 use actix_web::http::header::{CACHE_CONTROL, CONTENT_TYPE, PRAGMA};
-use actix_web::{HttpResponse, Responder, post, web};
-use sqlx::Error;
+use actix_web::{HttpRequest, HttpResponse, Responder, post, web};
+use sqlx::{Error, PgPool};
 
 use crate::{
     auth::{
-        encode_jwt, fetch_user_auth, hash_password, now_ts, random_password_token,
-        validate_password_strength, verify_password,
+        build_cleared_session_cookie, build_session_cookie, encode_jwt, fetch_user_auth,
+        hash_password, now_ts, random_password_token, validate_password_strength, verify_password,
     },
     handles::{generate_unique_handle, handle_available, is_valid_handle, normalize_handle},
     models::{
-        Claims, ErrorResponse, LoginPayload, OAuthPayload, RegisterPayload, StatusResponse,
-        TokenResponse,
+        AppleClaims, Claims, ErrorResponse, LoginPayload, OAuthPayload, RegisterPayload,
+        StatusResponse, TokenResponse,
     },
     state::AppState,
 };
@@ -21,11 +21,42 @@ pub struct OAuthPath {
     provider: String,
 }
 
-fn token_response(token: String, email: String, handle: String) -> HttpResponse {
+fn auth_cookie_is_secure(state: &AppState) -> bool {
+    state.app_base_url.starts_with("https://")
+}
+
+async fn enforce_auth_rate_limit(
+    req: &HttpRequest,
+    state: &AppState,
+    scope: &str,
+) -> Result<(), HttpResponse> {
+    let remote = req
+        .connection_info()
+        .realip_remote_addr()
+        .unwrap_or("unknown")
+        .to_string();
+    let key = format!("auth:{scope}:{remote}");
+    if state.auth_rate_limiter.allow(&key).await {
+        Ok(())
+    } else {
+        Err(HttpResponse::TooManyRequests().json(ErrorResponse {
+            error: "rate_limited".into(),
+            details: Some("too many authentication attempts".into()),
+        }))
+    }
+}
+
+fn token_response(
+    token: String,
+    email: String,
+    handle: String,
+    secure_cookie: bool,
+) -> HttpResponse {
     HttpResponse::Ok()
         .insert_header((CONTENT_TYPE, "application/json"))
         .insert_header((CACHE_CONTROL, "no-store"))
         .insert_header((PRAGMA, "no-cache"))
+        .cookie(build_session_cookie(&token, secure_cookie))
         .json(TokenResponse {
             token,
             email,
@@ -164,11 +195,17 @@ pub async fn register(
 )]
 #[post("/auth/oauth/{provider}")]
 pub async fn oauth_login(
+    req: HttpRequest,
     state: web::Data<AppState>,
     path: web::Path<OAuthPath>,
     payload: web::Json<OAuthPayload>,
 ) -> HttpResponse {
     let provider = path.into_inner().provider.to_lowercase();
+    if let Err(resp) =
+        enforce_auth_rate_limit(&req, state.get_ref(), &format!("oauth:{provider}")).await
+    {
+        return resp;
+    }
     match provider.as_str() {
         "google" => oauth_google(state, payload.into_inner()).await,
         "apple" => oauth_apple(state, payload.into_inner()).await,
@@ -176,6 +213,220 @@ pub async fn oauth_login(
             error: "unsupported_provider".into(),
             details: Some("provider must be 'google' ou 'apple'".into()),
         }),
+    }
+}
+
+#[derive(Debug, Clone, sqlx::FromRow)]
+struct OAuthUserRow {
+    id: i64,
+    email: String,
+    handle: String,
+}
+
+fn normalize_provider_email(raw: Option<&str>) -> Option<String> {
+    raw.map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| value.to_lowercase())
+}
+
+fn json_truthy(value: Option<&serde_json::Value>) -> bool {
+    match value {
+        Some(serde_json::Value::Bool(flag)) => *flag,
+        Some(serde_json::Value::String(flag)) => flag.eq_ignore_ascii_case("true"),
+        _ => false,
+    }
+}
+
+fn google_subject(token_info: &serde_json::Value) -> Option<String> {
+    token_info
+        .get("sub")
+        .or_else(|| token_info.get("user_id"))
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+}
+
+async fn fetch_google_userinfo(
+    state: &web::Data<AppState>,
+    access_token: &str,
+) -> Option<serde_json::Value> {
+    let response = state
+        .http_client
+        .get("https://www.googleapis.com/oauth2/v3/userinfo")
+        .bearer_auth(access_token)
+        .send()
+        .await
+        .ok()?;
+    if !response.status().is_success() {
+        return None;
+    }
+    response.json::<serde_json::Value>().await.ok()
+}
+
+async fn fetch_oauth_user_by_identity(
+    db: &PgPool,
+    provider: &str,
+    provider_subject: &str,
+) -> Result<Option<OAuthUserRow>, sqlx::Error> {
+    sqlx::query_as::<_, OAuthUserRow>(
+        "SELECT u.id, u.email, u.handle
+         FROM oauth_identities oi
+         JOIN users u ON u.id = oi.user_id
+         WHERE oi.provider = $1 AND oi.provider_subject = $2",
+    )
+    .bind(provider)
+    .bind(provider_subject)
+    .fetch_optional(db)
+    .await
+}
+
+async fn touch_oauth_identity(
+    db: &PgPool,
+    provider: &str,
+    provider_subject: &str,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        "UPDATE oauth_identities
+         SET last_login_at = NOW()
+         WHERE provider = $1 AND provider_subject = $2",
+    )
+    .bind(provider)
+    .bind(provider_subject)
+    .execute(db)
+    .await?;
+    Ok(())
+}
+
+async fn fetch_user_by_email(
+    db: &PgPool,
+    email: &str,
+) -> Result<Option<OAuthUserRow>, sqlx::Error> {
+    sqlx::query_as::<_, OAuthUserRow>(
+        "SELECT id, email, handle FROM users WHERE lower(email) = lower($1)",
+    )
+    .bind(email)
+    .fetch_optional(db)
+    .await
+}
+
+async fn create_oauth_user(
+    state: &web::Data<AppState>,
+    email: &str,
+) -> Result<OAuthUserRow, HttpResponse> {
+    let new_handle = match generate_unique_handle(&state.db).await {
+        Ok(handle) => handle,
+        Err(_) => {
+            return Err(HttpResponse::InternalServerError().json(ErrorResponse {
+                error: "handle_generation_failed".into(),
+                details: None,
+            }));
+        }
+    };
+    let password = random_password_token();
+    let hash = match hash_password(&password) {
+        Ok(hash) => hash,
+        Err(_) => {
+            return Err(HttpResponse::InternalServerError().json(ErrorResponse {
+                error: "hash_failed".into(),
+                details: None,
+            }));
+        }
+    };
+
+    let inserted = sqlx::query_as::<_, OAuthUserRow>(
+        "INSERT INTO users (email, handle, password_hash)
+         VALUES ($1, $2, $3)
+         RETURNING id, email, handle",
+    )
+    .bind(email)
+    .bind(&new_handle)
+    .bind(&hash)
+    .fetch_one(&state.db)
+    .await;
+
+    match inserted {
+        Ok(user) => Ok(user),
+        Err(Error::Database(db_err)) if db_err.code().as_deref() == Some("23505") => {
+            match fetch_user_by_email(&state.db, email).await {
+                Ok(Some(user)) => Ok(user),
+                _ => Err(HttpResponse::InternalServerError().json(ErrorResponse {
+                    error: "db_error".into(),
+                    details: None,
+                })),
+            }
+        }
+        Err(_) => Err(HttpResponse::InternalServerError().json(ErrorResponse {
+            error: "db_error".into(),
+            details: None,
+        })),
+    }
+}
+
+async fn resolve_oauth_user(
+    state: &web::Data<AppState>,
+    provider: &str,
+    provider_subject: &str,
+    email: Option<String>,
+) -> Result<OAuthUserRow, HttpResponse> {
+    match fetch_oauth_user_by_identity(&state.db, provider, provider_subject).await {
+        Ok(Some(user)) => {
+            let _ = touch_oauth_identity(&state.db, provider, provider_subject).await;
+            return Ok(user);
+        }
+        Ok(None) => {}
+        Err(_) => {
+            return Err(HttpResponse::InternalServerError().json(ErrorResponse {
+                error: "db_error".into(),
+                details: None,
+            }));
+        }
+    }
+
+    let Some(email) = email else {
+        return Err(HttpResponse::Unauthorized().json(ErrorResponse {
+            error: "email_required".into(),
+            details: Some("Email absent de l'identite OAuth verifiee".into()),
+        }));
+    };
+
+    let user = match fetch_user_by_email(&state.db, &email).await {
+        Ok(Some(user)) => user,
+        Ok(None) => create_oauth_user(state, &email).await?,
+        Err(_) => {
+            return Err(HttpResponse::InternalServerError().json(ErrorResponse {
+                error: "db_error".into(),
+                details: None,
+            }));
+        }
+    };
+
+    let insert_identity = sqlx::query(
+        "INSERT INTO oauth_identities (provider, provider_subject, user_id)
+         VALUES ($1, $2, $3)
+         ON CONFLICT (provider, provider_subject) DO NOTHING",
+    )
+    .bind(provider)
+    .bind(provider_subject)
+    .bind(user.id)
+    .execute(&state.db)
+    .await;
+    if insert_identity.is_err() {
+        return Err(HttpResponse::InternalServerError().json(ErrorResponse {
+            error: "db_error".into(),
+            details: None,
+        }));
+    }
+
+    match fetch_oauth_user_by_identity(&state.db, provider, provider_subject).await {
+        Ok(Some(user)) => {
+            let _ = touch_oauth_identity(&state.db, provider, provider_subject).await;
+            Ok(user)
+        }
+        _ => Err(HttpResponse::InternalServerError().json(ErrorResponse {
+            error: "db_error".into(),
+            details: None,
+        })),
     }
 }
 
@@ -258,95 +509,64 @@ async fn oauth_google(state: web::Data<AppState>, payload: OAuthPayload) -> Http
             details: Some("aud mismatch".into()),
         });
     }
-
-    let email = token_info
-        .get("email")
-        .and_then(|v| v.as_str())
-        .or(payload.email.as_deref());
-    if email.is_none() {
-        return HttpResponse::Unauthorized().json(ErrorResponse {
-            error: "email_required".into(),
-            details: Some("Email manquant dans le token".into()),
-        });
-    }
-    let email = email.unwrap().to_lowercase();
-
-    let handle = match sqlx::query_scalar::<_, String>(
-        "SELECT handle FROM users WHERE lower(email)=lower($1)",
-    )
-    .bind(&email)
-    .fetch_optional(&state.db)
-    .await
-    {
-        Ok(Some(h)) => h,
-        Ok(None) => {
-            let new_handle = match generate_unique_handle(&state.db).await {
-                Ok(h) => h,
-                Err(_) => {
-                    return HttpResponse::InternalServerError().json(ErrorResponse {
-                        error: "handle_generation_failed".into(),
-                        details: None,
-                    });
-                }
-            };
-            let pwd = random_password_token();
-            let hash = match hash_password(&pwd) {
-                Ok(h) => h,
-                Err(_) => {
-                    return HttpResponse::InternalServerError().json(ErrorResponse {
-                        error: "hash_failed".into(),
-                        details: None,
-                    });
-                }
-            };
-            let res =
-                sqlx::query("INSERT INTO users (email, handle, password_hash) VALUES ($1, $2, $3)")
-                    .bind(&email)
-                    .bind(&new_handle)
-                    .bind(&hash)
-                    .execute(&state.db)
-                    .await;
-            match res {
-                Ok(_) => new_handle,
-                Err(e) => match e {
-                    Error::Database(db_err) if db_err.code().as_deref() == Some("23505") => {
-                        // Race: user created between SELECT and INSERT
-                        let existing = sqlx::query_scalar::<_, String>(
-                            "SELECT handle FROM users WHERE lower(email)=lower($1)",
-                        )
-                        .bind(&email)
-                        .fetch_optional(&state.db)
-                        .await
-                        .ok()
-                        .flatten();
-                        existing.unwrap_or(new_handle)
-                    }
-                    _ => {
-                        return HttpResponse::InternalServerError().json(ErrorResponse {
-                            error: "db_error".into(),
-                            details: None,
-                        });
-                    }
-                },
-            }
-        }
-        Err(_) => {
-            return HttpResponse::InternalServerError().json(ErrorResponse {
-                error: "db_error".into(),
-                details: None,
+    if id_token.is_some() {
+        let issuer = token_info.get("iss").and_then(|value| value.as_str());
+        if !matches!(
+            issuer,
+            Some("accounts.google.com") | Some("https://accounts.google.com")
+        ) {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                error: "invalid_token".into(),
+                details: Some("issuer Google invalide".into()),
             });
         }
+    }
+
+    let mut userinfo = None;
+    let mut provider_subject = google_subject(&token_info);
+    if provider_subject.is_none()
+        && let Some(token) = access_token
+    {
+        userinfo = fetch_google_userinfo(&state, token).await;
+        provider_subject = userinfo.as_ref().and_then(google_subject);
+    }
+    let Some(provider_subject) = provider_subject else {
+        return HttpResponse::Unauthorized().json(ErrorResponse {
+            error: "invalid_token".into(),
+            details: Some("subject Google manquant".into()),
+        });
+    };
+
+    let mut verified_email =
+        normalize_provider_email(token_info.get("email").and_then(|value| value.as_str()))
+            .filter(|_| json_truthy(token_info.get("email_verified")));
+    if verified_email.is_none()
+        && let Some(token) = access_token
+    {
+        if userinfo.is_none() {
+            userinfo = fetch_google_userinfo(&state, token).await;
+        }
+        verified_email = userinfo.as_ref().and_then(|profile| {
+            normalize_provider_email(profile.get("email").and_then(|value| value.as_str()))
+                .filter(|_| json_truthy(profile.get("email_verified")))
+        });
+    }
+
+    let user = match resolve_oauth_user(&state, "google", &provider_subject, verified_email).await {
+        Ok(user) => user,
+        Err(resp) => return resp,
     };
 
     let exp = (now_ts() + 24 * 3600) as usize;
     let claims = Claims {
-        sub: email.clone(),
-        handle: handle.clone(),
+        sub: user.email.clone(),
+        handle: user.handle.clone(),
         exp,
     };
+    let secure_cookie = auth_cookie_is_secure(state.get_ref());
 
     match encode_jwt(&claims, &state.jwt_secret) {
-        Ok(token) => token_response(token, email, handle),
+        Ok(token) => token_response(token, user.email, user.handle, secure_cookie),
         Err(_) => HttpResponse::InternalServerError().json(ErrorResponse {
             error: "token_creation_failed".into(),
             details: None,
@@ -420,11 +640,7 @@ async fn oauth_apple(state: web::Data<AppState>, payload: OAuthPayload) -> HttpR
     validation.set_audience(&allowed_aud);
     validation.set_issuer(&["https://appleid.apple.com"]);
 
-    let claims = match jsonwebtoken::decode::<crate::models::AppleClaims>(
-        id_token,
-        &decoding_key,
-        &validation,
-    ) {
+    let claims = match jsonwebtoken::decode::<AppleClaims>(id_token, &decoding_key, &validation) {
         Ok(data) => data.claims,
         Err(_) => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
@@ -434,89 +650,23 @@ async fn oauth_apple(state: web::Data<AppState>, payload: OAuthPayload) -> HttpR
         }
     };
 
-    let email = claims.email.or(payload.email).map(|e| e.to_lowercase());
-    let Some(email) = email else {
-        return HttpResponse::Unauthorized().json(ErrorResponse {
-            error: "email_required".into(),
-            details: Some("Email absent du token Apple".into()),
-        });
-    };
-
-    let handle = match sqlx::query_scalar::<_, String>(
-        "SELECT handle FROM users WHERE lower(email)=lower($1)",
-    )
-    .bind(&email)
-    .fetch_optional(&state.db)
-    .await
-    {
-        Ok(Some(h)) => h,
-        Ok(None) => {
-            let new_handle = match generate_unique_handle(&state.db).await {
-                Ok(h) => h,
-                Err(_) => {
-                    return HttpResponse::InternalServerError().json(ErrorResponse {
-                        error: "handle_generation_failed".into(),
-                        details: None,
-                    });
-                }
-            };
-            let pwd = random_password_token();
-            let hash = match hash_password(&pwd) {
-                Ok(h) => h,
-                Err(_) => {
-                    return HttpResponse::InternalServerError().json(ErrorResponse {
-                        error: "hash_failed".into(),
-                        details: None,
-                    });
-                }
-            };
-            let res =
-                sqlx::query("INSERT INTO users (email, handle, password_hash) VALUES ($1, $2, $3)")
-                    .bind(&email)
-                    .bind(&new_handle)
-                    .bind(&hash)
-                    .execute(&state.db)
-                    .await;
-            match res {
-                Ok(_) => new_handle,
-                Err(e) => match e {
-                    sqlx::Error::Database(db_err) if db_err.code().as_deref() == Some("23505") => {
-                        let existing = sqlx::query_scalar::<_, String>(
-                            "SELECT handle FROM users WHERE lower(email)=lower($1)",
-                        )
-                        .bind(&email)
-                        .fetch_optional(&state.db)
-                        .await
-                        .ok()
-                        .flatten();
-                        existing.unwrap_or(new_handle)
-                    }
-                    _ => {
-                        return HttpResponse::InternalServerError().json(ErrorResponse {
-                            error: "db_error".into(),
-                            details: None,
-                        });
-                    }
-                },
-            }
-        }
-        Err(_) => {
-            return HttpResponse::InternalServerError().json(ErrorResponse {
-                error: "db_error".into(),
-                details: None,
-            });
-        }
+    let verified_email = normalize_provider_email(claims.email.as_deref())
+        .filter(|_| json_truthy(claims.email_verified.as_ref()));
+    let user = match resolve_oauth_user(&state, "apple", &claims.sub, verified_email).await {
+        Ok(user) => user,
+        Err(resp) => return resp,
     };
 
     let exp = claims.exp;
     let claims = Claims {
-        sub: email.clone(),
-        handle: handle.clone(),
+        sub: user.email.clone(),
+        handle: user.handle.clone(),
         exp,
     };
+    let secure_cookie = auth_cookie_is_secure(state.get_ref());
 
     match encode_jwt(&claims, &state.jwt_secret) {
-        Ok(token) => token_response(token, email, handle),
+        Ok(token) => token_response(token, user.email, user.handle, secure_cookie),
         Err(_) => HttpResponse::InternalServerError().json(ErrorResponse {
             error: "token_creation_failed".into(),
             details: None,
@@ -550,6 +700,26 @@ async fn fetch_apple_decoding_key(
     let key = jwks.keys.into_iter().find(|k| k.kid == kid)?;
     jsonwebtoken::DecodingKey::from_rsa_components(&key.n, &key.e).ok()
 }
+
+#[utoipa::path(
+    post,
+    path = "/auth/logout",
+    tag = "auth",
+    responses(
+        (status = 200, description = "Session invalidated", body = StatusResponse)
+    )
+)]
+#[post("/auth/logout")]
+pub async fn logout(state: web::Data<AppState>) -> impl Responder {
+    HttpResponse::Ok()
+        .cookie(build_cleared_session_cookie(auth_cookie_is_secure(
+            state.get_ref(),
+        )))
+        .json(StatusResponse {
+            status: "logged_out".into(),
+        })
+}
+
 #[utoipa::path(
     post,
     path = "/auth/login",
@@ -562,7 +732,14 @@ async fn fetch_apple_decoding_key(
     )
 )]
 #[post("/auth/login")]
-pub async fn login(state: web::Data<AppState>, payload: web::Json<LoginPayload>) -> impl Responder {
+pub async fn login(
+    req: HttpRequest,
+    state: web::Data<AppState>,
+    payload: web::Json<LoginPayload>,
+) -> impl Responder {
+    if let Err(resp) = enforce_auth_rate_limit(&req, state.get_ref(), "login").await {
+        return resp;
+    }
     let auth_row = match fetch_user_auth(&state.db, &payload.identifier).await {
         Ok(Some(row)) => row,
         Ok(None) => {
@@ -592,12 +769,50 @@ pub async fn login(state: web::Data<AppState>, payload: web::Json<LoginPayload>)
         handle: auth_row.handle.clone(),
         exp,
     };
+    let secure_cookie = auth_cookie_is_secure(state.get_ref());
 
     match encode_jwt(&claims, &state.jwt_secret) {
-        Ok(token) => token_response(token, auth_row.email, auth_row.handle),
+        Ok(token) => token_response(token, auth_row.email, auth_row.handle, secure_cookie),
         Err(_) => HttpResponse::InternalServerError().json(ErrorResponse {
             error: "token_creation_failed".into(),
             details: None,
         }),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{google_subject, json_truthy, normalize_provider_email};
+
+    #[test]
+    fn normalize_provider_email_trims_and_lowercases() {
+        assert_eq!(
+            normalize_provider_email(Some("  USER@Example.COM ")).as_deref(),
+            Some("user@example.com")
+        );
+        assert_eq!(normalize_provider_email(Some("   ")), None);
+        assert_eq!(normalize_provider_email(None), None);
+    }
+
+    #[test]
+    fn json_truthy_accepts_boolean_and_string_true() {
+        assert!(json_truthy(Some(&serde_json::json!(true))));
+        assert!(json_truthy(Some(&serde_json::json!("true"))));
+        assert!(!json_truthy(Some(&serde_json::json!(false))));
+        assert!(!json_truthy(Some(&serde_json::json!("false"))));
+        assert!(!json_truthy(None));
+    }
+
+    #[test]
+    fn google_subject_prefers_sub_and_rejects_blank_values() {
+        assert_eq!(
+            google_subject(&serde_json::json!({ "sub": "google-user-123" })).as_deref(),
+            Some("google-user-123")
+        );
+        assert_eq!(
+            google_subject(&serde_json::json!({ "user_id": "legacy-user-id" })).as_deref(),
+            Some("legacy-user-id")
+        );
+        assert_eq!(google_subject(&serde_json::json!({ "sub": "   " })), None);
     }
 }

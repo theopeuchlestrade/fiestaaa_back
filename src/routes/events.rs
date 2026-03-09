@@ -105,11 +105,11 @@ async fn ensure_event_owner(
     event_id: i64,
 ) -> Result<(), HttpResponse> {
     let requester = claims_email(req, state)?;
-    if state.admin_emails.is_empty() || state.admin_emails.contains(&requester) {
+    if state.admin_emails.contains(&requester) {
         return Ok(());
     }
     let owner = fetch_event_owner_email(&state.db, event_id).await?;
-    if owner == requester || owner.is_empty() {
+    if owner.eq_ignore_ascii_case(&requester) || owner.is_empty() {
         Ok(())
     } else {
         Err(HttpResponse::Forbidden().json(ErrorResponse {

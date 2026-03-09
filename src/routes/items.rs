@@ -11,7 +11,10 @@ use crate::{
 fn ensure_admin(req: &HttpRequest, state: &AppState) -> Result<(), HttpResponse> {
     let claims = extract_claims_from_auth(req, &state.jwt_secret)?;
     if state.admin_emails.is_empty() {
-        return Ok(());
+        return Err(HttpResponse::Forbidden().json(ErrorResponse {
+            error: "forbidden".into(),
+            details: Some("admin privileges required".into()),
+        }));
     }
 
     if state.admin_emails.contains(&claims.sub.to_lowercase()) {

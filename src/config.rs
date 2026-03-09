@@ -66,6 +66,8 @@ pub struct AppConfig {
     pub apple_app_id: Option<String>,
     pub apple_service_id: Option<String>,
     pub cors_allowed_origins: Vec<String>,
+    pub auth_rate_limit_max_attempts: usize,
+    pub auth_rate_limit_window_seconds: u64,
 }
 
 impl AppConfig {
@@ -89,6 +91,9 @@ impl AppConfig {
             .filter(|s| !s.is_empty())
             .map(|s| s.to_lowercase())
             .collect::<Vec<_>>();
+        if admin_emails.is_empty() {
+            warn!("ADMIN_EMAILS n'est pas defini ; les endpoints admin seront desactives");
+        }
         let geocoding_base_url = std::env::var("GEOCODING_BASE_URL")
             .unwrap_or_else(|_| "https://nominatim.openstreetmap.org".into());
         let geocoding_user_agent =
@@ -164,6 +169,14 @@ impl AppConfig {
             })
             .filter(|origins: &Vec<String>| !origins.is_empty())
             .unwrap_or_else(|| default_cors_allowed_origins(&app_base_url));
+        let auth_rate_limit_max_attempts = std::env::var("AUTH_RATE_LIMIT_MAX_ATTEMPTS")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(20);
+        let auth_rate_limit_window_seconds = std::env::var("AUTH_RATE_LIMIT_WINDOW_SECONDS")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(60);
         Self {
             host,
             port,
@@ -192,6 +205,8 @@ impl AppConfig {
             apple_app_id,
             apple_service_id,
             cors_allowed_origins,
+            auth_rate_limit_max_attempts,
+            auth_rate_limit_window_seconds,
         }
     }
 }

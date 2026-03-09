@@ -6,7 +6,7 @@ use actix_web::{App, http::StatusCode, test};
 use common::{DB_LOCK, build_state, obtain_pool, reset_tables};
 use fiestaaa_back::{
     auth::{encode_jwt, hash_password, now_ts},
-    models::{Claims, DeviceRefreshPayload, DeviceRegisterPayload},
+    models::{Claims, DeviceDeletePayload, DeviceRefreshPayload, DeviceRegisterPayload},
     routes,
 };
 use serde_json::Value;
@@ -130,9 +130,12 @@ async fn device_registration_refresh_and_delete_flow() -> Result<(), Box<dyn Err
 
     let delete_resp = test::call_service(
         &app,
-        test::TestRequest::delete()
-            .uri("/me/devices/device-token-2")
+        test::TestRequest::post()
+            .uri("/me/devices/revoke")
             .insert_header(("Authorization", format!("Bearer {}", token)))
+            .set_json(&DeviceDeletePayload {
+                token: "device-token-2".into(),
+            })
             .to_request(),
     )
     .await;

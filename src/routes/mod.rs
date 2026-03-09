@@ -22,6 +22,7 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(auth::register)
         .service(auth::login)
         .service(auth::oauth_login)
+        .service(auth::logout)
         .service(items::list_items)
         .service(items::create_item)
         .service(items::replace_item)

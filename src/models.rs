@@ -426,6 +426,11 @@ pub struct DeviceRefreshPayload {
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct DeviceDeletePayload {
+    pub token: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct PaymentProviderPatchPayload {
     pub provider_name: Option<String>,
     pub url_template: Option<String>,
