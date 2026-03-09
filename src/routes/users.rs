@@ -1,6 +1,7 @@
 use actix_multipart::Multipart;
 use actix_web::{HttpRequest, HttpResponse, Responder, delete, get, patch, post, web};
 use futures_util::StreamExt;
+use image::{ImageReader, Limits};
 use sqlx::Row;
 use uuid::Uuid;
 
@@ -15,6 +16,8 @@ use crate::{
 
 const MAX_AVATAR_BYTES: usize = 1_000_000; // ~1MB
 const MAX_AVATAR_DIM: u32 = 512;
+const MAX_SOURCE_AVATAR_DIM: u32 = 4096;
+const MAX_SOURCE_AVATAR_ALLOC_BYTES: u64 = 64 * 1024 * 1024;
 
 async fn ensure_avatar_column(db: &sqlx::PgPool) -> Result<(), sqlx::Error> {
     sqlx::query("ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_url TEXT;")
@@ -190,12 +193,27 @@ pub async fn upload_avatar(
         });
     }
 
-    let img = match image::load_from_memory(&bytes) {
-        Ok(img) => img,
+    let mut reader = match ImageReader::new(std::io::Cursor::new(&bytes)).with_guessed_format() {
+        Ok(value) => value,
         Err(_) => {
             return HttpResponse::BadRequest().json(ErrorResponse {
                 error: "invalid_image".into(),
                 details: Some("format image non supporté".into()),
+            });
+        }
+    };
+    let mut limits = Limits::default();
+    limits.max_image_width = Some(MAX_SOURCE_AVATAR_DIM);
+    limits.max_image_height = Some(MAX_SOURCE_AVATAR_DIM);
+    limits.max_alloc = Some(MAX_SOURCE_AVATAR_ALLOC_BYTES);
+    reader.limits(limits);
+
+    let img = match reader.decode() {
+        Ok(img) => img,
+        Err(_) => {
+            return HttpResponse::BadRequest().json(ErrorResponse {
+                error: "invalid_image".into(),
+                details: Some("image trop grande ou format non supporté".into()),
             });
         }
     };

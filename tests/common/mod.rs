@@ -1,7 +1,9 @@
 use std::collections::HashSet;
 
 use actix_web::web;
-use fiestaaa_back::{notifications::NotificationService, state::AppState};
+use fiestaaa_back::{
+    notifications::NotificationService, rate_limit::AuthRateLimiter, state::AppState,
+};
 use once_cell::sync::Lazy;
 use sqlx::{PgPool, postgres::PgPoolOptions};
 use tokio::sync::Mutex;
@@ -38,6 +40,8 @@ pub async fn reset_tables(pool: &PgPool, tables: &[&str]) -> sqlx::Result<()> {
 }
 
 pub fn build_state(pool: PgPool, secret: &str, admin_emails: &[&str]) -> web::Data<AppState> {
+    fiestaaa_back::install_rustls_crypto_provider();
+
     let admins = admin_emails
         .iter()
         .map(|email| email.to_lowercase())
@@ -52,12 +56,14 @@ pub fn build_state(pool: PgPool, secret: &str, admin_emails: &[&str]) -> web::Da
         db: pool,
         jwt_secret: secret.to_string(),
         admin_emails: admins,
+        trust_proxy_headers: false,
         http_client,
         geocoding_base_url: "https://nominatim.openstreetmap.org".into(),
         geocoding_country_codes: None,
         invitation_email_sender: None,
         invitation_email_api_key: None,
         app_base_url: "http://localhost:3000".into(),
+        cors_allowed_origins: HashSet::from(["http://localhost:3000".to_string()]),
         avatar_upload_dir: "./uploads/avatars".into(),
         avatar_base_url: "http://localhost:8080/media/avatars".into(),
         redis_client: None,
@@ -68,5 +74,7 @@ pub fn build_state(pool: PgPool, secret: &str, admin_emails: &[&str]) -> web::Da
         apple_app_id: None,
         apple_service_id: None,
         google_ios_client_id: None,
+        auth_rate_limiter: AuthRateLimiter::new(1000, std::time::Duration::from_secs(60)),
+        invitation_rate_limiter: AuthRateLimiter::new(1000, std::time::Duration::from_secs(60)),
     })
 }

@@ -1,8 +1,11 @@
-use actix_web::{HttpRequest, HttpResponse, Responder, delete, post, web};
+use actix_web::{HttpRequest, HttpResponse, Responder, post, web};
 
 use crate::{
     auth::extract_claims_from_auth,
-    models::{DeviceRefreshPayload, DeviceRegisterPayload, ErrorResponse, StatusResponse},
+    models::{
+        DeviceDeletePayload, DeviceRefreshPayload, DeviceRegisterPayload, ErrorResponse,
+        StatusResponse,
+    },
     notifications::find_user_id_by_email,
     state::AppState,
 };
@@ -224,28 +227,26 @@ pub async fn refresh_device(
 }
 
 #[utoipa::path(
-    delete,
-    path = "/me/devices/{token}",
+    post,
+    path = "/me/devices/revoke",
     tag = "notifications",
+    request_body = DeviceDeletePayload,
     responses(
         (status = 200, description = "Jeton supprimé", body = StatusResponse),
         (status = 401, description = "Authentification requise", body = ErrorResponse)
-    ),
-    params(
-        ("token" = String, Path, description = "Token FCM à révoquer")
     )
 )]
-#[delete("/me/devices/{token}")]
+#[post("/me/devices/revoke")]
 pub async fn delete_device(
     state: web::Data<AppState>,
     req: HttpRequest,
-    token: web::Path<String>,
+    payload: web::Json<DeviceDeletePayload>,
 ) -> impl Responder {
-    let token = token.into_inner();
     let user_id = match current_user_id(&req, state.get_ref()).await {
         Ok(id) => id,
         Err(resp) => return resp,
     };
+    let token = payload.into_inner().token;
 
     let _ = sqlx::query(
         "UPDATE user_devices SET disabled_at = NOW() WHERE user_id = $1 AND fcm_token = $2",

@@ -240,7 +240,7 @@ pub struct FriendSearchQuery {
     path = "/friends/search",
     tag = "friends",
     params(
-        ("q" = String, Query, description = "Recherche par email ou identifiant"),
+        ("q" = String, Query, description = "Recherche par identifiant"),
         ("limit" = i64, Query, description = "Nombre de résultats (max 15)")
     ),
     responses(
@@ -268,9 +268,9 @@ pub async fn search_friends(
     let limit = query.limit.unwrap_or(8).clamp(1, 15);
 
     match sqlx::query_as::<_, FriendSearchResult>(
-        "SELECT u.email, u.handle, u.avatar_url
+        "SELECT NULL::TEXT AS email, u.handle, u.avatar_url
          FROM users u
-         WHERE (lower(u.email) LIKE lower($2) OR lower(u.handle) LIKE lower($2))
+         WHERE lower(u.handle) LIKE lower($2)
            AND u.id <> $1
            AND NOT EXISTS (
                 SELECT 1 FROM friendships f

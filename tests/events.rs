@@ -107,13 +107,35 @@ async fn seed_item_with_kind(
 
 async fn seed_user(pool: &PgPool, email: &str) -> sqlx::Result<i64> {
     let hash = hash_password("password").expect("hash");
+    let handle = email
+        .split('@')
+        .next()
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or("user")
+        .replace(|c: char| !c.is_ascii_alphanumeric(), "_");
     sqlx::query_scalar::<_, i64>(
-        "INSERT INTO users (email, password_hash) VALUES ($1, $2) RETURNING id",
+        "INSERT INTO users (email, password_hash, handle) VALUES ($1, $2, $3) RETURNING id",
     )
     .bind(email)
     .bind(hash)
+    .bind(handle)
     .fetch_one(pool)
     .await
+}
+
+async fn seed_invitation(
+    pool: &PgPool,
+    event_id: i64,
+    user_id: i64,
+    status: &str,
+) -> sqlx::Result<()> {
+    sqlx::query("INSERT INTO invitations (event_id, user_id, status) VALUES ($1, $2, $3)")
+        .bind(event_id)
+        .bind(user_id)
+        .bind(status)
+        .execute(pool)
+        .await?;
+    Ok(())
 }
 
 #[tokio::test]
@@ -401,6 +423,90 @@ async fn update_event_playlist_requires_creator_or_admin() -> Result<(), Box<dyn
         test::TestRequest::post()
             .uri("/events")
             .insert_header(("Authorization", format!("Bearer {}", creator_token.clone())))
+            .set_json(&EventPayload {
+                enabled_features: None,
+                name_event: "Playlist Party".to_string(),
+                description: "Music matters".to_string(),
+                date_event: NaiveDate::from_ymd_opt(2024, 7, 10).unwrap(),
+                start_time: NaiveTime::from_hms_opt(20, 0, 0).unwrap(),
+                end_date: None,
+                end_time: None,
+                invitation_deadline: None,
+                address: "123 Party Street".to_string(),
+                latitude: None,
+                longitude: None,
+                payment_provider_id: None,
+                payment_identifier: None,
+                payment_requested_amount: None,
+                payment_per_person: None,
+                playlist_url: None,
+                playlist_provider: None,
+            })
+            .to_request(),
+    )
+    .await;
+    assert_eq!(resp.status(), StatusCode::CREATED);
+    let created: Event = test::read_body_json(resp).await;
+
+    let resp = test::call_service(
+        &app,
+        test::TestRequest::patch()
+            .uri(&format!("/events/{}", created.event_id))
+            .insert_header(("Authorization", format!("Bearer {}", other_token)))
+            .set_json(&EventPatchPayload {
+                enabled_features: None,
+                name_event: None,
+                description: None,
+                date_event: None,
+                start_time: None,
+                end_date: None,
+                end_time: None,
+                invitation_deadline: None,
+                address: None,
+                latitude: None,
+                longitude: None,
+                payment_provider_id: None,
+                payment_identifier: None,
+                payment_requested_amount: None,
+                payment_per_person: None,
+                playlist_url: Some(Some("https://open.spotify.com/playlist/test".to_string())),
+                playlist_provider: Some(Some("spotify".to_string())),
+            })
+            .to_request(),
+    )
+    .await;
+
+    assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+    Ok(())
+}
+
+#[tokio::test]
+async fn update_event_playlist_rejects_non_owner_when_admins_are_unset()
+-> Result<(), Box<dyn Error>> {
+    let Some(pool) = obtain_pool().await else {
+        eprintln!("Skipping events tests: DATABASE_URL or TEST_DATABASE_URL not set");
+        return Ok(());
+    };
+    let _guard = DB_LOCK.lock().await;
+    reset_tables(&pool, &["events", "payment_providers", "users"]).await?;
+
+    let secret = "secret";
+    let state = build_state(pool.clone(), secret, &[]);
+    let app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
+
+    let creator_email = "creator@example.com";
+    let other_email = "other@example.com";
+    seed_user(&pool, creator_email).await?;
+    seed_user(&pool, other_email).await?;
+
+    let creator_token = admin_token(secret, creator_email).expect("token");
+    let other_token = admin_token(secret, other_email).expect("token");
+
+    let resp = test::call_service(
+        &app,
+        test::TestRequest::post()
+            .uri("/events")
+            .insert_header(("Authorization", format!("Bearer {}", creator_token)))
             .set_json(&EventPayload {
                 enabled_features: None,
                 name_event: "Playlist Party".to_string(),
@@ -764,6 +870,10 @@ async fn event_items_reservation_flow() -> Result<(), Box<dyn Error>> {
         &app,
         test::TestRequest::get()
             .uri(&format!("/events/{}/items", event.event_id))
+            .insert_header((
+                "Authorization",
+                format!("Bearer {}", admin_token_value.clone()),
+            ))
             .to_request(),
     )
     .await;
@@ -774,8 +884,10 @@ async fn event_items_reservation_flow() -> Result<(), Box<dyn Error>> {
     // Seed two users
     let user_one = "alice@example.com";
     let user_two = "bob@example.com";
-    seed_user(&pool, user_one).await?;
-    seed_user(&pool, user_two).await?;
+    let user_one_id = seed_user(&pool, user_one).await?;
+    let user_two_id = seed_user(&pool, user_two).await?;
+    seed_invitation(&pool, event.event_id, user_one_id, "Accepted").await?;
+    seed_invitation(&pool, event.event_id, user_two_id, "Accepted").await?;
 
     let user_one_token = admin_token(secret, user_one).expect("token");
     let user_two_token = admin_token(secret, user_two).expect("token");
@@ -863,6 +975,7 @@ async fn event_items_reservation_flow() -> Result<(), Box<dyn Error>> {
         &app,
         test::TestRequest::get()
             .uri(&format!("/events/{}/items", event.event_id))
+            .insert_header(("Authorization", format!("Bearer {}", admin_token_value)))
             .to_request(),
     )
     .await;
@@ -941,6 +1054,7 @@ async fn event_items_scope_filters() -> Result<(), Box<dyn Error>> {
     let user_email = "alice@example.com";
     let user_id = seed_user(&pool, user_email).await?;
     let user_token = admin_token(secret, user_email).expect("token");
+    seed_invitation(&pool, event.event_id, user_id, "Accepted").await?;
 
     let need_open_item =
         seed_item_with_kind(&pool, "ScopeNeedOpen", "Glacons", 5, "pieces", "need").await?;
@@ -999,6 +1113,10 @@ async fn event_items_scope_filters() -> Result<(), Box<dyn Error>> {
         &app,
         test::TestRequest::get()
             .uri(&format!("/events/{}/items?scope=all", event.event_id))
+            .insert_header((
+                "Authorization",
+                format!("Bearer {}", admin_token_value.clone()),
+            ))
             .to_request(),
     )
     .await;
@@ -1010,6 +1128,10 @@ async fn event_items_scope_filters() -> Result<(), Box<dyn Error>> {
         &app,
         test::TestRequest::get()
             .uri(&format!("/events/{}/items?scope=to_cover", event.event_id))
+            .insert_header((
+                "Authorization",
+                format!("Bearer {}", admin_token_value.clone()),
+            ))
             .to_request(),
     )
     .await;
@@ -1022,6 +1144,10 @@ async fn event_items_scope_filters() -> Result<(), Box<dyn Error>> {
         &app,
         test::TestRequest::get()
             .uri(&format!("/events/{}/items?scope=completed", event.event_id))
+            .insert_header((
+                "Authorization",
+                format!("Bearer {}", admin_token_value.clone()),
+            ))
             .to_request(),
     )
     .await;
@@ -1038,6 +1164,22 @@ async fn event_items_scope_filters() -> Result<(), Box<dyn Error>> {
     )
     .await;
     assert_eq!(mine_unauthorized.status(), StatusCode::UNAUTHORIZED);
+
+    let outsider_email = "outsider@example.com";
+    seed_user(&pool, outsider_email).await?;
+    let outsider_token = admin_token(secret, outsider_email).expect("token");
+    let outsider_all = test::call_service(
+        &app,
+        test::TestRequest::get()
+            .uri(&format!("/events/{}/items?scope=all", event.event_id))
+            .insert_header((
+                "Authorization",
+                format!("Bearer {}", outsider_token.clone()),
+            ))
+            .to_request(),
+    )
+    .await;
+    assert_eq!(outsider_all.status(), StatusCode::FORBIDDEN);
 
     let mine_resp = test::call_service(
         &app,
@@ -1057,12 +1199,105 @@ async fn event_items_scope_filters() -> Result<(), Box<dyn Error>> {
         &app,
         test::TestRequest::get()
             .uri(&format!("/events/{}/items?scope=unknown", event.event_id))
+            .insert_header(("Authorization", format!("Bearer {}", admin_token_value)))
             .to_request(),
     )
     .await;
     assert_eq!(invalid_scope_resp.status(), StatusCode::BAD_REQUEST);
     let invalid_body: Value = test::read_body_json(invalid_scope_resp).await;
     assert_eq!(invalid_body["error"], "invalid_payload");
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn reserve_event_item_requires_membership() -> Result<(), Box<dyn Error>> {
+    let Some(pool) = obtain_pool().await else {
+        eprintln!("Skipping events tests: DATABASE_URL or TEST_DATABASE_URL not set");
+        return Ok(());
+    };
+    let _guard = DB_LOCK.lock().await;
+    reset_tables(
+        &pool,
+        &[
+            "events",
+            "payment_providers",
+            "item_types",
+            "items",
+            "events_items",
+            "user_items",
+            "invitations",
+            "users",
+        ],
+    )
+    .await?;
+
+    let secret = "secret";
+    let admin_email = "admin@example.com";
+    let state = build_state(pool.clone(), secret, &[admin_email]);
+    let app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
+    let admin_token_value = admin_token(secret, admin_email).expect("token");
+
+    let create_resp = test::call_service(
+        &app,
+        test::TestRequest::post()
+            .uri("/events")
+            .insert_header((
+                "Authorization",
+                format!("Bearer {}", admin_token_value.clone()),
+            ))
+            .set_json(&EventPayload {
+                enabled_features: None,
+                name_event: "Private Items".to_string(),
+                description: "Reservation access control".to_string(),
+                date_event: NaiveDate::from_ymd_opt(2030, 1, 1).unwrap(),
+                start_time: NaiveTime::from_hms_opt(18, 30, 0).unwrap(),
+                end_date: None,
+                end_time: None,
+                invitation_deadline: None,
+                address: "Club House".to_string(),
+                latitude: None,
+                longitude: None,
+                payment_provider_id: None,
+                payment_identifier: None,
+                payment_requested_amount: None,
+                payment_per_person: None,
+                playlist_url: None,
+                playlist_provider: None,
+            })
+            .to_request(),
+    )
+    .await;
+    assert_eq!(create_resp.status(), StatusCode::CREATED);
+    let event: Event = test::read_body_json(create_resp).await;
+
+    let item_id = seed_item(&pool, "Boisson", "Punch", 5).await?;
+    sqlx::query(
+        "INSERT INTO events_items (event_id, item_id, max_quantity, quantity, created_by)
+         VALUES ($1, $2, $3, 0, NULL)",
+    )
+    .bind(event.event_id)
+    .bind(item_id)
+    .bind(5)
+    .execute(&pool)
+    .await?;
+
+    let outsider_email = "outsider@example.com";
+    seed_user(&pool, outsider_email).await?;
+    let outsider_token = admin_token(secret, outsider_email).expect("token");
+    let reserve_resp = test::call_service(
+        &app,
+        test::TestRequest::post()
+            .uri(&format!(
+                "/events/{}/items/{}/reserve",
+                event.event_id, item_id
+            ))
+            .insert_header(("Authorization", format!("Bearer {}", outsider_token)))
+            .set_json(&EventItemReservationPayload { quantity: 1 })
+            .to_request(),
+    )
+    .await;
+    assert_eq!(reserve_resp.status(), StatusCode::FORBIDDEN);
 
     Ok(())
 }
