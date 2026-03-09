@@ -124,6 +124,42 @@ async fn create_item_rejects_non_admin() -> Result<(), Box<dyn Error>> {
 }
 
 #[tokio::test]
+async fn create_item_rejects_requests_when_admins_are_unset() -> Result<(), Box<dyn Error>> {
+    let Some(pool) = obtain_pool().await else {
+        eprintln!("Skipping items tests: DATABASE_URL or TEST_DATABASE_URL not set");
+        return Ok(());
+    };
+    let _guard = DB_LOCK.lock().await;
+    reset_tables(&pool, &["items", "item_types"]).await?;
+
+    let secret = "secret";
+    let state = build_state(pool.clone(), secret, &[]);
+    let app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
+
+    let type_id = seed_item_type(&pool, "Drink").await?;
+    let token = admin_token(secret, "user@example.com").expect("token");
+
+    let resp = test::call_service(
+        &app,
+        test::TestRequest::post()
+            .uri("/items")
+            .insert_header(("Authorization", format!("Bearer {}", token)))
+            .set_json(&ItemPayload {
+                type_id,
+                name_item: "Soda".to_string(),
+                max_quantity: 10,
+                unit_label: "unités".to_string(),
+                item_kind: None,
+            })
+            .to_request(),
+    )
+    .await;
+
+    assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+    Ok(())
+}
+
+#[tokio::test]
 async fn items_crud_flow() -> Result<(), Box<dyn Error>> {
     let Some(pool) = obtain_pool().await else {
         eprintln!("Skipping items tests: DATABASE_URL or TEST_DATABASE_URL not set");

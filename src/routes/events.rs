@@ -25,6 +25,8 @@ use crate::{
     state::AppState,
 };
 
+const OWNER_SHARE_TOKEN_TTL_HOURS: i64 = 24;
+
 fn claims_email(req: &HttpRequest, state: &AppState) -> Result<String, HttpResponse> {
     let claims = extract_claims_from_auth(req, &state.jwt_secret)?;
     Ok(claims.sub.to_lowercase())
@@ -105,11 +107,11 @@ async fn ensure_event_owner(
     event_id: i64,
 ) -> Result<(), HttpResponse> {
     let requester = claims_email(req, state)?;
-    if state.admin_emails.is_empty() || state.admin_emails.contains(&requester) {
+    if state.admin_emails.contains(&requester) {
         return Ok(());
     }
     let owner = fetch_event_owner_email(&state.db, event_id).await?;
-    if owner == requester || owner.is_empty() {
+    if owner.eq_ignore_ascii_case(&requester) || owner.is_empty() {
         Ok(())
     } else {
         Err(HttpResponse::Forbidden().json(ErrorResponse {
@@ -1392,7 +1394,7 @@ pub async fn delete_event(
     path = "/events/{event_id}/share",
     tag = "events",
     responses(
-        (status = 201, description = "Lien de partage généré", body = ShareTokenResponse),
+        (status = 201, description = "Lien de partage généré. C'est un bearer token: tout utilisateur authentifié qui l'obtient peut le réclamer jusqu'à expiration ou consommation.", body = ShareTokenResponse),
         (status = 403, description = "Non autorisé", body = ErrorResponse),
         (status = 404, description = "Événement introuvable", body = ErrorResponse),
         (status = 500, description = "Erreur base de données", body = ErrorResponse)
@@ -1425,13 +1427,16 @@ pub async fn create_share_link(
     }
 
     let token = Uuid::new_v4();
+    let expires_at = Utc::now() + Duration::hours(OWNER_SHARE_TOKEN_TTL_HOURS);
 
     let res = sqlx::query(
-        "INSERT INTO event_share_tokens (token, event_id, created_by_email) VALUES ($1, $2, $3)",
+        "INSERT INTO event_share_tokens (token, event_id, created_by_email, expires_at)
+         VALUES ($1, $2, $3, $4)",
     )
     .bind(token)
     .bind(*event_id)
     .bind(&owner_email)
+    .bind(expires_at)
     .execute(&state.db)
     .await;
 
@@ -1496,7 +1501,10 @@ pub async fn claim_share_link(
     };
 
     let token_row = match sqlx::query(
-        "SELECT event_id, used_at FROM event_share_tokens WHERE token = $1 FOR UPDATE",
+        "SELECT event_id, used_at, expires_at, target_email
+         FROM event_share_tokens
+         WHERE token = $1
+         FOR UPDATE",
     )
     .bind(parsed_token)
     .fetch_optional(&mut *tx)
@@ -1520,6 +1528,28 @@ pub async fn claim_share_link(
         return HttpResponse::Gone().json(ErrorResponse {
             error: "token_used".into(),
             details: Some("Ce lien a déjà été utilisé".into()),
+        });
+    }
+    let expires_at: chrono::DateTime<chrono::Utc> = match token_row.try_get("expires_at") {
+        Ok(v) => v,
+        Err(_) => return server_error(),
+    };
+    if expires_at < chrono::Utc::now() {
+        return HttpResponse::Gone().json(ErrorResponse {
+            error: "token_expired".into(),
+            details: Some("Ce lien a expiré".into()),
+        });
+    }
+    let target_email: Option<String> = match token_row.try_get("target_email") {
+        Ok(v) => v,
+        Err(_) => return server_error(),
+    };
+    if let Some(expected_email) = target_email
+        && !expected_email.eq_ignore_ascii_case(&claims.sub)
+    {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            error: "token_recipient_mismatch".into(),
+            details: Some("Ce lien est réservé à une autre adresse email".into()),
         });
     }
     let event_id: i64 = match token_row.try_get("event_id") {
@@ -1615,7 +1645,8 @@ pub async fn claim_share_link(
     responses(
         (status = 200, description = "Items configurés pour l'événement", body = [EventItemView]),
         (status = 400, description = "Scope invalide", body = ErrorResponse),
-        (status = 401, description = "Authentification requise pour scope=mine", body = ErrorResponse),
+        (status = 401, description = "Authentification requise", body = ErrorResponse),
+        (status = 403, description = "Accès réservé aux membres de l'événement", body = ErrorResponse),
         (status = 404, description = "Événement introuvable", body = ErrorResponse),
         (status = 500, description = "Erreur base de données", body = ErrorResponse)
     ),
@@ -1640,6 +1671,9 @@ pub async fn list_event_items(
     };
 
     if let Err(resp) = ensure_event_exists(&state.db, *event_id).await {
+        return resp;
+    }
+    if let Err(resp) = ensure_event_member(&req, state.get_ref(), *event_id).await {
         return resp;
     }
 
@@ -2117,6 +2151,11 @@ pub async fn reserve_event_item(
         Err(resp) => return resp,
     };
 
+    let (event_id, item_id) = path.into_inner();
+    if let Err(resp) = ensure_event_member(&req, state.get_ref(), event_id).await {
+        return resp;
+    }
+
     let payload = payload.into_inner();
     if payload.quantity < 0 {
         return HttpResponse::BadRequest().json(ErrorResponse {
@@ -2129,8 +2168,6 @@ pub async fn reserve_event_item(
         Ok(id) => id,
         Err(resp) => return resp,
     };
-
-    let (event_id, item_id) = path.into_inner();
 
     if let Err(resp) = ensure_event_exists(&state.db, event_id).await {
         return resp;

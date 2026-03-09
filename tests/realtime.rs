@@ -161,3 +161,36 @@ async fn issue_realtime_ticket_requires_event_membership() -> Result<(), Box<dyn
     );
     Ok(())
 }
+
+#[tokio::test]
+async fn issue_realtime_ticket_rejects_untrusted_origin() -> Result<(), Box<dyn Error>> {
+    let Some(pool) = obtain_pool().await else {
+        eprintln!("Skipping realtime tests: DATABASE_URL or TEST_DATABASE_URL not set");
+        return Ok(());
+    };
+    let _guard = DB_LOCK.lock().await;
+    reset_tables(&pool, &["users"]).await?;
+
+    let secret = "secret";
+    seed_user(&pool, "member@example.com", "member").await?;
+
+    let state = build_state(pool.clone(), secret, &[]);
+    let app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
+    let token = make_token(secret, "member@example.com", "member").expect("token");
+
+    let resp = test::call_service(
+        &app,
+        test::TestRequest::get()
+            .uri("/ws-ticket")
+            .insert_header(("Origin", "https://evil.example"))
+            .insert_header(("Authorization", format!("Bearer {token}")))
+            .to_request(),
+    )
+    .await;
+
+    assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+    let body: TestErrorResponse = test::read_body_json(resp).await;
+    assert_eq!(body.error, "forbidden_origin");
+    assert_eq!(body.details.as_deref(), Some("Origin non autorisee"));
+    Ok(())
+}

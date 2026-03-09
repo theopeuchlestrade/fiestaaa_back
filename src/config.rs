@@ -44,6 +44,7 @@ pub struct AppConfig {
     pub database_url: String,
     pub jwt_secret: String,
     pub admin_emails: Vec<String>,
+    pub trust_proxy_headers: bool,
     pub geocoding_base_url: String,
     pub geocoding_user_agent: String,
     pub geocoding_country_codes: Option<String>,
@@ -66,6 +67,10 @@ pub struct AppConfig {
     pub apple_app_id: Option<String>,
     pub apple_service_id: Option<String>,
     pub cors_allowed_origins: Vec<String>,
+    pub auth_rate_limit_max_attempts: usize,
+    pub auth_rate_limit_window_seconds: u64,
+    pub invitation_rate_limit_max_attempts: usize,
+    pub invitation_rate_limit_window_seconds: u64,
 }
 
 impl AppConfig {
@@ -89,6 +94,18 @@ impl AppConfig {
             .filter(|s| !s.is_empty())
             .map(|s| s.to_lowercase())
             .collect::<Vec<_>>();
+        if admin_emails.is_empty() {
+            warn!("ADMIN_EMAILS n'est pas defini ; les endpoints admin seront desactives");
+        }
+        let trust_proxy_headers = std::env::var("TRUST_PROXY_HEADERS")
+            .ok()
+            .map(|value| {
+                matches!(
+                    value.trim().to_ascii_lowercase().as_str(),
+                    "1" | "true" | "yes" | "on"
+                )
+            })
+            .unwrap_or(false);
         let geocoding_base_url = std::env::var("GEOCODING_BASE_URL")
             .unwrap_or_else(|_| "https://nominatim.openstreetmap.org".into());
         let geocoding_user_agent =
@@ -164,12 +181,31 @@ impl AppConfig {
             })
             .filter(|origins: &Vec<String>| !origins.is_empty())
             .unwrap_or_else(|| default_cors_allowed_origins(&app_base_url));
+        let auth_rate_limit_max_attempts = std::env::var("AUTH_RATE_LIMIT_MAX_ATTEMPTS")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(20);
+        let auth_rate_limit_window_seconds = std::env::var("AUTH_RATE_LIMIT_WINDOW_SECONDS")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(60);
+        let invitation_rate_limit_max_attempts =
+            std::env::var("INVITATION_RATE_LIMIT_MAX_ATTEMPTS")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(10);
+        let invitation_rate_limit_window_seconds =
+            std::env::var("INVITATION_RATE_LIMIT_WINDOW_SECONDS")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(300);
         Self {
             host,
             port,
             database_url,
             jwt_secret,
             admin_emails,
+            trust_proxy_headers,
             geocoding_base_url,
             geocoding_user_agent,
             geocoding_country_codes,
@@ -192,6 +228,10 @@ impl AppConfig {
             apple_app_id,
             apple_service_id,
             cors_allowed_origins,
+            auth_rate_limit_max_attempts,
+            auth_rate_limit_window_seconds,
+            invitation_rate_limit_max_attempts,
+            invitation_rate_limit_window_seconds,
         }
     }
 }

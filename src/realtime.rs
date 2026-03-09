@@ -16,7 +16,7 @@ use serde_json::json;
 use uuid::Uuid;
 
 use crate::{
-    auth::{extract_claims_from_auth, now_ts},
+    auth::now_ts,
     models::{ErrorResponse, RealtimeTicketResponse},
     routes::event_access::ensure_event_member_email,
     state::AppState,
@@ -105,6 +105,29 @@ pub struct EventWsQuery {
     pub ticket: Option<String>,
 }
 
+fn normalize_origin(value: &str) -> Option<String> {
+    let trimmed = value.trim().trim_end_matches('/');
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed.to_string())
+    }
+}
+
+fn request_origin_allowed(state: &AppState, req: &HttpRequest) -> bool {
+    let Some(origin) = req
+        .headers()
+        .get("Origin")
+        .and_then(|value| value.to_str().ok())
+    else {
+        return true;
+    };
+    let Some(normalized) = normalize_origin(origin) else {
+        return false;
+    };
+    state.cors_allowed_origins.contains(&normalized)
+}
+
 #[utoipa::path(
     get,
     path = "/ws-ticket",
@@ -125,7 +148,14 @@ pub async fn issue_realtime_ticket(
     req: HttpRequest,
     query: web::Query<RealtimeTicketQuery>,
 ) -> HttpResponse {
-    let claims = match extract_claims_from_auth(&req, &state.jwt_secret) {
+    if !request_origin_allowed(state.get_ref(), &req) {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            error: "forbidden_origin".into(),
+            details: Some("Origin non autorisee".into()),
+        });
+    }
+
+    let claims = match crate::auth::extract_claims_from_auth(&req, &state.jwt_secret) {
         Ok(c) => c,
         Err(resp) => return resp,
     };
@@ -172,8 +202,15 @@ pub async fn websocket(
     req: HttpRequest,
     stream: web::Payload,
 ) -> Result<HttpResponse, actix_web::Error> {
+    if !request_origin_allowed(state.get_ref(), &req) {
+        return Ok(HttpResponse::Forbidden().json(ErrorResponse {
+            error: "forbidden_origin".into(),
+            details: Some("Origin non autorisee".into()),
+        }));
+    }
+
     let params: EventWsQuery = serde_urlencoded::from_str(req.query_string()).unwrap_or_default();
-    let (email, event_id) = match resolve_ws_identity(&state, &req, &params).await {
+    let (email, event_id, auth_exp) = match resolve_ws_identity(&state, &params).await {
         Ok(value) => value,
         Err(resp) => return Ok(resp),
     };
@@ -182,6 +219,7 @@ pub async fn websocket(
         email,
         redis_client: state.redis_client.clone(),
         event_id,
+        auth_exp,
         hb: Instant::now(),
     };
 
@@ -190,21 +228,11 @@ pub async fn websocket(
 
 async fn resolve_ws_identity(
     state: &Data<AppState>,
-    req: &HttpRequest,
     params: &EventWsQuery,
-) -> Result<(String, Option<i64>), HttpResponse> {
-    if let Ok(claims) = extract_claims_from_auth(req, &state.jwt_secret) {
-        let email = claims.sub.to_lowercase();
-        if let Some(event_id) = params.event_id {
-            ensure_event_member_email(&state.db, event_id, &email).await?;
-            return Ok((email, Some(event_id)));
-        }
-        return Ok((email, None));
-    }
-
+) -> Result<(String, Option<i64>, usize), HttpResponse> {
     let Some(ticket) = params.ticket.as_deref() else {
         return Err(HttpResponse::Unauthorized().json(ErrorResponse {
-            error: "missing_authorization_header".into(),
+            error: "missing_ticket".into(),
             details: None,
         }));
     };
@@ -213,9 +241,9 @@ async fn resolve_ws_identity(
     let email = claims.sub.to_lowercase();
     if let Some(event_id) = claims.event_id {
         ensure_event_member_email(&state.db, event_id, &email).await?;
-        return Ok((email, Some(event_id)));
+        return Ok((email, Some(event_id), claims.exp));
     }
-    Ok((email, None))
+    Ok((email, None, claims.exp))
 }
 
 fn decode_realtime_ticket(
@@ -249,12 +277,18 @@ pub struct WsSession {
     pub email: String,
     pub redis_client: Option<RedisClient>,
     pub event_id: Option<i64>,
+    auth_exp: usize,
     hb: Instant,
 }
 
 impl WsSession {
     fn hb(&self, ctx: &mut ws::WebsocketContext<Self>) {
         ctx.run_interval(Duration::from_secs(15), |act, ctx| {
+            if now_ts() >= act.auth_exp as u64 {
+                ctx.close(None);
+                ctx.stop();
+                return;
+            }
             if Instant::now().duration_since(act.hb) > Duration::from_secs(45) {
                 ctx.close(None);
                 ctx.stop();

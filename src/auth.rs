@@ -1,3 +1,4 @@
+use actix_web::cookie::{Cookie, SameSite, time::Duration};
 use actix_web::http::header::AUTHORIZATION;
 use actix_web::{HttpRequest, HttpResponse};
 use argon2::{
@@ -15,6 +16,8 @@ use crate::{
     handles::{looks_like_email, normalize_handle},
     models::{Claims, ErrorResponse},
 };
+
+const SESSION_COOKIE_NAME: &str = "fiestaaa_session";
 
 #[derive(Debug)]
 pub enum AuthError {
@@ -80,6 +83,29 @@ pub fn validate_password_strength(password: &str) -> Result<(), &'static str> {
 
 pub fn random_password_token() -> String {
     format!("oauth-{}", Uuid::new_v4())
+}
+
+pub fn session_cookie_name() -> &'static str {
+    SESSION_COOKIE_NAME
+}
+
+pub fn build_session_cookie(token: &str, secure: bool) -> Cookie<'static> {
+    Cookie::build(SESSION_COOKIE_NAME, token.to_string())
+        .http_only(true)
+        .same_site(SameSite::Lax)
+        .path("/")
+        .secure(secure)
+        .finish()
+}
+
+pub fn build_cleared_session_cookie(secure: bool) -> Cookie<'static> {
+    Cookie::build(SESSION_COOKIE_NAME, "")
+        .http_only(true)
+        .same_site(SameSite::Lax)
+        .path("/")
+        .secure(secure)
+        .max_age(Duration::seconds(0))
+        .finish()
 }
 
 #[derive(Debug, Clone, sqlx::FromRow)]
@@ -150,21 +176,24 @@ pub fn extract_claims_from_auth(req: &HttpRequest, secret: &str) -> Result<Claim
         .headers()
         .get(AUTHORIZATION)
         .and_then(|v| v.to_str().ok());
-    let Some(header_val) = header else {
+    let token = if let Some(header_val) = header {
+        let prefix = "Bearer ";
+        if !header_val.starts_with(prefix) {
+            return Err(HttpResponse::Unauthorized().json(ErrorResponse {
+                error: "invalid_authorization_scheme".into(),
+                details: None,
+            }));
+        }
+        header_val[prefix.len()..].to_string()
+    } else if let Some(cookie) = req.cookie(SESSION_COOKIE_NAME) {
+        cookie.value().to_string()
+    } else {
         return Err(HttpResponse::Unauthorized().json(ErrorResponse {
             error: "missing_authorization_header".into(),
             details: None,
         }));
     };
-    let prefix = "Bearer ";
-    if !header_val.starts_with(prefix) {
-        return Err(HttpResponse::Unauthorized().json(ErrorResponse {
-            error: "invalid_authorization_scheme".into(),
-            details: None,
-        }));
-    }
-    let token = &header_val[prefix.len()..];
-    decode_jwt(token, secret)
+    decode_jwt(&token, secret)
 }
 
 #[cfg(test)]
