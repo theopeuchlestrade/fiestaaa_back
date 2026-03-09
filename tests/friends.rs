@@ -114,7 +114,8 @@ async fn friend_request_flow_covers_search_acceptance_and_deletion() -> Result<(
     let search_results: Vec<fiestaaa_back::models::FriendSearchResult> =
         test::read_body_json(search_resp).await;
     assert_eq!(search_results.len(), 1);
-    assert_eq!(search_results[0].email, "bob@example.com");
+    assert_eq!(search_results[0].email, None);
+    assert_eq!(search_results[0].handle, "bob_handle");
 
     let create_resp = test::call_service(
         &app,

@@ -13,6 +13,18 @@ pub struct LoginPayload {
 #[derive(Serialize, Deserialize, ToSchema)]
 pub struct RegisterPayload {
     pub email: String,
+    pub password: Option<String>,
+    pub handle: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, ToSchema)]
+pub struct VerifyEmailPayload {
+    pub token: String,
+}
+
+#[derive(Serialize, Deserialize, ToSchema)]
+pub struct CompleteRegistrationPayload {
+    pub token: String,
     pub password: String,
     pub handle: Option<String>,
 }
@@ -306,7 +318,7 @@ pub struct Friend {
 
 #[derive(Debug, Serialize, Deserialize, ToSchema, FromRow)]
 pub struct FriendSearchResult {
-    pub email: String,
+    pub email: Option<String>,
     pub handle: String,
     pub avatar_url: Option<String>,
 }
@@ -423,6 +435,11 @@ pub struct DeviceRefreshPayload {
     pub platform: Option<String>,
     pub locale: Option<String>,
     pub app_version: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct DeviceDeletePayload {
+    pub token: String,
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]

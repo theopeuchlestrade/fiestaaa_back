@@ -118,6 +118,41 @@ async fn create_payment_provider_rejects_non_admin() -> Result<(), Box<dyn Error
 }
 
 #[tokio::test]
+async fn create_payment_provider_rejects_requests_when_admins_are_unset()
+-> Result<(), Box<dyn Error>> {
+    let Some(pool) = obtain_pool().await else {
+        eprintln!("Skipping payment providers tests: DATABASE_URL or TEST_DATABASE_URL not set");
+        return Ok(());
+    };
+    let _guard = DB_LOCK.lock().await;
+    reset_tables(&pool, &["payment_providers"]).await?;
+
+    let secret = "secret";
+    let state = build_state(pool.clone(), secret, &[]);
+    let app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
+
+    let token = admin_token(secret, "user@example.com").expect("token");
+
+    let resp = test::call_service(
+        &app,
+        test::TestRequest::post()
+            .uri("/payment-providers")
+            .insert_header(("Authorization", format!("Bearer {}", token)))
+            .set_json(&PaymentProviderPayload {
+                provider_name: "Stripe".to_string(),
+                url_template: "https://checkout.stripe.com/{identifier}".to_string(),
+                validation_regex: None,
+                is_active: None,
+            })
+            .to_request(),
+    )
+    .await;
+
+    assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+    Ok(())
+}
+
+#[tokio::test]
 async fn payment_providers_crud_flow() -> Result<(), Box<dyn Error>> {
     let Some(pool) = obtain_pool().await else {
         eprintln!("Skipping payment providers tests: DATABASE_URL or TEST_DATABASE_URL not set");

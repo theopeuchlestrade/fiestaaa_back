@@ -262,7 +262,8 @@ pub async fn scan_qr_code(
          FROM event_checkins ec
          JOIN users u ON u.id = ec.user_id
          LEFT JOIN invitations i ON i.event_id = ec.event_id AND i.user_id = ec.user_id
-         WHERE ec.qr_token = $1",
+         WHERE ec.qr_token = $1
+         FOR UPDATE",
     )
     .bind(qr_token)
     .fetch_optional(&mut *tx)
@@ -351,7 +352,10 @@ pub async fn scan_qr_code(
     // Mark as scanned
     let now = chrono::Utc::now();
     let update_result = sqlx::query(
-        "UPDATE event_checkins SET scanned_at = $1, scanned_by_email = $2 WHERE qr_token = $3",
+        "UPDATE event_checkins
+         SET scanned_at = $1, scanned_by_email = $2
+         WHERE qr_token = $3
+           AND scanned_at IS NULL",
     )
     .bind(now)
     .bind(&scanner_email)
@@ -359,12 +363,27 @@ pub async fn scan_qr_code(
     .execute(&mut *tx)
     .await;
 
-    if let Err(e) = update_result {
+    if let Err(e) = &update_result {
         error!("Failed to update scan status: {}", e);
         let _ = tx.rollback().await;
         return HttpResponse::InternalServerError().json(ErrorResponse {
             error: "db_error".into(),
             details: None,
+        });
+    }
+    if update_result
+        .as_ref()
+        .is_ok_and(|result| result.rows_affected() == 0)
+    {
+        let _ = tx.rollback().await;
+        return HttpResponse::Conflict().json(QRCodeScanResponse {
+            success: false,
+            status: "already_scanned".into(),
+            user_email: Some(user_email.clone()),
+            user_handle: Some(user_handle.clone()),
+            user_avatar_url: user_avatar_url.clone(),
+            scanned_at: None,
+            message: format!("{} a déjà été enregistré", user_email),
         });
     }
 
