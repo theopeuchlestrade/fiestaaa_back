@@ -49,6 +49,7 @@ async fn main() -> std::io::Result<()> {
         db: pool,
         jwt_secret: cfg.jwt_secret.clone(),
         admin_emails,
+        trust_proxy_headers: cfg.trust_proxy_headers,
         http_client,
         geocoding_base_url: cfg.geocoding_base_url.clone(),
         geocoding_country_codes: cfg.geocoding_country_codes.clone(),

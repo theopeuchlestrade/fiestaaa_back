@@ -17,6 +17,11 @@ pub struct RegisterPayload {
     pub handle: Option<String>,
 }
 
+#[derive(Serialize, Deserialize, ToSchema)]
+pub struct VerifyEmailPayload {
+    pub token: String,
+}
+
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct Claims {
     pub sub: String,

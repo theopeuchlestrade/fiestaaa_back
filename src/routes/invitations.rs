@@ -1,5 +1,5 @@
 use actix_web::{HttpRequest, HttpResponse, Responder, delete, get, patch, post, web};
-use chrono::{NaiveDate, NaiveTime};
+use chrono::{Duration, NaiveDate, NaiveTime, Utc};
 use log::{error, warn};
 use serde_json::json;
 use sqlx::{FromRow, Row};
@@ -484,13 +484,17 @@ async fn invite_unregistered_user(
     })?;
 
     let token = Uuid::new_v4();
+    let expires_at = Utc::now() + Duration::days(7);
 
     if (sqlx::query(
-        "INSERT INTO event_share_tokens (token, event_id, created_by_email) VALUES ($1, $2, $3)",
+        "INSERT INTO event_share_tokens (token, event_id, created_by_email, target_email, expires_at)
+         VALUES ($1, $2, $3, $4, $5)",
     )
     .bind(token)
     .bind(event_id)
     .bind(owner_email)
+    .bind(invitee_email.to_lowercase())
+    .bind(expires_at)
     .execute(&mut *tx)
     .await)
         .is_err()

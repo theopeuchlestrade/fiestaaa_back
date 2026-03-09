@@ -25,6 +25,8 @@ use crate::{
     state::AppState,
 };
 
+const OWNER_SHARE_TOKEN_TTL_HOURS: i64 = 24;
+
 fn claims_email(req: &HttpRequest, state: &AppState) -> Result<String, HttpResponse> {
     let claims = extract_claims_from_auth(req, &state.jwt_secret)?;
     Ok(claims.sub.to_lowercase())
@@ -1425,13 +1427,16 @@ pub async fn create_share_link(
     }
 
     let token = Uuid::new_v4();
+    let expires_at = Utc::now() + Duration::hours(OWNER_SHARE_TOKEN_TTL_HOURS);
 
     let res = sqlx::query(
-        "INSERT INTO event_share_tokens (token, event_id, created_by_email) VALUES ($1, $2, $3)",
+        "INSERT INTO event_share_tokens (token, event_id, created_by_email, expires_at)
+         VALUES ($1, $2, $3, $4)",
     )
     .bind(token)
     .bind(*event_id)
     .bind(&owner_email)
+    .bind(expires_at)
     .execute(&state.db)
     .await;
 
@@ -1496,7 +1501,10 @@ pub async fn claim_share_link(
     };
 
     let token_row = match sqlx::query(
-        "SELECT event_id, used_at FROM event_share_tokens WHERE token = $1 FOR UPDATE",
+        "SELECT event_id, used_at, expires_at, target_email
+         FROM event_share_tokens
+         WHERE token = $1
+         FOR UPDATE",
     )
     .bind(parsed_token)
     .fetch_optional(&mut *tx)
@@ -1520,6 +1528,28 @@ pub async fn claim_share_link(
         return HttpResponse::Gone().json(ErrorResponse {
             error: "token_used".into(),
             details: Some("Ce lien a déjà été utilisé".into()),
+        });
+    }
+    let expires_at: chrono::DateTime<chrono::Utc> = match token_row.try_get("expires_at") {
+        Ok(v) => v,
+        Err(_) => return server_error(),
+    };
+    if expires_at < chrono::Utc::now() {
+        return HttpResponse::Gone().json(ErrorResponse {
+            error: "token_expired".into(),
+            details: Some("Ce lien a expiré".into()),
+        });
+    }
+    let target_email: Option<String> = match token_row.try_get("target_email") {
+        Ok(v) => v,
+        Err(_) => return server_error(),
+    };
+    if let Some(expected_email) = target_email
+        && !expected_email.eq_ignore_ascii_case(&claims.sub)
+    {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            error: "token_recipient_mismatch".into(),
+            details: Some("Ce lien est réservé à une autre adresse email".into()),
         });
     }
     let event_id: i64 = match token_row.try_get("event_id") {

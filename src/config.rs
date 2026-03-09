@@ -44,6 +44,7 @@ pub struct AppConfig {
     pub database_url: String,
     pub jwt_secret: String,
     pub admin_emails: Vec<String>,
+    pub trust_proxy_headers: bool,
     pub geocoding_base_url: String,
     pub geocoding_user_agent: String,
     pub geocoding_country_codes: Option<String>,
@@ -94,6 +95,15 @@ impl AppConfig {
         if admin_emails.is_empty() {
             warn!("ADMIN_EMAILS n'est pas defini ; les endpoints admin seront desactives");
         }
+        let trust_proxy_headers = std::env::var("TRUST_PROXY_HEADERS")
+            .ok()
+            .map(|value| {
+                matches!(
+                    value.trim().to_ascii_lowercase().as_str(),
+                    "1" | "true" | "yes" | "on"
+                )
+            })
+            .unwrap_or(false);
         let geocoding_base_url = std::env::var("GEOCODING_BASE_URL")
             .unwrap_or_else(|_| "https://nominatim.openstreetmap.org".into());
         let geocoding_user_agent =
@@ -183,6 +193,7 @@ impl AppConfig {
             database_url,
             jwt_secret,
             admin_emails,
+            trust_proxy_headers,
             geocoding_base_url,
             geocoding_user_agent,
             geocoding_country_codes,

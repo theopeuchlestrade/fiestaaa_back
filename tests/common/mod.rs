@@ -54,6 +54,7 @@ pub fn build_state(pool: PgPool, secret: &str, admin_emails: &[&str]) -> web::Da
         db: pool,
         jwt_secret: secret.to_string(),
         admin_emails: admins,
+        trust_proxy_headers: false,
         http_client,
         geocoding_base_url: "https://nominatim.openstreetmap.org".into(),
         geocoding_country_codes: None,

@@ -20,6 +20,7 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(root::me)
         .service(health::health)
         .service(auth::register)
+        .service(auth::verify_email)
         .service(auth::login)
         .service(auth::oauth_login)
         .service(auth::logout)

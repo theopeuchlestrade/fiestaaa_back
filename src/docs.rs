@@ -11,7 +11,7 @@ use crate::models::{
     InvitationPatchPayload, InvitationPayload, Item, ItemContribution, ItemPatchPayload,
     ItemPayload, LoginPayload, MeResponse, PaymentProvider, PaymentProviderPatchPayload,
     PaymentProviderPayload, PollOptionView, PollOptionVoter, PollView, RealtimeTicketResponse,
-    RegisterPayload, StatusResponse, TokenResponse,
+    RegisterPayload, StatusResponse, TokenResponse, VerifyEmailPayload,
 };
 
 #[derive(OpenApi)]
@@ -20,6 +20,7 @@ use crate::models::{
         crate::routes::root::hello,
         crate::routes::root::me,
         crate::routes::auth::register,
+        crate::routes::auth::verify_email,
         crate::routes::auth::login,
         crate::routes::auth::oauth_login,
         crate::routes::auth::logout,
@@ -77,6 +78,7 @@ use crate::models::{
         schemas(
             LoginPayload,
             RegisterPayload,
+            VerifyEmailPayload,
             StatusResponse,
             TokenResponse,
             ErrorResponse,
