@@ -40,6 +40,8 @@ pub async fn reset_tables(pool: &PgPool, tables: &[&str]) -> sqlx::Result<()> {
 }
 
 pub fn build_state(pool: PgPool, secret: &str, admin_emails: &[&str]) -> web::Data<AppState> {
+    fiestaaa_back::install_rustls_crypto_provider();
+
     let admins = admin_emails
         .iter()
         .map(|email| email.to_lowercase())

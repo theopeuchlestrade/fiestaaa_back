@@ -281,6 +281,50 @@ async fn login_rejects_invalid_credentials() -> Result<(), Box<dyn Error>> {
 }
 
 #[tokio::test]
+async fn login_explains_when_email_is_not_verified_yet() -> Result<(), Box<dyn Error>> {
+    let Some(pool) = obtain_pool().await else {
+        eprintln!("Skipping auth tests: DATABASE_URL or TEST_DATABASE_URL not set");
+        return Ok(());
+    };
+    let _guard = DB_LOCK.lock().await;
+    reset_tables(&pool, &["pending_registrations", "users"]).await?;
+
+    let state = build_state(pool.clone(), "secret", &[]);
+    let app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
+
+    let email = "pending@example.com";
+    let password = "MyStr0ng!Pass#2025";
+
+    let register_resp = test::call_service(
+        &app,
+        test::TestRequest::post()
+            .uri("/auth/register")
+            .set_json(serde_json::json!({ "email": email, "password": password }))
+            .to_request(),
+    )
+    .await;
+    assert_eq!(register_resp.status(), StatusCode::CREATED);
+
+    let login_resp = test::call_service(
+        &app,
+        test::TestRequest::post()
+            .uri("/auth/login")
+            .set_json(serde_json::json!({ "identifier": email, "password": password }))
+            .to_request(),
+    )
+    .await;
+    assert_eq!(login_resp.status(), StatusCode::FORBIDDEN);
+
+    let body: Value = test::read_body_json(login_resp).await;
+    assert_eq!(
+        body.get("error").and_then(|value| value.as_str()),
+        Some("email_not_verified")
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
 async fn delete_account_removes_user() -> Result<(), Box<dyn Error>> {
     let Some(pool) = obtain_pool().await else {
         eprintln!("Skipping auth tests: DATABASE_URL or TEST_DATABASE_URL not set");
