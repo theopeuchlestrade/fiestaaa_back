@@ -2,14 +2,16 @@ use utoipa::OpenApi;
 
 use crate::models::{
     AddressSuggestion, DeviceRefreshPayload, DeviceRegisterPayload, ErrorResponse, Event,
-    EventCustomItemPayload, EventItemAttachPayload, EventItemReservationPayload, EventItemView,
-    EventPatchPayload, EventPayload, EventPollCreatePayload, EventPollVotePayload, Friend,
-    FriendRequest, FriendRequestActionPayload, FriendRequestPayload, FriendSearchResult,
+    EventCustomItemPayload, EventExpenseBalanceView, EventExpenseParticipantView,
+    EventExpensePayload, EventExpenseSettlementView, EventExpenseView, EventExpensesSummaryView,
+    EventItemAttachPayload, EventItemReservationPayload, EventItemView, EventPatchPayload,
+    EventPayload, EventPollCreatePayload, EventPollVotePayload, Friend, FriendRequest,
+    FriendRequestActionPayload, FriendRequestPayload, FriendSearchResult,
     HandleAvailabilityResponse, HandleUpdatePayload, HealthResponse, Invitation,
     InvitationPatchPayload, InvitationPayload, Item, ItemContribution, ItemPatchPayload,
     ItemPayload, LoginPayload, MeResponse, PaymentProvider, PaymentProviderPatchPayload,
-    PaymentProviderPayload, PollOptionView, PollOptionVoter, PollView, RegisterPayload,
-    StatusResponse, TokenResponse,
+    PaymentProviderPayload, PollOptionView, PollOptionVoter, PollView, RealtimeTicketResponse,
+    RegisterPayload, StatusResponse, TokenResponse,
 };
 
 #[derive(OpenApi)]
@@ -43,6 +45,10 @@ use crate::models::{
         crate::routes::events::create_event_poll,
         crate::routes::events::vote_event_poll,
         crate::routes::events::delete_event_poll,
+        crate::routes::events::list_event_expenses,
+        crate::routes::events::create_event_expense,
+        crate::routes::events::delete_event_expense,
+        crate::routes::events::get_event_expenses_summary,
         crate::routes::invitations::list_event_invitations,
         crate::routes::invitations::create_invitation,
         crate::routes::invitations::delete_invitation,
@@ -57,6 +63,7 @@ use crate::models::{
         crate::routes::notifications::register_device,
         crate::routes::notifications::refresh_device,
         crate::routes::notifications::delete_device,
+        crate::routes::realtime::issue_realtime_ticket,
         crate::routes::users::check_handle_availability,
         crate::routes::users::update_handle,
         crate::routes::payment_providers::list_payment_providers,
@@ -84,6 +91,12 @@ use crate::models::{
             EventItemAttachPayload,
             EventItemReservationPayload,
             EventCustomItemPayload,
+            EventExpensePayload,
+            EventExpenseParticipantView,
+            EventExpenseView,
+            EventExpenseBalanceView,
+            EventExpenseSettlementView,
+            EventExpensesSummaryView,
             Invitation,
             InvitationPayload,
             InvitationPatchPayload,
@@ -105,7 +118,8 @@ use crate::models::{
             PaymentProviderPatchPayload,
             AddressSuggestion,
             DeviceRegisterPayload,
-            DeviceRefreshPayload
+            DeviceRefreshPayload,
+            RealtimeTicketResponse
         )
     ),
     tags(

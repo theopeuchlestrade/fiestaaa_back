@@ -145,6 +145,20 @@ async fn login_returns_token_for_valid_credentials() -> Result<(), Box<dyn Error
     )
     .await;
     assert_eq!(login_resp.status(), StatusCode::OK);
+    assert_eq!(
+        login_resp
+            .headers()
+            .get("cache-control")
+            .and_then(|value| value.to_str().ok()),
+        Some("no-store")
+    );
+    assert_eq!(
+        login_resp
+            .headers()
+            .get("pragma")
+            .and_then(|value| value.to_str().ok()),
+        Some("no-cache")
+    );
 
     let json: Value = test::read_body_json(login_resp).await;
     let token = json

@@ -1,4 +1,4 @@
-use actix_web::http::header::CONTENT_TYPE;
+use actix_web::http::header::{CACHE_CONTROL, CONTENT_TYPE, PRAGMA};
 use actix_web::{HttpResponse, Responder, post, web};
 use sqlx::Error;
 
@@ -19,6 +19,18 @@ use serde::Deserialize;
 #[derive(Deserialize)]
 pub struct OAuthPath {
     provider: String,
+}
+
+fn token_response(token: String, email: String, handle: String) -> HttpResponse {
+    HttpResponse::Ok()
+        .insert_header((CONTENT_TYPE, "application/json"))
+        .insert_header((CACHE_CONTROL, "no-store"))
+        .insert_header((PRAGMA, "no-cache"))
+        .json(TokenResponse {
+            token,
+            email,
+            handle,
+        })
 }
 
 #[utoipa::path(
@@ -334,13 +346,7 @@ async fn oauth_google(state: web::Data<AppState>, payload: OAuthPayload) -> Http
     };
 
     match encode_jwt(&claims, &state.jwt_secret) {
-        Ok(token) => HttpResponse::Ok()
-            .insert_header((CONTENT_TYPE, "application/json"))
-            .json(TokenResponse {
-                token,
-                email,
-                handle,
-            }),
+        Ok(token) => token_response(token, email, handle),
         Err(_) => HttpResponse::InternalServerError().json(ErrorResponse {
             error: "token_creation_failed".into(),
             details: None,
@@ -510,13 +516,7 @@ async fn oauth_apple(state: web::Data<AppState>, payload: OAuthPayload) -> HttpR
     };
 
     match encode_jwt(&claims, &state.jwt_secret) {
-        Ok(token) => HttpResponse::Ok()
-            .insert_header((CONTENT_TYPE, "application/json"))
-            .json(TokenResponse {
-                token,
-                email,
-                handle,
-            }),
+        Ok(token) => token_response(token, email, handle),
         Err(_) => HttpResponse::InternalServerError().json(ErrorResponse {
             error: "token_creation_failed".into(),
             details: None,
@@ -594,13 +594,7 @@ pub async fn login(state: web::Data<AppState>, payload: web::Json<LoginPayload>)
     };
 
     match encode_jwt(&claims, &state.jwt_secret) {
-        Ok(token) => HttpResponse::Ok()
-            .insert_header((CONTENT_TYPE, "application/json"))
-            .json(TokenResponse {
-                token,
-                email: auth_row.email,
-                handle: auth_row.handle,
-            }),
+        Ok(token) => token_response(token, auth_row.email, auth_row.handle),
         Err(_) => HttpResponse::InternalServerError().json(ErrorResponse {
             error: "token_creation_failed".into(),
             details: None,
