@@ -63,6 +63,7 @@ pub fn build_state(pool: PgPool, secret: &str, admin_emails: &[&str]) -> web::Da
         invitation_email_sender: None,
         invitation_email_api_key: None,
         app_base_url: "http://localhost:3000".into(),
+        cors_allowed_origins: HashSet::from(["http://localhost:3000".to_string()]),
         avatar_upload_dir: "./uploads/avatars".into(),
         avatar_base_url: "http://localhost:8080/media/avatars".into(),
         redis_client: None,

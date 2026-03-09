@@ -17,8 +17,8 @@ use crate::{
         normalize_handle,
     },
     models::{
-        AppleClaims, Claims, ErrorResponse, LoginPayload, OAuthPayload, RegisterPayload,
-        StatusResponse, TokenResponse, VerifyEmailPayload,
+        AppleClaims, Claims, CompleteRegistrationPayload, ErrorResponse, LoginPayload,
+        OAuthPayload, RegisterPayload, StatusResponse, TokenResponse, VerifyEmailPayload,
     },
     state::AppState,
 };
@@ -28,8 +28,6 @@ const EMAIL_VERIFICATION_TTL_HOURS: i64 = 24;
 #[derive(Debug, Clone, sqlx::FromRow)]
 struct PendingRegistrationRow {
     email: String,
-    password_hash: String,
-    handle: String,
     verification_expires_at: DateTime<Utc>,
 }
 
@@ -128,7 +126,7 @@ async fn fetch_pending_registration_for_login(
     let trimmed = identifier.trim();
     if looks_like_email(trimmed) {
         sqlx::query_as::<_, PendingRegistrationRow>(
-            "SELECT email, password_hash, handle, verification_expires_at
+            "SELECT email, verification_expires_at
              FROM pending_registrations
              WHERE lower(email) = lower($1)",
         )
@@ -138,7 +136,7 @@ async fn fetch_pending_registration_for_login(
     } else {
         let normalized = normalize_handle(trimmed).normalized;
         sqlx::query_as::<_, PendingRegistrationRow>(
-            "SELECT email, password_hash, handle, verification_expires_at
+            "SELECT email, verification_expires_at
              FROM pending_registrations
              WHERE lower(handle) = lower($1)",
         )
@@ -176,6 +174,48 @@ async fn generate_registration_handle(state: &AppState) -> Result<String, HttpRe
         error: "handle_generation_failed".into(),
         details: None,
     }))
+}
+
+fn pending_placeholder_hash() -> Result<String, HttpResponse> {
+    hash_password(&random_password_token()).map_err(|_| {
+        HttpResponse::InternalServerError().json(ErrorResponse {
+            error: "hash_failed".into(),
+            details: None,
+        })
+    })
+}
+
+async fn resolve_final_handle(
+    state: &AppState,
+    requested_handle: Option<&str>,
+) -> Result<String, HttpResponse> {
+    if let Some(raw_handle) = requested_handle {
+        let normalized = normalize_handle(raw_handle).normalized;
+        if !is_valid_handle(&normalized) {
+            return Err(HttpResponse::BadRequest().json(ErrorResponse {
+                error: "invalid_handle".into(),
+                details: Some("format attendu: 4-32 chars [a-z0-9._-]".into()),
+            }));
+        }
+        return match handle_available(&state.db, &normalized).await {
+            Ok(true) => Ok(normalized),
+            Ok(false) => Err(HttpResponse::Conflict().json(ErrorResponse {
+                error: "handle_taken".into(),
+                details: None,
+            })),
+            Err(_) => Err(HttpResponse::InternalServerError().json(ErrorResponse {
+                error: "db_error".into(),
+                details: None,
+            })),
+        };
+    }
+
+    generate_unique_handle(&state.db).await.map_err(|_| {
+        HttpResponse::InternalServerError().json(ErrorResponse {
+            error: "handle_generation_failed".into(),
+            details: None,
+        })
+    })
 }
 
 fn build_email_verification_link(base_url: &str, token: Uuid) -> String {
@@ -282,34 +322,29 @@ async fn send_verification_email(
     tag = "auth",
     request_body = RegisterPayload,
     responses(
-        (status = 201, description = "User registered", body = StatusResponse),
+        (status = 201, description = "Registration pending email verification", body = StatusResponse),
         (status = 400, description = "Invalid payload", body = ErrorResponse),
         (status = 409, description = "Email already exists", body = ErrorResponse),
+        (status = 429, description = "Too many attempts", body = ErrorResponse),
         (status = 500, description = "Database or hashing error", body = ErrorResponse)
     )
 )]
 #[post("/auth/register")]
 pub async fn register(
+    req: HttpRequest,
     state: web::Data<AppState>,
     payload: web::Json<RegisterPayload>,
 ) -> impl Responder {
+    if let Err(resp) = enforce_auth_rate_limit(&req, state.get_ref(), "register").await {
+        return resp;
+    }
+
     let email = payload.email.trim().to_lowercase();
-    let password = payload.password.trim();
-    let requested_handle = payload
-        .handle
-        .as_ref()
-        .map(|raw| normalize_handle(raw).normalized);
 
     if email.is_empty() {
         return HttpResponse::BadRequest().json(ErrorResponse {
             error: "invalid_payload".into(),
             details: Some("email requis".into()),
-        });
-    }
-    if let Err(reason) = validate_password_strength(password) {
-        return HttpResponse::BadRequest().json(ErrorResponse {
-            error: "weak_password".into(),
-            details: Some(reason.into()),
         });
     }
     if let Err(resp) = cleanup_expired_pending_registrations(&state.db).await {
@@ -331,46 +366,6 @@ pub async fn register(
         }
     }
 
-    let handle = match requested_handle {
-        Some(ref h) => {
-            if !is_valid_handle(h) {
-                return HttpResponse::BadRequest().json(ErrorResponse {
-                    error: "invalid_handle".into(),
-                    details: Some("format attendu: 4-32 chars [a-z0-9._-]".into()),
-                });
-            }
-            match registration_handle_available(&state.db, h).await {
-                Ok(true) => h.clone(),
-                Ok(false) => {
-                    return HttpResponse::Conflict().json(ErrorResponse {
-                        error: "handle_taken".into(),
-                        details: None,
-                    });
-                }
-                Err(_) => {
-                    return HttpResponse::InternalServerError().json(ErrorResponse {
-                        error: "db_error".into(),
-                        details: None,
-                    });
-                }
-            }
-        }
-        None => match generate_registration_handle(state.get_ref()).await {
-            Ok(handle) => handle,
-            Err(resp) => return resp,
-        },
-    };
-
-    let hash = match hash_password(password) {
-        Ok(h) => h,
-        Err(_) => {
-            return HttpResponse::InternalServerError().json(ErrorResponse {
-                error: "hash_failed".into(),
-                details: None,
-            });
-        }
-    };
-
     let verification_token = Uuid::new_v4();
     let verification_expires_at = Utc::now() + ChronoDuration::hours(EMAIL_VERIFICATION_TTL_HOURS);
     let verification_link = build_email_verification_link(&state.app_base_url, verification_token);
@@ -385,6 +380,54 @@ pub async fn register(
         }
     };
 
+    let pending_exists = match sqlx::query_scalar::<_, bool>(
+        "SELECT EXISTS(
+            SELECT 1
+            FROM pending_registrations
+            WHERE lower(email) = lower($1)
+        )",
+    )
+    .bind(&email)
+    .fetch_one(&mut *tx)
+    .await
+    {
+        Ok(value) => value,
+        Err(_) => {
+            let _ = tx.rollback().await;
+            return HttpResponse::InternalServerError().json(ErrorResponse {
+                error: "db_error".into(),
+                details: None,
+            });
+        }
+    };
+
+    if pending_exists {
+        if tx.rollback().await.is_err() {
+            return HttpResponse::InternalServerError().json(ErrorResponse {
+                error: "db_error".into(),
+                details: None,
+            });
+        }
+        return HttpResponse::Created().json(StatusResponse {
+            status: "verification_pending".into(),
+        });
+    }
+
+    let handle = match generate_registration_handle(state.get_ref()).await {
+        Ok(handle) => handle,
+        Err(resp) => {
+            let _ = tx.rollback().await;
+            return resp;
+        }
+    };
+    let hash = match pending_placeholder_hash() {
+        Ok(hash) => hash,
+        Err(resp) => {
+            let _ = tx.rollback().await;
+            return resp;
+        }
+    };
+
     let res = sqlx::query(
         "INSERT INTO pending_registrations (
             email,
@@ -392,13 +435,7 @@ pub async fn register(
             handle,
             verification_token,
             verification_expires_at
-         ) VALUES ($1, $2, $3, $4, $5)
-         ON CONFLICT (email) DO UPDATE
-         SET password_hash = EXCLUDED.password_hash,
-             handle = EXCLUDED.handle,
-             verification_token = EXCLUDED.verification_token,
-             verification_expires_at = EXCLUDED.verification_expires_at,
-             updated_at = NOW()",
+         ) VALUES ($1, $2, $3, $4, $5)",
     )
     .bind(&email)
     .bind(&hash)
@@ -458,7 +495,7 @@ pub async fn register(
     tag = "auth",
     request_body = VerifyEmailPayload,
     responses(
-        (status = 200, description = "Email verified", body = StatusResponse),
+        (status = 200, description = "Email verified and registration can be completed", body = StatusResponse),
         (status = 400, description = "Invalid token", body = ErrorResponse),
         (status = 410, description = "Expired token", body = ErrorResponse),
         (status = 500, description = "Database error", body = ErrorResponse)
@@ -498,7 +535,7 @@ pub async fn verify_email(
     };
 
     let pending = match sqlx::query_as::<_, PendingRegistrationRow>(
-        "SELECT email, password_hash, handle, verification_expires_at
+        "SELECT email, verification_expires_at
          FROM pending_registrations
          WHERE verification_token = $1
          FOR UPDATE",
@@ -563,16 +600,123 @@ pub async fn verify_email(
         }
     }
 
-    let mut final_handle = pending.handle.clone();
-    match handle_available(&state.db, &final_handle).await {
-        Ok(true) => {}
-        Ok(false) => match generate_registration_handle(state.get_ref()).await {
-            Ok(handle) => final_handle = handle,
-            Err(resp) => {
-                let _ = tx.rollback().await;
-                return resp;
-            }
-        },
+    if tx.rollback().await.is_err() {
+        return HttpResponse::InternalServerError().json(ErrorResponse {
+            error: "db_error".into(),
+            details: None,
+        });
+    }
+
+    HttpResponse::Ok().json(StatusResponse {
+        status: "setup_required".into(),
+    })
+}
+
+#[utoipa::path(
+    post,
+    path = "/auth/complete-registration",
+    tag = "auth",
+    request_body = CompleteRegistrationPayload,
+    responses(
+        (status = 200, description = "Registration completed", body = TokenResponse),
+        (status = 400, description = "Invalid payload or token", body = ErrorResponse),
+        (status = 409, description = "Email or handle already taken", body = ErrorResponse),
+        (status = 410, description = "Expired token", body = ErrorResponse),
+        (status = 500, description = "Database or token creation error", body = ErrorResponse)
+    )
+)]
+#[post("/auth/complete-registration")]
+pub async fn complete_registration(
+    state: web::Data<AppState>,
+    payload: web::Json<CompleteRegistrationPayload>,
+) -> impl Responder {
+    let token = payload.token.trim();
+    if token.is_empty() {
+        return HttpResponse::BadRequest().json(ErrorResponse {
+            error: "invalid_token".into(),
+            details: Some("token requis".into()),
+        });
+    }
+    if let Err(reason) = validate_password_strength(&payload.password) {
+        return HttpResponse::BadRequest().json(ErrorResponse {
+            error: "weak_password".into(),
+            details: Some(reason.into()),
+        });
+    }
+
+    let verification_token = match Uuid::parse_str(token) {
+        Ok(value) => value,
+        Err(_) => {
+            return HttpResponse::BadRequest().json(ErrorResponse {
+                error: "invalid_token".into(),
+                details: Some("format de token invalide".into()),
+            });
+        }
+    };
+
+    let mut tx = match state.db.begin().await {
+        Ok(value) => value,
+        Err(_) => {
+            return HttpResponse::InternalServerError().json(ErrorResponse {
+                error: "db_error".into(),
+                details: None,
+            });
+        }
+    };
+
+    let pending = match sqlx::query_as::<_, PendingRegistrationRow>(
+        "SELECT email, verification_expires_at
+         FROM pending_registrations
+         WHERE verification_token = $1
+         FOR UPDATE",
+    )
+    .bind(verification_token)
+    .fetch_optional(&mut *tx)
+    .await
+    {
+        Ok(row) => row,
+        Err(_) => {
+            let _ = tx.rollback().await;
+            return HttpResponse::InternalServerError().json(ErrorResponse {
+                error: "db_error".into(),
+                details: None,
+            });
+        }
+    };
+
+    let Some(pending) = pending else {
+        let _ = tx.rollback().await;
+        return HttpResponse::BadRequest().json(ErrorResponse {
+            error: "invalid_token".into(),
+            details: Some("token inconnu".into()),
+        });
+    };
+
+    if pending.verification_expires_at < Utc::now() {
+        let _ = sqlx::query("DELETE FROM pending_registrations WHERE email = $1")
+            .bind(&pending.email)
+            .execute(&mut *tx)
+            .await;
+        let _ = tx.commit().await;
+        return HttpResponse::Gone().json(ErrorResponse {
+            error: "expired_token".into(),
+            details: Some("ce lien de verification a expire".into()),
+        });
+    }
+
+    match fetch_user_by_email(&state.db, &pending.email).await {
+        Ok(Some(_)) => {
+            let _ = sqlx::query("DELETE FROM pending_registrations WHERE email = $1")
+                .bind(&pending.email)
+                .execute(&mut *tx)
+                .await;
+            let _ = tx.commit().await;
+            return HttpResponse::Conflict().json(ErrorResponse {
+                error: "email_taken".into(),
+                details: None,
+            });
+        }
+        Ok(None) => {}
         Err(_) => {
             let _ = tx.rollback().await;
             return HttpResponse::InternalServerError().json(ErrorResponse {
@@ -582,10 +726,36 @@ pub async fn verify_email(
         }
     }
 
+    let final_handle = match resolve_final_handle(
+        state.get_ref(),
+        payload
+            .handle
+            .as_deref()
+            .filter(|value| !value.trim().is_empty()),
+    )
+    .await
+    {
+        Ok(handle) => handle,
+        Err(resp) => {
+            let _ = tx.rollback().await;
+            return resp;
+        }
+    };
+    let password_hash = match hash_password(&payload.password) {
+        Ok(hash) => hash,
+        Err(_) => {
+            let _ = tx.rollback().await;
+            return HttpResponse::InternalServerError().json(ErrorResponse {
+                error: "hash_failed".into(),
+                details: None,
+            });
+        }
+    };
+
     let insert_user =
         sqlx::query("INSERT INTO users (email, password_hash, handle) VALUES ($1, $2, $3)")
             .bind(&pending.email)
-            .bind(&pending.password_hash)
+            .bind(&password_hash)
             .bind(&final_handle)
             .execute(&mut *tx)
             .await;
@@ -594,8 +764,13 @@ pub async fn verify_email(
         let _ = tx.rollback().await;
         return match err {
             Error::Database(db_err) if db_err.code().as_deref() == Some("23505") => {
+                let constraint = db_err.constraint().unwrap_or_default();
                 HttpResponse::Conflict().json(ErrorResponse {
-                    error: "email_taken".into(),
+                    error: if constraint.contains("handle") {
+                        "handle_taken".into()
+                    } else {
+                        "email_taken".into()
+                    },
                     details: None,
                 })
             }
@@ -606,10 +781,10 @@ pub async fn verify_email(
         };
     }
 
-    if (sqlx::query("DELETE FROM pending_registrations WHERE email = $1")
+    if sqlx::query("DELETE FROM pending_registrations WHERE email = $1")
         .bind(&pending.email)
         .execute(&mut *tx)
-        .await)
+        .await
         .is_err()
     {
         let _ = tx.rollback().await;
@@ -626,9 +801,21 @@ pub async fn verify_email(
         });
     }
 
-    HttpResponse::Ok().json(StatusResponse {
-        status: "verified".into(),
-    })
+    let exp = (now_ts() + 24 * 3600) as usize;
+    let claims = Claims {
+        sub: pending.email.clone(),
+        handle: final_handle.clone(),
+        exp,
+    };
+    let secure_cookie = auth_cookie_is_secure(state.get_ref());
+
+    match encode_jwt(&claims, &state.jwt_secret) {
+        Ok(token) => token_response(token, pending.email, final_handle, secure_cookie),
+        Err(_) => HttpResponse::InternalServerError().json(ErrorResponse {
+            error: "token_creation_failed".into(),
+            details: None,
+        }),
+    }
 }
 
 #[utoipa::path(
@@ -1213,7 +1400,6 @@ pub async fn login(
                 };
             if let Some(pending) = pending
                 && pending.verification_expires_at >= Utc::now()
-                && verify_password(&pending.password_hash, &payload.password)
             {
                 return HttpResponse::Forbidden().json(ErrorResponse {
                     error: "email_not_verified".into(),

@@ -16,6 +16,7 @@ pub struct AppState {
     pub invitation_email_sender: Option<String>,
     pub invitation_email_api_key: Option<String>,
     pub app_base_url: String,
+    pub cors_allowed_origins: HashSet<String>,
     pub avatar_upload_dir: String,
     pub avatar_base_url: String,
     pub redis_client: Option<RedisClient>,

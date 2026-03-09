@@ -58,6 +58,7 @@ async fn main() -> std::io::Result<()> {
         invitation_email_sender: cfg.invitation_email_sender.clone(),
         invitation_email_api_key: cfg.invitation_email_api_key.clone(),
         app_base_url: cfg.app_base_url.clone(),
+        cors_allowed_origins: cfg.cors_allowed_origins.iter().cloned().collect(),
         avatar_upload_dir: cfg.avatar_upload_dir.clone(),
         avatar_base_url: cfg.avatar_base_url.clone(),
         redis_client,

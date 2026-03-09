@@ -1,8 +1,8 @@
 use utoipa::OpenApi;
 
 use crate::models::{
-    AddressSuggestion, DeviceDeletePayload, DeviceRefreshPayload, DeviceRegisterPayload,
-    ErrorResponse, Event, EventCustomItemPayload, EventExpenseBalanceView,
+    AddressSuggestion, CompleteRegistrationPayload, DeviceDeletePayload, DeviceRefreshPayload,
+    DeviceRegisterPayload, ErrorResponse, Event, EventCustomItemPayload, EventExpenseBalanceView,
     EventExpenseParticipantView, EventExpensePayload, EventExpenseSettlementView, EventExpenseView,
     EventExpensesSummaryView, EventItemAttachPayload, EventItemReservationPayload, EventItemView,
     EventPatchPayload, EventPayload, EventPollCreatePayload, EventPollVotePayload, Friend,
@@ -21,6 +21,7 @@ use crate::models::{
         crate::routes::root::me,
         crate::routes::auth::register,
         crate::routes::auth::verify_email,
+        crate::routes::auth::complete_registration,
         crate::routes::auth::login,
         crate::routes::auth::oauth_login,
         crate::routes::auth::logout,
@@ -79,6 +80,7 @@ use crate::models::{
             LoginPayload,
             RegisterPayload,
             VerifyEmailPayload,
+            CompleteRegistrationPayload,
             StatusResponse,
             TokenResponse,
             ErrorResponse,
