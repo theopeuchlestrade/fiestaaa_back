@@ -59,11 +59,10 @@ jobs:
           if [ "$missing" -ne 0 ]; then exit 1; fi
 
       - name: Login to GHCR for push
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+        env:
+          GHCR_USERNAME: ${{ secrets.GHCR_USERNAME || github.repository_owner }}
+          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
+        run: echo "${GHCR_TOKEN}" | docker login ghcr.io -u "${GHCR_USERNAME}" --password-stdin
 
       - name: Check if image exists
         id: image_exists
@@ -137,7 +136,7 @@ jobs:
             # Ne touche pas aux dépendances (db/redis) pour éviter les recréations inutiles et bugs docker-compose v1
             ${compose_cmd} up -d --no-deps api
         env:
-          GHCR_USERNAME: theopeuchlestrade
+          GHCR_USERNAME: ${{ secrets.GHCR_USERNAME || github.repository_owner }}
           GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}  # PAT read:packages pour le pull
           APP_BASE_URL: ${{ secrets.APP_BASE_URL }}
           AVATAR_BASE_URL: ${{ secrets.AVATAR_BASE_URL }}
