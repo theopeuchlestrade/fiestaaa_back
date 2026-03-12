@@ -1,4 +1,4 @@
-FROM rust:1-bookworm AS builder
+FROM rust:1.90.0-bookworm AS builder
 
 LABEL org.opencontainers.image.source="https://github.com/theopeuchlestrade/fiestaaa_back"
 
