@@ -19,7 +19,7 @@ jobs:
       IMAGE: ghcr.io/theopeuchlestrade/fiestaaa_back
       TAG: ${{ github.sha }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6.0.2
 
       - name: Check required secrets
         env:
@@ -84,7 +84,7 @@ jobs:
         run: docker push $IMAGE --all-tags
 
       - name: Deploy to VPS
-        uses: appleboy/ssh-action@v1.2.0
+        uses: appleboy/ssh-action@v1.2.2
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
