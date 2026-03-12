@@ -24,21 +24,11 @@ struct UserIdentity {
     avatar_url: Option<String>,
 }
 
-async fn ensure_avatar_column(db: &sqlx::PgPool) -> Result<(), sqlx::Error> {
-    sqlx::query("ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_url TEXT;")
-        .execute(db)
-        .await?;
-    Ok(())
-}
-
 fn ordered_pair(a: i64, b: i64) -> (i64, i64) {
     if a < b { (a, b) } else { (b, a) }
 }
 
 async fn current_user(req: &HttpRequest, state: &AppState) -> Result<UserIdentity, HttpResponse> {
-    let _ = sqlx::query("ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_url TEXT;")
-        .execute(&state.db)
-        .await;
     let claims = extract_claims_from_auth(req, &state.jwt_secret)?;
     match find_user_by_email(&state.db, &claims.sub).await? {
         Some(user) => Ok(user),
@@ -53,7 +43,6 @@ async fn find_user_by_email(
     db: &PgPool,
     email: &str,
 ) -> Result<Option<UserIdentity>, HttpResponse> {
-    let _ = ensure_avatar_column(db).await;
     let normalized = email.trim().to_lowercase();
     if normalized.is_empty() {
         return Err(HttpResponse::BadRequest().json(ErrorResponse {
@@ -75,7 +64,6 @@ async fn find_user_by_handle(
     db: &PgPool,
     handle: &str,
 ) -> Result<Option<UserIdentity>, HttpResponse> {
-    let _ = ensure_avatar_column(db).await;
     sqlx::query_as::<_, UserIdentity>(
         "SELECT id, email, handle, avatar_url FROM users WHERE lower(handle) = lower($1)",
     )
@@ -419,7 +407,6 @@ pub async fn create_friend_request(
 )]
 #[get("/friends/requests")]
 pub async fn list_friend_requests(state: web::Data<AppState>, req: HttpRequest) -> impl Responder {
-    let _ = ensure_avatar_column(&state.db).await;
     let user = match current_user(&req, state.get_ref()).await {
         Ok(u) => u,
         Err(resp) => return resp,

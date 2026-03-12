@@ -13,9 +13,17 @@ use crate::{
     state::AppState,
 };
 
+const QR_CODE_TTL_SECONDS: i64 = 300;
+
 fn claims_email(req: &HttpRequest, state: &AppState) -> Result<String, HttpResponse> {
     let claims = extract_claims_from_auth(req, &state.jwt_secret)?;
     Ok(claims.sub.to_lowercase())
+}
+
+fn qr_code_expires_at(
+    generated_at: chrono::DateTime<chrono::Utc>,
+) -> chrono::DateTime<chrono::Utc> {
+    generated_at + chrono::Duration::seconds(QR_CODE_TTL_SECONDS)
 }
 
 async fn fetch_event_owner_email(db: &sqlx::PgPool, event_id: i64) -> Result<String, HttpResponse> {
@@ -107,7 +115,7 @@ pub async fn generate_my_qr_code(
         Err(resp) => return resp,
     };
 
-    // Check if user has a valid invitation (Accepted or Waiting)
+    // Only accepted guests can present a check-in QR code.
     let invitation_status = sqlx::query_scalar::<_, String>(
         "SELECT status FROM invitations WHERE event_id = $1 AND user_id = $2",
     )
@@ -132,58 +140,126 @@ pub async fn generate_my_qr_code(
         }
     };
 
-    // Reject if invitation is declined or expired
-    if invitation_status == "Declined" || invitation_status == "Expired" {
+    if invitation_status != "Accepted" {
         return HttpResponse::Forbidden().json(ErrorResponse {
             error: "invitation_invalid".into(),
-            details: Some(format!("Votre invitation est: {}", invitation_status)),
+            details: Some("Votre invitation doit être acceptée pour générer un QR code".into()),
         });
     }
 
-    // Check if QR code already exists for this user-event combination
+    let mut tx = match state.db.begin().await {
+        Ok(tx) => tx,
+        Err(_) => {
+            return HttpResponse::InternalServerError().json(ErrorResponse {
+                error: "db_error".into(),
+                details: None,
+            });
+        }
+    };
+
     let existing_qr = sqlx::query(
-        "SELECT qr_token, generated_at FROM event_checkins WHERE event_id = $1 AND user_id = $2",
+        "SELECT qr_token, generated_at, scanned_at
+         FROM event_checkins
+         WHERE event_id = $1 AND user_id = $2
+         FOR UPDATE",
     )
     .bind(*event_id)
     .bind(user_id)
-    .fetch_optional(&state.db)
+    .fetch_optional(&mut *tx)
     .await;
 
     match existing_qr {
         Ok(Some(row)) => {
-            let token: Uuid = row.try_get("qr_token").unwrap();
             let generated_at: chrono::DateTime<chrono::Utc> = row.try_get("generated_at").unwrap();
+            let scanned_at: Option<chrono::DateTime<chrono::Utc>> = row.try_get("scanned_at").ok();
 
-            HttpResponse::Ok().json(QRCodeGenerateResponse {
-                qr_token: token.to_string(),
-                event_id: *event_id,
-                generated_at,
-            })
+            if scanned_at.is_some() {
+                let token: Uuid = row.try_get("qr_token").unwrap();
+                if tx.commit().await.is_err() {
+                    return HttpResponse::InternalServerError().json(ErrorResponse {
+                        error: "db_error".into(),
+                        details: None,
+                    });
+                }
+                return HttpResponse::Ok().json(QRCodeGenerateResponse {
+                    qr_token: token.to_string(),
+                    event_id: *event_id,
+                    generated_at,
+                    expires_at: qr_code_expires_at(generated_at),
+                });
+            }
+
+            let rotated_token = Uuid::new_v4();
+            match sqlx::query(
+                "UPDATE event_checkins
+                 SET qr_token = $1, generated_at = NOW(), is_valid = TRUE
+                 WHERE event_id = $2 AND user_id = $3
+                 RETURNING generated_at",
+            )
+            .bind(rotated_token)
+            .bind(*event_id)
+            .bind(user_id)
+            .fetch_one(&mut *tx)
+            .await
+            {
+                Ok(updated_row) => {
+                    let generated_at: chrono::DateTime<chrono::Utc> =
+                        updated_row.try_get("generated_at").unwrap();
+                    if tx.commit().await.is_err() {
+                        return HttpResponse::InternalServerError().json(ErrorResponse {
+                            error: "db_error".into(),
+                            details: None,
+                        });
+                    }
+                    HttpResponse::Ok().json(QRCodeGenerateResponse {
+                        qr_token: rotated_token.to_string(),
+                        event_id: *event_id,
+                        generated_at,
+                        expires_at: qr_code_expires_at(generated_at),
+                    })
+                }
+                Err(e) => {
+                    error!("Failed to rotate QR code: {}", e);
+                    let _ = tx.rollback().await;
+                    HttpResponse::InternalServerError().json(ErrorResponse {
+                        error: "db_error".into(),
+                        details: None,
+                    })
+                }
+            }
         }
         Ok(None) => {
-            // Generate new QR code
             let new_token = Uuid::new_v4();
-            let insert_result = sqlx::query(
-                "INSERT INTO event_checkins (qr_token, event_id, user_id) VALUES ($1, $2, $3) RETURNING generated_at",
+            match sqlx::query(
+                "INSERT INTO event_checkins (qr_token, event_id, user_id)
+                 VALUES ($1, $2, $3)
+                 RETURNING generated_at",
             )
             .bind(new_token)
             .bind(*event_id)
             .bind(user_id)
-            .fetch_one(&state.db)
-            .await;
-
-            match insert_result {
+            .fetch_one(&mut *tx)
+            .await
+            {
                 Ok(row) => {
                     let generated_at: chrono::DateTime<chrono::Utc> =
                         row.try_get("generated_at").unwrap();
+                    if tx.commit().await.is_err() {
+                        return HttpResponse::InternalServerError().json(ErrorResponse {
+                            error: "db_error".into(),
+                            details: None,
+                        });
+                    }
                     HttpResponse::Ok().json(QRCodeGenerateResponse {
                         qr_token: new_token.to_string(),
                         event_id: *event_id,
                         generated_at,
+                        expires_at: qr_code_expires_at(generated_at),
                     })
                 }
                 Err(e) => {
                     error!("Failed to generate QR code: {}", e);
+                    let _ = tx.rollback().await;
                     HttpResponse::InternalServerError().json(ErrorResponse {
                         error: "db_error".into(),
                         details: None,
@@ -193,6 +269,7 @@ pub async fn generate_my_qr_code(
         }
         Err(e) => {
             error!("Database error checking existing QR: {}", e);
+            let _ = tx.rollback().await;
             HttpResponse::InternalServerError().json(ErrorResponse {
                 error: "db_error".into(),
                 details: None,
@@ -256,7 +333,7 @@ pub async fn scan_qr_code(
 
     // Fetch the QR code details with user info
     let qr_details = sqlx::query(
-        "SELECT ec.event_id, ec.user_id, ec.scanned_at, ec.is_valid,
+        "SELECT ec.event_id, ec.user_id, ec.generated_at, ec.scanned_at, ec.is_valid,
                 u.email, u.handle, u.avatar_url,
                 i.status as invitation_status
          FROM event_checkins ec
@@ -289,6 +366,7 @@ pub async fn scan_qr_code(
     };
 
     let qr_event_id: i64 = row.try_get("event_id").unwrap();
+    let generated_at: chrono::DateTime<chrono::Utc> = row.try_get("generated_at").unwrap();
     let is_valid: bool = row.try_get("is_valid").unwrap();
     let scanned_at: Option<chrono::DateTime<chrono::Utc>> = row.try_get("scanned_at").ok();
     let user_email: String = row.try_get("email").unwrap();
@@ -305,10 +383,21 @@ pub async fn scan_qr_code(
         });
     }
 
-    // Check if invitation is still valid
-    if let Some(ref status) = invitation_status
-        && (status == "Declined" || status == "Expired")
-    {
+    if qr_code_expires_at(generated_at) < chrono::Utc::now() {
+        let _ = tx.rollback().await;
+        return HttpResponse::Forbidden().json(QRCodeScanResponse {
+            success: false,
+            status: "qr_expired".into(),
+            user_email: Some(user_email),
+            user_handle: Some(user_handle),
+            user_avatar_url,
+            scanned_at: None,
+            message: "Ce QR code a expiré. Demandez un nouveau code.".into(),
+        });
+    }
+
+    // Check if invitation is still valid.
+    if invitation_status.as_deref() != Some("Accepted") {
         let _ = tx.rollback().await;
         return HttpResponse::Forbidden().json(QRCodeScanResponse {
             success: false,
@@ -317,7 +406,7 @@ pub async fn scan_qr_code(
             user_handle: Some(user_handle),
             user_avatar_url,
             scanned_at: None,
-            message: format!("L'invitation de cet utilisateur est: {}", status),
+            message: "L'invitation doit être acceptée pour valider ce QR code".into(),
         });
     }
 

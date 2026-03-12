@@ -31,9 +31,6 @@ pub async fn hello() -> impl Responder {
 )]
 #[get("/me")]
 pub async fn me(state: web::Data<AppState>, req: HttpRequest) -> impl Responder {
-    let _ = sqlx::query("ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_url TEXT;")
-        .execute(&state.db)
-        .await;
     match extract_claims_from_auth(&req, &state.jwt_secret) {
         Ok(claims) => {
             let record = sqlx::query(

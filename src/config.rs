@@ -38,6 +38,18 @@ fn default_cors_allowed_origins(app_base_url: &str) -> Vec<String> {
     values
 }
 
+fn read_bool_env(name: &str, default: bool) -> bool {
+    std::env::var(name)
+        .ok()
+        .map(|value| {
+            matches!(
+                value.trim().to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes" | "on"
+            )
+        })
+        .unwrap_or(default)
+}
+
 pub struct AppConfig {
     pub host: String,
     pub port: u16,
@@ -71,6 +83,7 @@ pub struct AppConfig {
     pub auth_rate_limit_window_seconds: u64,
     pub invitation_rate_limit_max_attempts: usize,
     pub invitation_rate_limit_window_seconds: u64,
+    pub enable_swagger_ui: bool,
 }
 
 impl AppConfig {
@@ -97,15 +110,7 @@ impl AppConfig {
         if admin_emails.is_empty() {
             warn!("ADMIN_EMAILS n'est pas defini ; les endpoints admin seront desactives");
         }
-        let trust_proxy_headers = std::env::var("TRUST_PROXY_HEADERS")
-            .ok()
-            .map(|value| {
-                matches!(
-                    value.trim().to_ascii_lowercase().as_str(),
-                    "1" | "true" | "yes" | "on"
-                )
-            })
-            .unwrap_or(false);
+        let trust_proxy_headers = read_bool_env("TRUST_PROXY_HEADERS", false);
         let geocoding_base_url = std::env::var("GEOCODING_BASE_URL")
             .unwrap_or_else(|_| "https://nominatim.openstreetmap.org".into());
         let geocoding_user_agent =
@@ -199,6 +204,7 @@ impl AppConfig {
                 .ok()
                 .and_then(|v| v.parse().ok())
                 .unwrap_or(300);
+        let enable_swagger_ui = read_bool_env("ENABLE_SWAGGER_UI", false);
         Self {
             host,
             port,
@@ -232,6 +238,7 @@ impl AppConfig {
             auth_rate_limit_window_seconds,
             invitation_rate_limit_max_attempts,
             invitation_rate_limit_window_seconds,
+            enable_swagger_ui,
         }
     }
 }
