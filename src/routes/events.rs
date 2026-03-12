@@ -6,6 +6,7 @@ use serde::Deserialize;
 use serde_json::json;
 use sqlx::{Error, PgPool, Row};
 use std::collections::{HashMap, HashSet};
+use std::net::IpAddr;
 use uuid::Uuid;
 
 use crate::{
@@ -3632,12 +3633,78 @@ fn ensure_safe_absolute_http_url(
     error: &str,
     details: &str,
 ) -> Result<(), HttpResponse> {
-    if let Ok(url) = reqwest::Url::parse(value) {
-        let scheme = url.scheme().to_ascii_lowercase();
-        if (scheme != "http" && scheme != "https") || url.host_str().is_none() {
+    let url = reqwest::Url::parse(value).map_err(|_| {
+        HttpResponse::BadRequest().json(ErrorResponse {
+            error: error.into(),
+            details: Some(details.into()),
+        })
+    })?;
+
+    let scheme = url.scheme().to_ascii_lowercase();
+    let Some(host) = url.host_str() else {
+        return Err(HttpResponse::BadRequest().json(ErrorResponse {
+            error: error.into(),
+            details: Some(details.into()),
+        }));
+    };
+
+    if scheme != "http" && scheme != "https" {
+        return Err(HttpResponse::BadRequest().json(ErrorResponse {
+            error: error.into(),
+            details: Some(details.into()),
+        }));
+    }
+
+    let host_lower = host.to_ascii_lowercase();
+    let host_normalized = host_lower.trim_end_matches('.');
+    if host_normalized == "localhost" || host_normalized.ends_with(".localhost") {
+        return Err(HttpResponse::BadRequest().json(ErrorResponse {
+            error: error.into(),
+            details: Some("Le lien doit cibler une adresse publique".into()),
+        }));
+    }
+
+    if let Ok(ip) = host.parse::<IpAddr>() {
+        let is_private_or_local = match ip {
+            IpAddr::V4(addr) => {
+                let octets = addr.octets();
+                addr.is_private()
+                    || addr.is_loopback()
+                    || addr.is_link_local()
+                    || addr.is_unspecified()
+                    || (octets[0] == 100 && (64..=127).contains(&octets[1]))
+            }
+            IpAddr::V6(addr) => {
+                let octets = addr.octets();
+                let segments = addr.segments();
+                let is_ipv4_mapped = octets[..10].iter().all(|byte| *byte == 0)
+                    && octets[10] == 0xff
+                    && octets[11] == 0xff;
+                let mapped_ipv4_is_private = if is_ipv4_mapped {
+                    let first = octets[12];
+                    let second = octets[13];
+                    first == 0
+                        || first == 10
+                        || first == 127
+                        || (first == 169 && second == 254)
+                        || (first == 172 && (16..=31).contains(&second))
+                        || (first == 192 && second == 168)
+                        || (first == 100 && (64..=127).contains(&second))
+                } else {
+                    false
+                };
+                addr.is_loopback()
+                    || addr.is_unspecified()
+                    || mapped_ipv4_is_private
+                    || (segments[0] & 0xfe00) == 0xfc00
+                    || (segments[0] & 0xffc0) == 0xfe80
+            }
+        };
+
+        if is_private_or_local {
             return Err(HttpResponse::BadRequest().json(ErrorResponse {
                 error: error.into(),
-                details: Some(details.into()),
+                details: Some("Le lien doit cibler une adresse publique".into()),
             }));
         }
     }

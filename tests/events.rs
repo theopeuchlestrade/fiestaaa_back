@@ -1367,37 +1367,48 @@ async fn create_event_rejects_unsafe_absolute_payment_link() -> Result<(), Box<d
     let provider_id = seed_payment_provider_with_regex(&pool, "LooseProvider", ".*").await?;
     let token = admin_token(secret, admin_email).expect("token");
 
-    let resp = test::call_service(
-        &app,
-        test::TestRequest::post()
-            .uri("/events")
-            .insert_header(("Authorization", format!("Bearer {}", token)))
-            .set_json(&EventPayload {
-                enabled_features: None,
-                name_event: "Unsafe payment".to_string(),
-                description: "Should be rejected".to_string(),
-                date_event: NaiveDate::from_ymd_opt(2026, 7, 1).unwrap(),
-                start_time: NaiveTime::from_hms_opt(20, 0, 0).unwrap(),
-                end_date: None,
-                end_time: None,
-                invitation_deadline: None,
-                address: "123 Party Street".to_string(),
-                latitude: None,
-                longitude: None,
-                payment_provider_id: Some(provider_id),
-                payment_identifier: Some("javascript:alert(1)".to_string()),
-                payment_requested_amount: None,
-                payment_per_person: None,
-                playlist_url: None,
-                playlist_provider: None,
-            })
-            .to_request(),
-    )
-    .await;
+    for link in [
+        "javascript:alert(1)",
+        "https://localhost:8080/mock-pay",
+        "https://localhost./mock-pay",
+        "http://127.0.0.1:8080/mock-pay",
+        "https://10.0.0.42/mock-pay",
+        "https://[::ffff:127.0.0.1]/mock-pay",
+        "not a valid url",
+    ] {
+        let resp = test::call_service(
+            &app,
+            test::TestRequest::post()
+                .uri("/events")
+                .insert_header(("Authorization", format!("Bearer {}", token)))
+                .set_json(&EventPayload {
+                    enabled_features: None,
+                    name_event: "Unsafe payment".to_string(),
+                    description: "Should be rejected".to_string(),
+                    date_event: NaiveDate::from_ymd_opt(2026, 7, 1).unwrap(),
+                    start_time: NaiveTime::from_hms_opt(20, 0, 0).unwrap(),
+                    end_date: None,
+                    end_time: None,
+                    invitation_deadline: None,
+                    address: "123 Party Street".to_string(),
+                    latitude: None,
+                    longitude: None,
+                    payment_provider_id: Some(provider_id),
+                    payment_identifier: Some(link.to_string()),
+                    payment_requested_amount: None,
+                    payment_per_person: None,
+                    playlist_url: None,
+                    playlist_provider: None,
+                })
+                .to_request(),
+        )
+        .await;
 
-    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
-    let body: Value = test::read_body_json(resp).await;
-    assert_eq!(body["error"], "invalid_payment_link");
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST, "link={link}");
+        let body: Value = test::read_body_json(resp).await;
+        assert_eq!(body["error"], "invalid_payment_link", "link={link}");
+    }
+
     Ok(())
 }
 
