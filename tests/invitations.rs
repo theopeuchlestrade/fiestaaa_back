@@ -172,6 +172,167 @@ async fn invitations_crud_flow() -> Result<(), Box<dyn Error>> {
 }
 
 #[tokio::test]
+async fn waiting_invitee_cannot_list_event_invitations() -> Result<(), Box<dyn Error>> {
+    let Some(pool) = obtain_pool().await else {
+        eprintln!("Skipping invitations tests: DATABASE_URL or TEST_DATABASE_URL not set");
+        return Ok(());
+    };
+    let _guard = DB_LOCK.lock().await;
+    reset_tables(&pool, &["invitations", "events", "users"]).await?;
+
+    let secret = "secret";
+    let owner_email = "owner@example.com";
+    let guest_email = "guest@example.com";
+    let state = build_state(pool.clone(), secret, &[]);
+    let app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
+
+    let _owner_id = seed_user(&pool, owner_email).await?;
+    let _guest_id = seed_user(&pool, guest_email).await?;
+    let event_id = seed_event(&pool, owner_email).await?;
+    let owner_token = admin_token(secret, owner_email).expect("token");
+    let guest_token = admin_token(secret, guest_email).expect("token");
+
+    let invite_resp = test::call_service(
+        &app,
+        test::TestRequest::post()
+            .uri(&format!("/events/{}/invitations", event_id))
+            .insert_header(("Authorization", format!("Bearer {}", owner_token)))
+            .set_json(&InvitationPayload {
+                identifier: "guest".into(),
+                status: None,
+            })
+            .to_request(),
+    )
+    .await;
+    assert_eq!(invite_resp.status(), StatusCode::CREATED);
+
+    let list_resp = test::call_service(
+        &app,
+        test::TestRequest::get()
+            .uri(&format!("/events/{}/invitations", event_id))
+            .insert_header(("Authorization", format!("Bearer {}", guest_token)))
+            .to_request(),
+    )
+    .await;
+
+    assert_eq!(list_resp.status(), StatusCode::FORBIDDEN);
+    Ok(())
+}
+
+#[tokio::test]
+async fn participant_list_hides_other_emails_and_pending_entries() -> Result<(), Box<dyn Error>> {
+    let Some(pool) = obtain_pool().await else {
+        eprintln!("Skipping invitations tests: DATABASE_URL or TEST_DATABASE_URL not set");
+        return Ok(());
+    };
+    let _guard = DB_LOCK.lock().await;
+    reset_tables(
+        &pool,
+        &["event_share_tokens", "invitations", "events", "users"],
+    )
+    .await?;
+
+    let secret = "secret";
+    let owner_email = "owner@example.com";
+    let alice_email = "alice@example.com";
+    let bob_email = "bob@example.com";
+    let pending_email = "future-guest@example.com";
+    let state = build_state(pool.clone(), secret, &[]);
+    let app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
+
+    let _owner_id = seed_user(&pool, owner_email).await?;
+    let _alice_id = seed_user(&pool, alice_email).await?;
+    let _bob_id = seed_user(&pool, bob_email).await?;
+    let event_id = seed_event(&pool, owner_email).await?;
+    let owner_token = admin_token(secret, owner_email).expect("token");
+    let alice_token = admin_token(secret, alice_email).expect("token");
+    let bob_token = admin_token(secret, bob_email).expect("token");
+
+    for identifier in ["alice", "bob"] {
+        let invite_resp = test::call_service(
+            &app,
+            test::TestRequest::post()
+                .uri(&format!("/events/{}/invitations", event_id))
+                .insert_header(("Authorization", format!("Bearer {}", owner_token.clone())))
+                .set_json(&InvitationPayload {
+                    identifier: identifier.into(),
+                    status: None,
+                })
+                .to_request(),
+        )
+        .await;
+        assert_eq!(invite_resp.status(), StatusCode::CREATED);
+    }
+
+    let pending_resp = test::call_service(
+        &app,
+        test::TestRequest::post()
+            .uri(&format!("/events/{}/invitations", event_id))
+            .insert_header(("Authorization", format!("Bearer {}", owner_token)))
+            .set_json(&InvitationPayload {
+                identifier: pending_email.into(),
+                status: None,
+            })
+            .to_request(),
+    )
+    .await;
+    assert_eq!(pending_resp.status(), StatusCode::ACCEPTED);
+
+    for token in [&alice_token, &bob_token] {
+        let accept_resp = test::call_service(
+            &app,
+            test::TestRequest::patch()
+                .uri(&format!("/my/invitations/{}", event_id))
+                .insert_header(("Authorization", format!("Bearer {}", token)))
+                .set_json(&InvitationPatchPayload {
+                    status: Some("Accepted".into()),
+                })
+                .to_request(),
+        )
+        .await;
+        assert_eq!(accept_resp.status(), StatusCode::OK);
+    }
+
+    let list_resp = test::call_service(
+        &app,
+        test::TestRequest::get()
+            .uri(&format!("/events/{}/invitations", event_id))
+            .insert_header(("Authorization", format!("Bearer {}", alice_token)))
+            .to_request(),
+    )
+    .await;
+    assert_eq!(list_resp.status(), StatusCode::OK);
+    let listed: Vec<Invitation> = test::read_body_json(list_resp).await;
+
+    assert_eq!(listed.len(), 3);
+    assert!(
+        listed
+            .iter()
+            .all(|invitation| !invitation.email.eq_ignore_ascii_case(pending_email))
+    );
+
+    let owner = listed
+        .iter()
+        .find(|invitation| invitation.handle.as_deref() == Some("owner"))
+        .expect("owner row");
+    assert_eq!(owner.email, owner_email);
+
+    let alice = listed
+        .iter()
+        .find(|invitation| invitation.handle.as_deref() == Some("alice"))
+        .expect("self row");
+    assert_eq!(alice.email, alice_email);
+
+    let bob = listed
+        .iter()
+        .find(|invitation| invitation.handle.as_deref() == Some("bob"))
+        .expect("other participant row");
+    assert!(bob.email.is_empty());
+
+    Ok(())
+}
+
+#[tokio::test]
 async fn email_invite_share_token_is_bound_to_target_email() -> Result<(), Box<dyn Error>> {
     let Some(pool) = obtain_pool().await else {
         eprintln!("Skipping invitations tests: DATABASE_URL or TEST_DATABASE_URL not set");

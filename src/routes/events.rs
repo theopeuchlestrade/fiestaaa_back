@@ -438,39 +438,7 @@ fn normalize_playlist_payload(
     Ok((Some(provider), Some(playlist_url)))
 }
 
-async fn ensure_invitation_deadline_schema(db: &PgPool) -> Result<(), HttpResponse> {
-    if (sqlx::query("ALTER TABLE events ADD COLUMN IF NOT EXISTS invitation_deadline DATE")
-        .execute(db)
-        .await)
-        .is_err()
-    {
-        return Err(server_error());
-    }
-
-    let ensure_constraint = r#"
-        DO $$
-        BEGIN
-            BEGIN
-                ALTER TABLE events
-                ADD CONSTRAINT invitation_deadline_before_event
-                CHECK (invitation_deadline IS NULL OR invitation_deadline <= date_event);
-            EXCEPTION
-                WHEN duplicate_object THEN
-                    NULL;
-            END;
-        END
-        $$;
-    "#;
-
-    if (sqlx::query(ensure_constraint).execute(db).await).is_err() {
-        return Err(server_error());
-    }
-
-    Ok(())
-}
-
 async fn expire_overdue_invitations(db: &PgPool) -> Result<(), HttpResponse> {
-    ensure_invitation_deadline_schema(db).await?;
     sqlx::query(
         "UPDATE invitations i
          SET status = 'Expired'
@@ -755,9 +723,6 @@ pub async fn create_event(
     req: HttpRequest,
     payload: web::Json<EventPayload>,
 ) -> impl Responder {
-    if let Err(resp) = ensure_invitation_deadline_schema(&state.db).await {
-        return resp;
-    }
     let owner_email = match claims_email(&req, state.get_ref()) {
         Ok(email) => email,
         Err(resp) => return resp,
@@ -894,9 +859,6 @@ pub async fn replace_event(
     event_id: web::Path<i64>,
     payload: web::Json<EventPayload>,
 ) -> impl Responder {
-    if let Err(resp) = ensure_invitation_deadline_schema(&state.db).await {
-        return resp;
-    }
     if let Err(resp) = ensure_event_owner(&req, state.get_ref(), *event_id).await {
         return resp;
     }
@@ -1066,9 +1028,6 @@ pub async fn update_event(
     event_id: web::Path<i64>,
     payload: web::Json<EventPatchPayload>,
 ) -> impl Responder {
-    if let Err(resp) = ensure_invitation_deadline_schema(&state.db).await {
-        return resp;
-    }
     if let Err(resp) = ensure_event_owner(&req, state.get_ref(), *event_id).await {
         return resp;
     }
@@ -1777,9 +1736,6 @@ pub async fn list_event_item_contributions(
     req: HttpRequest,
     event_id: web::Path<i64>,
 ) -> impl Responder {
-    let _ = sqlx::query("ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_url TEXT;")
-        .execute(&state.db)
-        .await;
     if let Err(resp) = ensure_event_member(&req, state.get_ref(), *event_id).await {
         return resp;
     }

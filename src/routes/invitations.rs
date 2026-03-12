@@ -109,7 +109,7 @@ async fn ensure_event_participant(
             JOIN users u ON u.id = i.user_id
             WHERE i.event_id = $1
               AND lower(u.email) = lower($2)
-              AND i.status NOT IN ('Declined', 'Expired')
+              AND i.status = 'Accepted'
         )",
     )
     .bind(event_id)
@@ -141,57 +141,12 @@ struct UserIdentity {
     avatar_url: Option<String>,
 }
 
-async fn ensure_avatar_column(db: &sqlx::PgPool) -> Result<(), sqlx::Error> {
-    sqlx::query("ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_url TEXT;")
-        .execute(db)
-        .await?;
-    Ok(())
-}
-
 enum TargetIdentifier {
     Email(String),
     Handle(String),
 }
 
-async fn ensure_invitation_deadline_schema(db: &sqlx::PgPool) -> Result<(), HttpResponse> {
-    if (sqlx::query("ALTER TABLE events ADD COLUMN IF NOT EXISTS invitation_deadline DATE")
-        .execute(db)
-        .await)
-        .is_err()
-    {
-        return Err(HttpResponse::InternalServerError().json(ErrorResponse {
-            error: "db_error".into(),
-            details: None,
-        }));
-    }
-
-    let ensure_constraint = r#"
-        DO $$
-        BEGIN
-            BEGIN
-                ALTER TABLE events
-                ADD CONSTRAINT invitation_deadline_before_event
-                CHECK (invitation_deadline IS NULL OR invitation_deadline <= date_event);
-            EXCEPTION
-                WHEN duplicate_object THEN
-                    NULL;
-            END;
-        END
-        $$;
-    "#;
-
-    if (sqlx::query(ensure_constraint).execute(db).await).is_err() {
-        return Err(HttpResponse::InternalServerError().json(ErrorResponse {
-            error: "db_error".into(),
-            details: None,
-        }));
-    }
-
-    Ok(())
-}
-
 async fn expire_overdue_invitations(db: &sqlx::PgPool) -> Result<(), HttpResponse> {
-    ensure_invitation_deadline_schema(db).await?;
     sqlx::query(
         "UPDATE invitations i
          SET status = 'Expired'
@@ -237,7 +192,6 @@ fn parse_identifier(raw: &str) -> Result<TargetIdentifier, HttpResponse> {
 }
 
 async fn fetch_user_by_email(db: &sqlx::PgPool, email: &str) -> Result<UserIdentity, HttpResponse> {
-    let _ = ensure_avatar_column(db).await;
     let normalized = email.trim().to_lowercase();
     if normalized.is_empty() {
         return Err(HttpResponse::BadRequest().json(ErrorResponse {
@@ -270,7 +224,6 @@ async fn find_user_by_handle(
     db: &sqlx::PgPool,
     handle: &str,
 ) -> Result<Option<UserIdentity>, HttpResponse> {
-    let _ = ensure_avatar_column(db).await;
     sqlx::query_as::<_, UserIdentity>(
         "SELECT id, email, handle, avatar_url FROM users WHERE lower(handle) = lower($1)",
     )
@@ -666,7 +619,14 @@ pub async fn list_event_invitations(
     req: HttpRequest,
     event_id: web::Path<i64>,
 ) -> impl Responder {
-    let _ = ensure_avatar_column(&state.db).await;
+    let requester = match claims_email(&req, state.get_ref()) {
+        Ok(email) => email,
+        Err(resp) => return resp,
+    };
+    let owner_email = match fetch_event_owner_email(&state.db, *event_id).await {
+        Ok(email) => email,
+        Err(resp) => return resp,
+    };
     if let Err(resp) = ensure_event_participant(&req, state.get_ref(), *event_id).await {
         return resp;
     }
@@ -726,7 +686,19 @@ pub async fn list_event_invitations(
     .fetch_all(&state.db)
     .await
     {
-        Ok(list) => HttpResponse::Ok().json(list),
+        Ok(mut list) => {
+            if !owner_email.eq_ignore_ascii_case(&requester) {
+                list.retain(|invitation| invitation.user_id.is_some());
+                for invitation in &mut list {
+                    if !invitation.email.eq_ignore_ascii_case(&requester)
+                        && !invitation.email.eq_ignore_ascii_case(&owner_email)
+                    {
+                        invitation.email.clear();
+                    }
+                }
+            }
+            HttpResponse::Ok().json(list)
+        }
         Err(_) => HttpResponse::InternalServerError().json(ErrorResponse {
             error: "db_error".into(),
             details: None,
@@ -756,9 +728,6 @@ pub async fn create_invitation(
     event_id: web::Path<i64>,
     payload: web::Json<InvitationPayload>,
 ) -> impl Responder {
-    if let Err(resp) = ensure_invitation_deadline_schema(&state.db).await {
-        return resp;
-    }
     let owner_email = match ensure_event_owner(&req, state.get_ref(), *event_id).await {
         Ok(owner) => owner,
         Err(resp) => return resp,
@@ -958,7 +927,6 @@ pub async fn delete_invitation(
 )]
 #[get("/my/invitations")]
 pub async fn list_my_invitations(state: web::Data<AppState>, req: HttpRequest) -> impl Responder {
-    let _ = ensure_avatar_column(&state.db).await;
     let email = match claims_email(&req, state.get_ref()) {
         Ok(e) => e,
         Err(resp) => return resp,
