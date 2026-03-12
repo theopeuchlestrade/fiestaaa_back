@@ -1,7 +1,7 @@
 use actix_web::{HttpRequest, HttpResponse, Responder, post, web};
 
 use crate::{
-    auth::extract_claims_from_auth,
+    auth::extract_active_claims_from_auth,
     models::{
         DeviceDeletePayload, DeviceRefreshPayload, DeviceRegisterPayload, ErrorResponse,
         StatusResponse,
@@ -19,7 +19,7 @@ fn normalize_platform(raw: &str) -> Option<String> {
 }
 
 async fn current_user_id(req: &HttpRequest, state: &AppState) -> Result<i64, HttpResponse> {
-    let claims = extract_claims_from_auth(req, &state.jwt_secret)?;
+    let claims = extract_active_claims_from_auth(req, &state.db, &state.jwt_secret).await?;
     match find_user_id_by_email(&state.db, &claims.sub).await {
         Ok(Some(id)) => Ok(id),
         Ok(None) => Err(HttpResponse::Unauthorized().json(ErrorResponse {

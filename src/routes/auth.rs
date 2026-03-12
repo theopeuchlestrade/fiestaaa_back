@@ -10,7 +10,8 @@ use uuid::Uuid;
 use crate::{
     auth::{
         build_cleared_session_cookie, build_session_cookie, encode_jwt, fetch_user_auth,
-        hash_password, now_ts, random_password_token, validate_password_strength, verify_password,
+        hash_password, now_ts, random_password_token, revoke_auth_token_from_request,
+        validate_password_strength, verify_password,
     },
     handles::{generate_unique_handle, handle_available, is_valid_handle, normalize_handle},
     models::{
@@ -73,6 +74,7 @@ fn token_response(
     email: String,
     handle: String,
     secure_cookie: bool,
+    include_body_token: bool,
 ) -> HttpResponse {
     HttpResponse::Ok()
         .insert_header((CONTENT_TYPE, "application/json"))
@@ -80,10 +82,18 @@ fn token_response(
         .insert_header((PRAGMA, "no-cache"))
         .cookie(build_session_cookie(&token, secure_cookie))
         .json(TokenResponse {
-            token,
+            token: if include_body_token {
+                token
+            } else {
+                String::new()
+            },
             email,
             handle,
         })
+}
+
+fn auth_response_includes_body_token(req: &HttpRequest) -> bool {
+    !req.headers().contains_key("Origin") && !req.headers().contains_key("Sec-Fetch-Site")
 }
 
 async fn cleanup_expired_pending_registrations(db: &PgPool) -> Result<(), HttpResponse> {
@@ -294,7 +304,6 @@ async fn send_verification_email(
     responses(
         (status = 201, description = "Registration pending email verification", body = StatusResponse),
         (status = 400, description = "Invalid payload", body = ErrorResponse),
-        (status = 409, description = "Email already exists", body = ErrorResponse),
         (status = 429, description = "Too many attempts", body = ErrorResponse),
         (status = 500, description = "Database or hashing error", body = ErrorResponse)
     )
@@ -322,9 +331,8 @@ pub async fn register(
     }
     match fetch_user_by_email(&state.db, &email).await {
         Ok(Some(_)) => {
-            return HttpResponse::Conflict().json(ErrorResponse {
-                error: "email_taken".into(),
-                details: None,
+            return HttpResponse::Created().json(StatusResponse {
+                status: "verification_pending".into(),
             });
         }
         Ok(None) => {}
@@ -597,6 +605,7 @@ pub async fn verify_email(
 )]
 #[post("/auth/complete-registration")]
 pub async fn complete_registration(
+    req: HttpRequest,
     state: web::Data<AppState>,
     payload: web::Json<CompleteRegistrationPayload>,
 ) -> impl Responder {
@@ -780,7 +789,13 @@ pub async fn complete_registration(
     let secure_cookie = auth_cookie_is_secure(state.get_ref());
 
     match encode_jwt(&claims, &state.jwt_secret) {
-        Ok(token) => token_response(token, pending.email, final_handle, secure_cookie),
+        Ok(token) => token_response(
+            token,
+            pending.email,
+            final_handle,
+            secure_cookie,
+            auth_response_includes_body_token(&req),
+        ),
         Err(_) => HttpResponse::InternalServerError().json(ErrorResponse {
             error: "token_creation_failed".into(),
             details: None,
@@ -817,8 +832,8 @@ pub async fn oauth_login(
         return resp;
     }
     match provider.as_str() {
-        "google" => oauth_google(state, payload.into_inner()).await,
-        "apple" => oauth_apple(state, payload.into_inner()).await,
+        "google" => oauth_google(req, state, payload.into_inner()).await,
+        "apple" => oauth_apple(req, state, payload.into_inner()).await,
         _ => HttpResponse::BadRequest().json(ErrorResponse {
             error: "unsupported_provider".into(),
             details: Some("provider must be 'google' ou 'apple'".into()),
@@ -1044,7 +1059,11 @@ async fn resolve_oauth_user(
     }
 }
 
-async fn oauth_google(state: web::Data<AppState>, payload: OAuthPayload) -> HttpResponse {
+async fn oauth_google(
+    req: HttpRequest,
+    state: web::Data<AppState>,
+    payload: OAuthPayload,
+) -> HttpResponse {
     let id_token = payload
         .id_token
         .as_ref()
@@ -1180,7 +1199,13 @@ async fn oauth_google(state: web::Data<AppState>, payload: OAuthPayload) -> Http
     let secure_cookie = auth_cookie_is_secure(state.get_ref());
 
     match encode_jwt(&claims, &state.jwt_secret) {
-        Ok(token) => token_response(token, user.email, user.handle, secure_cookie),
+        Ok(token) => token_response(
+            token,
+            user.email,
+            user.handle,
+            secure_cookie,
+            auth_response_includes_body_token(&req),
+        ),
         Err(_) => HttpResponse::InternalServerError().json(ErrorResponse {
             error: "token_creation_failed".into(),
             details: None,
@@ -1188,7 +1213,11 @@ async fn oauth_google(state: web::Data<AppState>, payload: OAuthPayload) -> Http
     }
 }
 
-async fn oauth_apple(state: web::Data<AppState>, payload: OAuthPayload) -> HttpResponse {
+async fn oauth_apple(
+    req: HttpRequest,
+    state: web::Data<AppState>,
+    payload: OAuthPayload,
+) -> HttpResponse {
     let mut allowed_aud = Vec::new();
     if let Some(service_id) = state.apple_service_id.as_ref() {
         allowed_aud.push(service_id.as_str());
@@ -1280,7 +1309,13 @@ async fn oauth_apple(state: web::Data<AppState>, payload: OAuthPayload) -> HttpR
     let secure_cookie = auth_cookie_is_secure(state.get_ref());
 
     match encode_jwt(&claims, &state.jwt_secret) {
-        Ok(token) => token_response(token, user.email, user.handle, secure_cookie),
+        Ok(token) => token_response(
+            token,
+            user.email,
+            user.handle,
+            secure_cookie,
+            auth_response_includes_body_token(&req),
+        ),
         Err(_) => HttpResponse::InternalServerError().json(ErrorResponse {
             error: "token_creation_failed".into(),
             details: None,
@@ -1324,7 +1359,10 @@ async fn fetch_apple_decoding_key(
     )
 )]
 #[post("/auth/logout")]
-pub async fn logout(state: web::Data<AppState>) -> impl Responder {
+pub async fn logout(state: web::Data<AppState>, req: HttpRequest) -> impl Responder {
+    if let Err(resp) = revoke_auth_token_from_request(&req, &state.db, &state.jwt_secret).await {
+        return resp;
+    }
     HttpResponse::Ok()
         .cookie(build_cleared_session_cookie(auth_cookie_is_secure(
             state.get_ref(),
@@ -1386,7 +1424,13 @@ pub async fn login(
     let secure_cookie = auth_cookie_is_secure(state.get_ref());
 
     match encode_jwt(&claims, &state.jwt_secret) {
-        Ok(token) => token_response(token, auth_row.email, auth_row.handle, secure_cookie),
+        Ok(token) => token_response(
+            token,
+            auth_row.email,
+            auth_row.handle,
+            secure_cookie,
+            auth_response_includes_body_token(&req),
+        ),
         Err(_) => HttpResponse::InternalServerError().json(ErrorResponse {
             error: "token_creation_failed".into(),
             details: None,

@@ -4,7 +4,7 @@ use sqlx::Row;
 use uuid::Uuid;
 
 use crate::{
-    auth::extract_claims_from_auth,
+    auth::extract_active_claims_from_auth,
     models::{
         ErrorResponse, QRCodeGenerateResponse, QRCodeScanPayload, QRCodeScanResponse,
         QRCodeStatsResponse,
@@ -15,8 +15,8 @@ use crate::{
 
 const QR_CODE_TTL_SECONDS: i64 = 300;
 
-fn claims_email(req: &HttpRequest, state: &AppState) -> Result<String, HttpResponse> {
-    let claims = extract_claims_from_auth(req, &state.jwt_secret)?;
+async fn claims_email(req: &HttpRequest, state: &AppState) -> Result<String, HttpResponse> {
+    let claims = extract_active_claims_from_auth(req, &state.db, &state.jwt_secret).await?;
     Ok(claims.sub.to_lowercase())
 }
 
@@ -52,7 +52,7 @@ async fn ensure_event_owner(
     state: &AppState,
     event_id: i64,
 ) -> Result<String, HttpResponse> {
-    let requester = claims_email(req, state)?;
+    let requester = claims_email(req, state).await?;
     let owner = fetch_event_owner_email(&state.db, event_id).await?;
     if owner == requester {
         Ok(owner)
@@ -102,7 +102,7 @@ pub async fn generate_my_qr_code(
     req: HttpRequest,
     event_id: web::Path<i64>,
 ) -> impl Responder {
-    let requester_email = match claims_email(&req, state.get_ref()) {
+    let requester_email = match claims_email(&req, state.get_ref()).await {
         Ok(e) => e,
         Err(resp) => return resp,
     };

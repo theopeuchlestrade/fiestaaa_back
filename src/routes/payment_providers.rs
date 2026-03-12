@@ -3,7 +3,7 @@ use regex::Regex;
 use sqlx::Error;
 
 use crate::{
-    auth::extract_claims_from_auth,
+    auth::extract_active_claims_from_auth,
     models::{
         ErrorResponse, PaymentProvider, PaymentProviderPatchPayload, PaymentProviderPayload,
         StatusResponse,
@@ -13,8 +13,8 @@ use crate::{
 
 const DEFAULT_PAYMENT_URL_REGEX: &str = r"^https?://.+$";
 
-fn ensure_admin(req: &HttpRequest, state: &AppState) -> Result<(), HttpResponse> {
-    let claims = extract_claims_from_auth(req, &state.jwt_secret)?;
+async fn ensure_admin(req: &HttpRequest, state: &AppState) -> Result<(), HttpResponse> {
+    let claims = extract_active_claims_from_auth(req, &state.db, &state.jwt_secret).await?;
     if state.admin_emails.is_empty() {
         return Err(HttpResponse::Forbidden().json(ErrorResponse {
             error: "forbidden".into(),
@@ -78,7 +78,7 @@ pub async fn create_payment_provider(
     req: HttpRequest,
     payload: web::Json<PaymentProviderPayload>,
 ) -> impl Responder {
-    if let Err(resp) = ensure_admin(&req, state.get_ref()) {
+    if let Err(resp) = ensure_admin(&req, state.get_ref()).await {
         return resp;
     }
 
@@ -108,7 +108,7 @@ pub async fn replace_payment_provider(
     provider_id: web::Path<i32>,
     payload: web::Json<PaymentProviderPayload>,
 ) -> impl Responder {
-    if let Err(resp) = ensure_admin(&req, state.get_ref()) {
+    if let Err(resp) = ensure_admin(&req, state.get_ref()).await {
         return resp;
     }
 
@@ -223,7 +223,7 @@ pub async fn update_payment_provider(
     provider_id: web::Path<i32>,
     payload: web::Json<PaymentProviderPatchPayload>,
 ) -> impl Responder {
-    if let Err(resp) = ensure_admin(&req, state.get_ref()) {
+    if let Err(resp) = ensure_admin(&req, state.get_ref()).await {
         return resp;
     }
 
@@ -336,7 +336,7 @@ pub async fn delete_payment_provider(
     req: HttpRequest,
     provider_id: web::Path<i32>,
 ) -> impl Responder {
-    if let Err(resp) = ensure_admin(&req, state.get_ref()) {
+    if let Err(resp) = ensure_admin(&req, state.get_ref()).await {
         return resp;
     }
 

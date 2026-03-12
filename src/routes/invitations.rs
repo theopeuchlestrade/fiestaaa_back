@@ -6,7 +6,7 @@ use sqlx::{FromRow, Row};
 use uuid::Uuid;
 
 use crate::{
-    auth::extract_claims_from_auth,
+    auth::extract_active_claims_from_auth,
     handles::{is_valid_handle, looks_like_email, normalize_handle},
     models::{
         ErrorResponse, Invitation, InvitationPatchPayload, InvitationPayload, StatusResponse,
@@ -17,8 +17,8 @@ use crate::{
     state::AppState,
 };
 
-fn claims_email(req: &HttpRequest, state: &AppState) -> Result<String, HttpResponse> {
-    let claims = extract_claims_from_auth(req, &state.jwt_secret)?;
+async fn claims_email(req: &HttpRequest, state: &AppState) -> Result<String, HttpResponse> {
+    let claims = extract_active_claims_from_auth(req, &state.db, &state.jwt_secret).await?;
     Ok(claims.sub.to_lowercase())
 }
 
@@ -79,7 +79,7 @@ async fn ensure_event_owner(
     state: &AppState,
     event_id: i64,
 ) -> Result<String, HttpResponse> {
-    let requester = claims_email(req, state)?;
+    let requester = claims_email(req, state).await?;
     let owner = fetch_event_owner_email(&state.db, event_id).await?;
     if owner == requester {
         Ok(owner)
@@ -96,7 +96,7 @@ async fn ensure_event_participant(
     state: &AppState,
     event_id: i64,
 ) -> Result<(), HttpResponse> {
-    let requester = claims_email(req, state)?;
+    let requester = claims_email(req, state).await?;
     let owner = fetch_event_owner_email(&state.db, event_id).await?;
     if owner.eq_ignore_ascii_case(&requester) {
         return Ok(());
@@ -619,7 +619,7 @@ pub async fn list_event_invitations(
     req: HttpRequest,
     event_id: web::Path<i64>,
 ) -> impl Responder {
-    let requester = match claims_email(&req, state.get_ref()) {
+    let requester = match claims_email(&req, state.get_ref()).await {
         Ok(email) => email,
         Err(resp) => return resp,
     };
@@ -927,7 +927,7 @@ pub async fn delete_invitation(
 )]
 #[get("/my/invitations")]
 pub async fn list_my_invitations(state: web::Data<AppState>, req: HttpRequest) -> impl Responder {
-    let email = match claims_email(&req, state.get_ref()) {
+    let email = match claims_email(&req, state.get_ref()).await {
         Ok(e) => e,
         Err(resp) => return resp,
     };
@@ -974,7 +974,7 @@ pub async fn respond_invitation(
     event_id: web::Path<i64>,
     payload: web::Json<InvitationPatchPayload>,
 ) -> impl Responder {
-    let email = match claims_email(&req, state.get_ref()) {
+    let email = match claims_email(&req, state.get_ref()).await {
         Ok(e) => e,
         Err(resp) => return resp,
     };

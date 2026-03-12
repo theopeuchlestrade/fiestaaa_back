@@ -5,7 +5,7 @@ use std::error::Error;
 use actix_web::{App, http::StatusCode, test};
 use common::{DB_LOCK, build_state, obtain_pool, reset_tables};
 use fiestaaa_back::{
-    auth::{hash_password, verify_password},
+    auth::{hash_password, session_cookie_name, verify_password},
     routes,
 };
 use serde_json::Value;
@@ -161,7 +161,7 @@ async fn register_rejects_invalid_payload() -> Result<(), Box<dyn Error>> {
 }
 
 #[tokio::test]
-async fn register_rejects_duplicate_email() -> Result<(), Box<dyn Error>> {
+async fn register_hides_duplicate_email_state() -> Result<(), Box<dyn Error>> {
     let Some(pool) = obtain_pool().await else {
         eprintln!("Skipping auth tests: DATABASE_URL or TEST_DATABASE_URL not set");
         return Ok(());
@@ -191,7 +191,19 @@ async fn register_rejects_duplicate_email() -> Result<(), Box<dyn Error>> {
             .to_request(),
     )
     .await;
-    assert_eq!(resp.status(), StatusCode::CONFLICT);
+    assert_eq!(resp.status(), StatusCode::CREATED);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(
+        body.get("status").and_then(|value| value.as_str()),
+        Some("verification_pending")
+    );
+
+    let pending_count: (i64,) =
+        sqlx::query_as("SELECT COUNT(*) FROM pending_registrations WHERE lower(email) = lower($1)")
+            .bind("dup@example.com")
+            .fetch_one(&pool)
+            .await?;
+    assert_eq!(pending_count.0, 0);
     Ok(())
 }
 
@@ -523,6 +535,14 @@ async fn delete_account_removes_user() -> Result<(), Box<dyn Error>> {
     )
     .await;
     assert_eq!(delete_resp.status(), StatusCode::OK);
+    let cleared_cookie = delete_resp
+        .headers()
+        .get("set-cookie")
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or_default()
+        .to_string();
+    assert!(cleared_cookie.contains(&format!("{}=", session_cookie_name())));
+    assert!(cleared_cookie.contains("Max-Age=0"));
 
     let delete_json: Value = test::read_body_json(delete_resp).await;
     assert_eq!(
@@ -643,6 +663,282 @@ async fn delete_account_returns_404_for_missing_user() -> Result<(), Box<dyn Err
     )
     .await;
     assert_eq!(delete_resp.status(), StatusCode::NOT_FOUND);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn browser_login_uses_cookie_without_exposing_token() -> Result<(), Box<dyn Error>> {
+    let Some(pool) = obtain_pool().await else {
+        eprintln!("Skipping auth tests: DATABASE_URL or TEST_DATABASE_URL not set");
+        return Ok(());
+    };
+    let _guard = DB_LOCK.lock().await;
+    reset_tables(
+        &pool,
+        &["revoked_auth_tokens", "pending_registrations", "users"],
+    )
+    .await?;
+
+    let state = build_state(pool.clone(), "secret", &[]);
+    let app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
+
+    let email = "web@example.com";
+    let password = "MyStr0ng!Pass#2025";
+
+    let register_resp = test::call_service(
+        &app,
+        test::TestRequest::post()
+            .uri("/auth/register")
+            .set_json(serde_json::json!({ "email": email }))
+            .to_request(),
+    )
+    .await;
+    assert_eq!(register_resp.status(), StatusCode::CREATED);
+
+    let verify_resp = test::call_service(
+        &app,
+        test::TestRequest::post()
+            .uri("/auth/verify-email")
+            .set_json(serde_json::json!({ "token": pending_token_for(&pool, email).await? }))
+            .to_request(),
+    )
+    .await;
+    assert_eq!(verify_resp.status(), StatusCode::OK);
+
+    let complete_resp = test::call_service(
+        &app,
+        test::TestRequest::post()
+            .uri("/auth/complete-registration")
+            .set_json(serde_json::json!({
+                "token": pending_token_for(&pool, email).await?,
+                "password": password,
+            }))
+            .to_request(),
+    )
+    .await;
+    assert_eq!(complete_resp.status(), StatusCode::OK);
+
+    let login_resp = test::call_service(
+        &app,
+        test::TestRequest::post()
+            .uri("/auth/login")
+            .insert_header(("Origin", "https://fiestaaa.app"))
+            .set_json(serde_json::json!({ "identifier": email, "password": password }))
+            .to_request(),
+    )
+    .await;
+    assert_eq!(login_resp.status(), StatusCode::OK);
+    let session_cookie = login_resp
+        .headers()
+        .get("set-cookie")
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or_default()
+        .to_string();
+    assert!(session_cookie.contains(&format!("{}=", session_cookie_name())));
+
+    let login_body: Value = test::read_body_json(login_resp).await;
+    assert_eq!(
+        login_body.get("token").and_then(|value| value.as_str()),
+        Some("")
+    );
+    assert_eq!(
+        login_body.get("email").and_then(|value| value.as_str()),
+        Some(email)
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn logout_revokes_current_token() -> Result<(), Box<dyn Error>> {
+    let Some(pool) = obtain_pool().await else {
+        eprintln!("Skipping auth tests: DATABASE_URL or TEST_DATABASE_URL not set");
+        return Ok(());
+    };
+    let _guard = DB_LOCK.lock().await;
+    reset_tables(
+        &pool,
+        &["revoked_auth_tokens", "pending_registrations", "users"],
+    )
+    .await?;
+
+    let state = build_state(pool.clone(), "secret", &[]);
+    let app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
+
+    let email = "logout@example.com";
+    let password = "MyStr0ng!Pass#2025";
+
+    let register_resp = test::call_service(
+        &app,
+        test::TestRequest::post()
+            .uri("/auth/register")
+            .set_json(serde_json::json!({ "email": email }))
+            .to_request(),
+    )
+    .await;
+    assert_eq!(register_resp.status(), StatusCode::CREATED);
+
+    let verify_resp = test::call_service(
+        &app,
+        test::TestRequest::post()
+            .uri("/auth/verify-email")
+            .set_json(serde_json::json!({ "token": pending_token_for(&pool, email).await? }))
+            .to_request(),
+    )
+    .await;
+    assert_eq!(verify_resp.status(), StatusCode::OK);
+
+    let complete_resp = test::call_service(
+        &app,
+        test::TestRequest::post()
+            .uri("/auth/complete-registration")
+            .set_json(serde_json::json!({
+                "token": pending_token_for(&pool, email).await?,
+                "password": password,
+            }))
+            .to_request(),
+    )
+    .await;
+    assert_eq!(complete_resp.status(), StatusCode::OK);
+
+    let login_resp = test::call_service(
+        &app,
+        test::TestRequest::post()
+            .uri("/auth/login")
+            .set_json(serde_json::json!({ "identifier": email, "password": password }))
+            .to_request(),
+    )
+    .await;
+    assert_eq!(login_resp.status(), StatusCode::OK);
+    let login_body: Value = test::read_body_json(login_resp).await;
+    let token = login_body
+        .get("token")
+        .and_then(|value| value.as_str())
+        .expect("token in response")
+        .to_string();
+
+    let logout_resp = test::call_service(
+        &app,
+        test::TestRequest::post()
+            .uri("/auth/logout")
+            .insert_header(("Authorization", format!("Bearer {}", token)))
+            .to_request(),
+    )
+    .await;
+    assert_eq!(logout_resp.status(), StatusCode::OK);
+
+    let me_resp = test::call_service(
+        &app,
+        test::TestRequest::get()
+            .uri("/me")
+            .insert_header(("Authorization", format!("Bearer {}", token)))
+            .to_request(),
+    )
+    .await;
+    assert_eq!(me_resp.status(), StatusCode::UNAUTHORIZED);
+    let me_body: Value = test::read_body_json(me_resp).await;
+    assert_eq!(
+        me_body.get("error").and_then(|value| value.as_str()),
+        Some("revoked_token")
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn deleted_user_token_cannot_access_events() -> Result<(), Box<dyn Error>> {
+    let Some(pool) = obtain_pool().await else {
+        eprintln!("Skipping auth tests: DATABASE_URL or TEST_DATABASE_URL not set");
+        return Ok(());
+    };
+    let _guard = DB_LOCK.lock().await;
+    reset_tables(
+        &pool,
+        &[
+            "revoked_auth_tokens",
+            "pending_registrations",
+            "invitations",
+            "events",
+            "users",
+        ],
+    )
+    .await?;
+
+    let state = build_state(pool.clone(), "secret", &[]);
+    let app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
+
+    let email = "deleted-owner@example.com";
+    let password = "MyStr0ng!Pass#2025";
+
+    let register_resp = test::call_service(
+        &app,
+        test::TestRequest::post()
+            .uri("/auth/register")
+            .set_json(serde_json::json!({ "email": email }))
+            .to_request(),
+    )
+    .await;
+    assert_eq!(register_resp.status(), StatusCode::CREATED);
+
+    let verify_resp = test::call_service(
+        &app,
+        test::TestRequest::post()
+            .uri("/auth/verify-email")
+            .set_json(serde_json::json!({ "token": pending_token_for(&pool, email).await? }))
+            .to_request(),
+    )
+    .await;
+    assert_eq!(verify_resp.status(), StatusCode::OK);
+
+    let complete_resp = test::call_service(
+        &app,
+        test::TestRequest::post()
+            .uri("/auth/complete-registration")
+            .set_json(serde_json::json!({
+                "token": pending_token_for(&pool, email).await?,
+                "password": password,
+            }))
+            .to_request(),
+    )
+    .await;
+    assert_eq!(complete_resp.status(), StatusCode::OK);
+
+    let login_resp = test::call_service(
+        &app,
+        test::TestRequest::post()
+            .uri("/auth/login")
+            .set_json(serde_json::json!({ "identifier": email, "password": password }))
+            .to_request(),
+    )
+    .await;
+    assert_eq!(login_resp.status(), StatusCode::OK);
+    let login_body: Value = test::read_body_json(login_resp).await;
+    let token = login_body
+        .get("token")
+        .and_then(|value| value.as_str())
+        .expect("token in response")
+        .to_string();
+
+    sqlx::query("DELETE FROM users WHERE lower(email) = lower($1)")
+        .bind(email)
+        .execute(&pool)
+        .await?;
+
+    let events_resp = test::call_service(
+        &app,
+        test::TestRequest::get()
+            .uri("/events")
+            .insert_header(("Authorization", format!("Bearer {}", token)))
+            .to_request(),
+    )
+    .await;
+    assert_eq!(events_resp.status(), StatusCode::UNAUTHORIZED);
+    let events_body: Value = test::read_body_json(events_resp).await;
+    assert_eq!(
+        events_body.get("error").and_then(|value| value.as_str()),
+        Some("user_not_found")
+    );
 
     Ok(())
 }

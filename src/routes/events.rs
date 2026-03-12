@@ -9,7 +9,7 @@ use std::collections::{HashMap, HashSet};
 use uuid::Uuid;
 
 use crate::{
-    auth::extract_claims_from_auth,
+    auth::extract_active_claims_from_auth,
     models::{
         AddressSuggestion, ErrorResponse, Event, EventCustomItemPayload, EventExpenseBalanceView,
         EventExpenseParticipantView, EventExpensePayload, EventExpenseSettlementView,
@@ -27,8 +27,8 @@ use crate::{
 
 const OWNER_SHARE_TOKEN_TTL_HOURS: i64 = 24;
 
-fn claims_email(req: &HttpRequest, state: &AppState) -> Result<String, HttpResponse> {
-    let claims = extract_claims_from_auth(req, &state.jwt_secret)?;
+async fn claims_email(req: &HttpRequest, state: &AppState) -> Result<String, HttpResponse> {
+    let claims = extract_active_claims_from_auth(req, &state.db, &state.jwt_secret).await?;
     Ok(claims.sub.to_lowercase())
 }
 
@@ -106,7 +106,7 @@ async fn ensure_event_owner(
     state: &AppState,
     event_id: i64,
 ) -> Result<(), HttpResponse> {
-    let requester = claims_email(req, state)?;
+    let requester = claims_email(req, state).await?;
     if state.admin_emails.contains(&requester) {
         return Ok(());
     }
@@ -126,7 +126,7 @@ async fn ensure_event_member(
     state: &AppState,
     event_id: i64,
 ) -> Result<(), HttpResponse> {
-    let requester = claims_email(req, state)?;
+    let requester = claims_email(req, state).await?;
     let owner = fetch_event_owner_email(&state.db, event_id).await?;
     if owner.eq_ignore_ascii_case(&requester) || owner.is_empty() {
         return Ok(());
@@ -481,7 +481,7 @@ pub async fn search_address(
     req: HttpRequest,
     params: web::Query<AddressSearchQuery>,
 ) -> impl Responder {
-    if let Err(resp) = claims_email(&req, state.get_ref()) {
+    if let Err(resp) = claims_email(&req, state.get_ref()).await {
         return resp;
     }
 
@@ -652,7 +652,7 @@ pub async fn get_event(
 )]
 #[get("/events")]
 pub async fn list_events(state: web::Data<AppState>, req: HttpRequest) -> impl Responder {
-    let email = match claims_email(&req, state.get_ref()) {
+    let email = match claims_email(&req, state.get_ref()).await {
         Ok(e) => e,
         Err(resp) => return resp,
     };
@@ -723,7 +723,7 @@ pub async fn create_event(
     req: HttpRequest,
     payload: web::Json<EventPayload>,
 ) -> impl Responder {
-    let owner_email = match claims_email(&req, state.get_ref()) {
+    let owner_email = match claims_email(&req, state.get_ref()).await {
         Ok(email) => email,
         Err(resp) => return resp,
     };
@@ -1368,7 +1368,7 @@ pub async fn create_share_link(
     req: HttpRequest,
     event_id: web::Path<i64>,
 ) -> impl Responder {
-    let owner_email = match claims_email(&req, state.get_ref()) {
+    let owner_email = match claims_email(&req, state.get_ref()).await {
         Ok(email) => email,
         Err(resp) => return resp,
     };
@@ -1431,7 +1431,7 @@ pub async fn claim_share_link(
     req: HttpRequest,
     payload: web::Json<ShareClaimPayload>,
 ) -> impl Responder {
-    let claims = match extract_claims_from_auth(&req, &state.jwt_secret) {
+    let claims = match extract_active_claims_from_auth(&req, &state.db, &state.jwt_secret).await {
         Ok(c) => c,
         Err(resp) => return resp,
     };
@@ -1637,7 +1637,7 @@ pub async fn list_event_items(
     }
 
     let mine_user = if scope == EventItemsScope::Mine {
-        let email = match claims_email(&req, state.get_ref()) {
+        let email = match claims_email(&req, state.get_ref()).await {
             Ok(value) => value,
             Err(resp) => return resp,
         };
@@ -1790,7 +1790,7 @@ pub async fn attach_event_item(
         return resp;
     }
 
-    let creator_email = match claims_email(&req, state.get_ref()) {
+    let creator_email = match claims_email(&req, state.get_ref()).await {
         Ok(email) => email,
         Err(resp) => return resp,
     };
@@ -1890,7 +1890,7 @@ pub async fn create_custom_event_item(
         return resp;
     }
 
-    let creator_email = match claims_email(&req, state.get_ref()) {
+    let creator_email = match claims_email(&req, state.get_ref()).await {
         Ok(email) => email,
         Err(resp) => return resp,
     };
@@ -2102,7 +2102,7 @@ pub async fn reserve_event_item(
     path: web::Path<(i64, i64)>,
     payload: web::Json<EventItemReservationPayload>,
 ) -> impl Responder {
-    let claims = match extract_claims_from_auth(&req, &state.jwt_secret) {
+    let claims = match extract_active_claims_from_auth(&req, &state.db, &state.jwt_secret).await {
         Ok(c) => c,
         Err(resp) => return resp,
     };
@@ -2270,7 +2270,7 @@ pub async fn delete_event_item(
     req: HttpRequest,
     path: web::Path<(i64, i64)>,
 ) -> impl Responder {
-    let claims = match extract_claims_from_auth(&req, &state.jwt_secret) {
+    let claims = match extract_active_claims_from_auth(&req, &state.db, &state.jwt_secret).await {
         Ok(c) => c,
         Err(resp) => return resp,
     };
@@ -2395,7 +2395,7 @@ pub async fn list_event_polls(
     req: HttpRequest,
     event_id: web::Path<i64>,
 ) -> impl Responder {
-    let claims = match extract_claims_from_auth(&req, &state.jwt_secret) {
+    let claims = match extract_active_claims_from_auth(&req, &state.db, &state.jwt_secret).await {
         Ok(c) => c,
         Err(resp) => return resp,
     };
@@ -2437,7 +2437,7 @@ pub async fn create_event_poll(
     event_id: web::Path<i64>,
     payload: web::Json<EventPollCreatePayload>,
 ) -> impl Responder {
-    let claims = match extract_claims_from_auth(&req, &state.jwt_secret) {
+    let claims = match extract_active_claims_from_auth(&req, &state.db, &state.jwt_secret).await {
         Ok(c) => c,
         Err(resp) => return resp,
     };
@@ -2636,7 +2636,7 @@ pub async fn vote_event_poll(
     path: web::Path<(i64, i64)>,
     payload: web::Json<EventPollVotePayload>,
 ) -> impl Responder {
-    let claims = match extract_claims_from_auth(&req, &state.jwt_secret) {
+    let claims = match extract_active_claims_from_auth(&req, &state.db, &state.jwt_secret).await {
         Ok(c) => c,
         Err(resp) => return resp,
     };
@@ -2813,7 +2813,7 @@ pub async fn delete_event_poll(
     req: HttpRequest,
     path: web::Path<(i64, i64)>,
 ) -> impl Responder {
-    let claims = match extract_claims_from_auth(&req, &state.jwt_secret) {
+    let claims = match extract_active_claims_from_auth(&req, &state.db, &state.jwt_secret).await {
         Ok(c) => c,
         Err(resp) => return resp,
     };
@@ -2956,7 +2956,7 @@ pub async fn create_event_expense(
     event_id: web::Path<i64>,
     payload: web::Json<EventExpensePayload>,
 ) -> impl Responder {
-    let claims = match extract_claims_from_auth(&req, &state.jwt_secret) {
+    let claims = match extract_active_claims_from_auth(&req, &state.db, &state.jwt_secret).await {
         Ok(c) => c,
         Err(resp) => return resp,
     };
@@ -3110,7 +3110,7 @@ pub async fn delete_event_expense(
     req: HttpRequest,
     path: web::Path<(i64, i64)>,
 ) -> impl Responder {
-    let claims = match extract_claims_from_auth(&req, &state.jwt_secret) {
+    let claims = match extract_active_claims_from_auth(&req, &state.db, &state.jwt_secret).await {
         Ok(c) => c,
         Err(resp) => return resp,
     };
