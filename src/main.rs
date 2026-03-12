@@ -80,6 +80,7 @@ async fn main() -> std::io::Result<()> {
     });
 
     // Server
+    let enable_swagger_ui = cfg.enable_swagger_ui;
     HttpServer::new(move || {
         let mut cors = Cors::default()
             .allowed_methods(vec!["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"])
@@ -106,9 +107,14 @@ async fn main() -> std::io::Result<()> {
             .wrap(cors)
             .configure(routes::configure)
             .service(Files::new("/media/avatars", &cfg.avatar_upload_dir).prefer_utf8(true))
-            .service(
-                SwaggerUi::new("/docs/{_:.*}").url("/docs/openapi.json", docs::ApiDoc::openapi()),
-            )
+            .configure(|cfg| {
+                if enable_swagger_ui {
+                    cfg.service(
+                        SwaggerUi::new("/docs/{_:.*}")
+                            .url("/docs/openapi.json", docs::ApiDoc::openapi()),
+                    );
+                }
+            })
     })
     .bind(format!("{}:{}", cfg.host, cfg.port))?
     .run()

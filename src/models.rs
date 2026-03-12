@@ -488,6 +488,7 @@ pub struct QRCodeGenerateResponse {
     pub qr_token: String,
     pub event_id: i64,
     pub generated_at: chrono::DateTime<chrono::Utc>,
+    pub expires_at: chrono::DateTime<chrono::Utc>,
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]

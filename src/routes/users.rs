@@ -19,13 +19,6 @@ const MAX_AVATAR_DIM: u32 = 512;
 const MAX_SOURCE_AVATAR_DIM: u32 = 4096;
 const MAX_SOURCE_AVATAR_ALLOC_BYTES: u64 = 64 * 1024 * 1024;
 
-async fn ensure_avatar_column(db: &sqlx::PgPool) -> Result<(), sqlx::Error> {
-    sqlx::query("ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_url TEXT;")
-        .execute(db)
-        .await?;
-    Ok(())
-}
-
 #[derive(serde::Deserialize)]
 pub struct HandleAvailabilityQuery {
     pub handle: String,
@@ -95,8 +88,6 @@ pub async fn update_handle(
             details: Some("format attendu: 4-32 chars [a-z0-9._-]".into()),
         });
     }
-
-    let _ = ensure_avatar_column(&state.db).await;
 
     let res = sqlx::query(
         "UPDATE users
@@ -257,8 +248,6 @@ pub async fn upload_avatar(
         state.avatar_base_url.trim_end_matches('/'),
         filename
     );
-
-    let _ = ensure_avatar_column(&state.db).await;
 
     let res = sqlx::query(
         "UPDATE users

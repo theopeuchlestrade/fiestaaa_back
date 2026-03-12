@@ -69,7 +69,7 @@ async fn seed_invitation(
 }
 
 #[tokio::test]
-async fn generate_my_qr_code_reuses_existing_token() -> Result<(), Box<dyn Error>> {
+async fn generate_my_qr_code_rotates_existing_token() -> Result<(), Box<dyn Error>> {
     let Some(pool) = obtain_pool().await else {
         eprintln!("Skipping QR code tests: DATABASE_URL or TEST_DATABASE_URL not set");
         return Ok(());
@@ -110,8 +110,46 @@ async fn generate_my_qr_code_reuses_existing_token() -> Result<(), Box<dyn Error
     let second: QRCodeGenerateResponse = test::read_body_json(second_resp).await;
 
     assert_eq!(first.event_id, event_id);
-    assert_eq!(second.qr_token, first.qr_token);
-    assert_eq!(second.generated_at, first.generated_at);
+    assert_ne!(second.qr_token, first.qr_token);
+    assert!(second.expires_at > second.generated_at);
+    Ok(())
+}
+
+#[tokio::test]
+async fn generate_my_qr_code_requires_accepted_invitation() -> Result<(), Box<dyn Error>> {
+    let Some(pool) = obtain_pool().await else {
+        eprintln!("Skipping QR code tests: DATABASE_URL or TEST_DATABASE_URL not set");
+        return Ok(());
+    };
+    let _guard = DB_LOCK.lock().await;
+    reset_tables(&pool, &["event_checkins", "invitations", "events", "users"]).await?;
+
+    let secret = "secret";
+    let guest_id = seed_user(&pool, "guest@example.com", "guest_handle").await?;
+    seed_user(&pool, "owner@example.com", "owner_handle").await?;
+    let event_id = seed_event(&pool, "owner@example.com").await?;
+    seed_invitation(&pool, event_id, guest_id, "Waiting").await?;
+
+    let state = build_state(pool, secret, &[]);
+    let app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
+    let guest_token = make_token(secret, "guest@example.com", "guest_handle").expect("token");
+
+    let resp = test::call_service(
+        &app,
+        test::TestRequest::get()
+            .uri(&format!("/events/{}/my-qr-code", event_id))
+            .insert_header(("Authorization", format!("Bearer {}", guest_token)))
+            .to_request(),
+    )
+    .await;
+
+    assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+    let error: serde_json::Value = test::read_body_json(resp).await;
+    assert_eq!(
+        error.get("error").and_then(|value| value.as_str()),
+        Some("invitation_invalid")
+    );
+
     Ok(())
 }
 
@@ -192,5 +230,65 @@ async fn scan_qr_code_updates_stats_and_rejects_duplicate_scans() -> Result<(), 
     let duplicate: QRCodeScanResponse = test::read_body_json(duplicate_scan_resp).await;
     assert!(!duplicate.success);
     assert_eq!(duplicate.status, "already_scanned");
+    Ok(())
+}
+
+#[tokio::test]
+async fn scan_qr_code_rejects_expired_tokens() -> Result<(), Box<dyn Error>> {
+    let Some(pool) = obtain_pool().await else {
+        eprintln!("Skipping QR code tests: DATABASE_URL or TEST_DATABASE_URL not set");
+        return Ok(());
+    };
+    let _guard = DB_LOCK.lock().await;
+    reset_tables(&pool, &["event_checkins", "invitations", "events", "users"]).await?;
+
+    let secret = "secret";
+    let guest_id = seed_user(&pool, "guest@example.com", "guest_handle").await?;
+    seed_user(&pool, "owner@example.com", "owner_handle").await?;
+    let event_id = seed_event(&pool, "owner@example.com").await?;
+    seed_invitation(&pool, event_id, guest_id, "Accepted").await?;
+
+    let state = build_state(pool.clone(), secret, &[]);
+    let app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
+    let guest_token = make_token(secret, "guest@example.com", "guest_handle").expect("token");
+    let owner_token = make_token(secret, "owner@example.com", "owner_handle").expect("token");
+
+    let generate_resp = test::call_service(
+        &app,
+        test::TestRequest::get()
+            .uri(&format!("/events/{}/my-qr-code", event_id))
+            .insert_header(("Authorization", format!("Bearer {}", guest_token)))
+            .to_request(),
+    )
+    .await;
+    assert_eq!(generate_resp.status(), StatusCode::OK);
+    let generated: QRCodeGenerateResponse = test::read_body_json(generate_resp).await;
+
+    sqlx::query(
+        "UPDATE event_checkins
+         SET generated_at = NOW() - INTERVAL '10 minutes'
+         WHERE qr_token = $1::uuid",
+    )
+    .bind(&generated.qr_token)
+    .execute(&pool)
+    .await?;
+
+    let scan_resp = test::call_service(
+        &app,
+        test::TestRequest::post()
+            .uri(&format!("/events/{}/scan-qr", event_id))
+            .insert_header(("Authorization", format!("Bearer {}", owner_token)))
+            .set_json(&QRCodeScanPayload {
+                token: generated.qr_token,
+            })
+            .to_request(),
+    )
+    .await;
+
+    assert_eq!(scan_resp.status(), StatusCode::FORBIDDEN);
+    let denied: QRCodeScanResponse = test::read_body_json(scan_resp).await;
+    assert!(!denied.success);
+    assert_eq!(denied.status, "qr_expired");
+
     Ok(())
 }
