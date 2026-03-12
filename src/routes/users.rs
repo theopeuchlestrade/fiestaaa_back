@@ -6,7 +6,10 @@ use sqlx::Row;
 use uuid::Uuid;
 
 use crate::{
-    auth::extract_claims_from_auth,
+    auth::{
+        build_cleared_session_cookie, extract_active_claims_from_auth,
+        extract_verified_claims_from_auth, revoke_auth_token_from_request,
+    },
     handles::{handle_available, is_valid_handle, normalize_handle},
     models::{
         ErrorResponse, HandleAvailabilityResponse, HandleUpdatePayload, MeResponse, StatusResponse,
@@ -76,7 +79,7 @@ pub async fn update_handle(
     req: HttpRequest,
     payload: web::Json<HandleUpdatePayload>,
 ) -> impl Responder {
-    let claims = match extract_claims_from_auth(&req, &state.jwt_secret) {
+    let claims = match extract_active_claims_from_auth(&req, &state.db, &state.jwt_secret).await {
         Ok(c) => c,
         Err(resp) => return resp,
     };
@@ -141,7 +144,7 @@ pub async fn upload_avatar(
     req: HttpRequest,
     mut payload: Multipart,
 ) -> impl Responder {
-    let claims = match extract_claims_from_auth(&req, &state.jwt_secret) {
+    let claims = match extract_active_claims_from_auth(&req, &state.db, &state.jwt_secret).await {
         Ok(c) => c,
         Err(resp) => return resp,
     };
@@ -291,10 +294,14 @@ pub async fn upload_avatar(
 )]
 #[delete("/me")]
 pub async fn delete_account(state: web::Data<AppState>, req: HttpRequest) -> impl Responder {
-    let claims = match extract_claims_from_auth(&req, &state.jwt_secret) {
+    let claims = match extract_verified_claims_from_auth(&req, &state.db, &state.jwt_secret).await {
         Ok(c) => c,
         Err(resp) => return resp,
     };
+
+    if let Err(resp) = revoke_auth_token_from_request(&req, &state.db, &state.jwt_secret).await {
+        return resp;
+    }
 
     // Supprimer l'utilisateur (les CASCADE s'occupent des données liées)
     let res = sqlx::query("DELETE FROM users WHERE lower(email) = lower($1)")
@@ -303,9 +310,13 @@ pub async fn delete_account(state: web::Data<AppState>, req: HttpRequest) -> imp
         .await;
 
     match res {
-        Ok(result) if result.rows_affected() > 0 => HttpResponse::Ok().json(StatusResponse {
-            status: "account_deleted".into(),
-        }),
+        Ok(result) if result.rows_affected() > 0 => HttpResponse::Ok()
+            .cookie(build_cleared_session_cookie(
+                state.app_base_url.starts_with("https://"),
+            ))
+            .json(StatusResponse {
+                status: "account_deleted".into(),
+            }),
         Ok(_) => HttpResponse::NotFound().json(ErrorResponse {
             error: "user_not_found".into(),
             details: None,

@@ -155,7 +155,13 @@ pub async fn issue_realtime_ticket(
         });
     }
 
-    let claims = match crate::auth::extract_claims_from_auth(&req, &state.jwt_secret) {
+    let claims = match crate::auth::extract_active_claims_from_auth(
+        &req,
+        &state.db,
+        &state.jwt_secret,
+    )
+    .await
+    {
         Ok(c) => c,
         Err(resp) => return resp,
     };
