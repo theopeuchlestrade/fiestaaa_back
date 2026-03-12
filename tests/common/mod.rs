@@ -46,10 +46,7 @@ pub fn build_state(pool: PgPool, secret: &str, admin_emails: &[&str]) -> web::Da
         .iter()
         .map(|email| email.to_lowercase())
         .collect::<HashSet<_>>();
-    let http_client = reqwest::Client::builder()
-        .user_agent("fiestaaa-backend-tests")
-        .build()
-        .expect("http client");
+    let http_client = fiestaaa_back::build_http_client("fiestaaa-backend-tests");
     let notifications = NotificationService::new(None, None, None, None, http_client.clone(), 300);
 
     web::Data::new(AppState {

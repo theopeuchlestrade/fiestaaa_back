@@ -31,10 +31,7 @@ async fn main() -> std::io::Result<()> {
         .start();
 
     let admin_emails = cfg.admin_emails.iter().cloned().collect::<HashSet<_>>();
-    let http_client = reqwest::Client::builder()
-        .user_agent(cfg.geocoding_user_agent.clone())
-        .build()
-        .expect("http client");
+    let http_client = fiestaaa_back::build_http_client(&cfg.geocoding_user_agent);
     let redis_client = cfg
         .redis_url
         .as_ref()
