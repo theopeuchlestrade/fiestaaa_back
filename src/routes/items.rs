@@ -3,13 +3,13 @@ use log::info;
 use sqlx::Error;
 
 use crate::{
-    auth::extract_claims_from_auth,
+    auth::extract_active_claims_from_auth,
     models::{ErrorResponse, Item, ItemPatchPayload, ItemPayload, StatusResponse},
     state::AppState,
 };
 
-fn ensure_admin(req: &HttpRequest, state: &AppState) -> Result<(), HttpResponse> {
-    let claims = extract_claims_from_auth(req, &state.jwt_secret)?;
+async fn ensure_admin(req: &HttpRequest, state: &AppState) -> Result<(), HttpResponse> {
+    let claims = extract_active_claims_from_auth(req, &state.db, &state.jwt_secret).await?;
     if state.admin_emails.is_empty() {
         return Err(HttpResponse::Forbidden().json(ErrorResponse {
             error: "forbidden".into(),
@@ -88,7 +88,7 @@ pub async fn create_item(
     req: HttpRequest,
     payload: web::Json<ItemPayload>,
 ) -> impl Responder {
-    if let Err(resp) = ensure_admin(&req, state.get_ref()) {
+    if let Err(resp) = ensure_admin(&req, state.get_ref()).await {
         return resp;
     }
 
@@ -167,7 +167,7 @@ pub async fn replace_item(
     item_id: web::Path<i64>,
     payload: web::Json<ItemPayload>,
 ) -> impl Responder {
-    if let Err(resp) = ensure_admin(&req, state.get_ref()) {
+    if let Err(resp) = ensure_admin(&req, state.get_ref()).await {
         return resp;
     }
 
@@ -290,7 +290,7 @@ pub async fn update_item(
     item_id: web::Path<i64>,
     payload: web::Json<ItemPatchPayload>,
 ) -> impl Responder {
-    if let Err(resp) = ensure_admin(&req, state.get_ref()) {
+    if let Err(resp) = ensure_admin(&req, state.get_ref()).await {
         return resp;
     }
 
@@ -432,7 +432,7 @@ pub async fn delete_item(
     req: HttpRequest,
     item_id: web::Path<i64>,
 ) -> impl Responder {
-    if let Err(resp) = ensure_admin(&req, state.get_ref()) {
+    if let Err(resp) = ensure_admin(&req, state.get_ref()).await {
         return resp;
     }
 

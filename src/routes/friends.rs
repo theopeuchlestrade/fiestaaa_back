@@ -4,7 +4,7 @@ use serde_json::json;
 use sqlx::{PgPool, Row};
 
 use crate::{
-    auth::extract_claims_from_auth,
+    auth::extract_active_claims_from_auth,
     handles::{is_valid_handle, looks_like_email, normalize_handle},
     models::{
         ErrorResponse, Friend, FriendRequest, FriendRequestActionPayload, FriendRequestPayload,
@@ -29,7 +29,7 @@ fn ordered_pair(a: i64, b: i64) -> (i64, i64) {
 }
 
 async fn current_user(req: &HttpRequest, state: &AppState) -> Result<UserIdentity, HttpResponse> {
-    let claims = extract_claims_from_auth(req, &state.jwt_secret)?;
+    let claims = extract_active_claims_from_auth(req, &state.db, &state.jwt_secret).await?;
     match find_user_by_email(&state.db, &claims.sub).await? {
         Some(user) => Ok(user),
         None => Err(HttpResponse::Unauthorized().json(ErrorResponse {

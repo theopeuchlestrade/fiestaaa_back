@@ -6,7 +6,7 @@ use serde_json::json;
 use sqlx::{PgPool, Row};
 
 use crate::{
-    auth::extract_claims_from_auth,
+    auth::extract_active_claims_from_auth,
     models::{
         Carpool, CarpoolJoinResponse, CarpoolLeaveResponse, CarpoolPassenger, CarpoolPatchPayload,
         CarpoolPayload, CarpoolView, ErrorResponse, StatusResponse,
@@ -17,8 +17,8 @@ use crate::{
     state::AppState,
 };
 
-fn claims_email(req: &HttpRequest, state: &AppState) -> Result<String, HttpResponse> {
-    let claims = extract_claims_from_auth(req, &state.jwt_secret)?;
+async fn claims_email(req: &HttpRequest, state: &AppState) -> Result<String, HttpResponse> {
+    let claims = extract_active_claims_from_auth(req, &state.db, &state.jwt_secret).await?;
     Ok(claims.sub.to_lowercase())
 }
 
@@ -68,7 +68,7 @@ async fn ensure_event_member(
     state: &AppState,
     event_id: i64,
 ) -> Result<(), HttpResponse> {
-    let requester = claims_email(req, state)?;
+    let requester = claims_email(req, state).await?;
     let owner = fetch_event_owner_email(&state.db, event_id).await?;
     if owner.eq_ignore_ascii_case(&requester) || owner.is_empty() {
         return Ok(());
@@ -110,7 +110,7 @@ async fn ensure_carpool_driver(
     state: &AppState,
     carpool_id: i64,
 ) -> Result<(), HttpResponse> {
-    let requester_email = claims_email(req, state)?;
+    let requester_email = claims_email(req, state).await?;
     let requester_id = fetch_user_id(&state.db, &requester_email).await?;
 
     let driver_id =
@@ -319,7 +319,7 @@ pub async fn list_event_carpools(
         return resp;
     }
 
-    let user_id = match claims_email(&req, &state) {
+    let user_id = match claims_email(&req, &state).await {
         Ok(email) => fetch_user_id(&state.db, &email).await.ok(),
         Err(_) => None,
     };
@@ -358,7 +358,7 @@ pub async fn create_carpool(
     event_id: web::Path<i64>,
     payload: web::Json<CarpoolPayload>,
 ) -> impl Responder {
-    let requester_email = match claims_email(&req, &state) {
+    let requester_email = match claims_email(&req, &state).await {
         Ok(email) => email,
         Err(resp) => return resp,
     };
@@ -760,7 +760,7 @@ pub async fn join_carpool(
     req: HttpRequest,
     carpool_id: web::Path<i64>,
 ) -> impl Responder {
-    let requester_email = match claims_email(&req, &state) {
+    let requester_email = match claims_email(&req, &state).await {
         Ok(email) => email,
         Err(resp) => return resp,
     };
@@ -980,7 +980,7 @@ pub async fn leave_carpool(
     req: HttpRequest,
     carpool_id: web::Path<i64>,
 ) -> impl Responder {
-    let requester_email = match claims_email(&req, &state) {
+    let requester_email = match claims_email(&req, &state).await {
         Ok(email) => email,
         Err(resp) => return resp,
     };

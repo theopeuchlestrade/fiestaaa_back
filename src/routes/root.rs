@@ -2,7 +2,7 @@ use actix_web::{HttpRequest, HttpResponse, Responder, get, web};
 use sqlx::Row;
 
 use crate::{
-    auth::extract_claims_from_auth,
+    auth::extract_active_claims_from_auth,
     models::{ErrorResponse, MeResponse},
     state::AppState,
 };
@@ -31,7 +31,7 @@ pub async fn hello() -> impl Responder {
 )]
 #[get("/me")]
 pub async fn me(state: web::Data<AppState>, req: HttpRequest) -> impl Responder {
-    match extract_claims_from_auth(&req, &state.jwt_secret) {
+    match extract_active_claims_from_auth(&req, &state.db, &state.jwt_secret).await {
         Ok(claims) => {
             let record = sqlx::query(
                 "SELECT email, handle, avatar_url FROM users WHERE lower(email)=lower($1)",

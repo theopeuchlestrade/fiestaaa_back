@@ -5,10 +5,12 @@ use argon2::{
     Argon2,
     password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
 };
+use chrono::{DateTime, Utc};
 use jsonwebtoken::{
     Algorithm, DecodingKey, EncodingKey, Header, Validation, decode, encode, errors::ErrorKind,
 };
 use rand_core::OsRng;
+use sha2::{Digest, Sha256};
 use sqlx::{Pool, Postgres};
 use uuid::Uuid;
 
@@ -171,12 +173,16 @@ pub fn decode_jwt(token: &str, secret: &str) -> Result<Claims, HttpResponse> {
     }
 }
 
-pub fn extract_claims_from_auth(req: &HttpRequest, secret: &str) -> Result<Claims, HttpResponse> {
+fn token_hash(token: &str) -> String {
+    format!("{:x}", Sha256::digest(token.as_bytes()))
+}
+
+fn extract_token_from_auth(req: &HttpRequest) -> Result<String, HttpResponse> {
     let header = req
         .headers()
         .get(AUTHORIZATION)
         .and_then(|v| v.to_str().ok());
-    let token = if let Some(header_val) = header {
+    if let Some(header_val) = header {
         let prefix = "Bearer ";
         if !header_val.starts_with(prefix) {
             return Err(HttpResponse::Unauthorized().json(ErrorResponse {
@@ -184,16 +190,162 @@ pub fn extract_claims_from_auth(req: &HttpRequest, secret: &str) -> Result<Claim
                 details: None,
             }));
         }
-        header_val[prefix.len()..].to_string()
+        Ok(header_val[prefix.len()..].to_string())
     } else if let Some(cookie) = req.cookie(SESSION_COOKIE_NAME) {
-        cookie.value().to_string()
+        Ok(cookie.value().to_string())
     } else {
-        return Err(HttpResponse::Unauthorized().json(ErrorResponse {
+        Err(HttpResponse::Unauthorized().json(ErrorResponse {
             error: "missing_authorization_header".into(),
             details: None,
-        }));
+        }))
+    }
+}
+
+fn extract_token_from_auth_optional(req: &HttpRequest) -> Option<String> {
+    req.headers()
+        .get(AUTHORIZATION)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.strip_prefix("Bearer "))
+        .map(ToOwned::to_owned)
+        .or_else(|| {
+            req.cookie(SESSION_COOKIE_NAME)
+                .map(|cookie| cookie.value().to_string())
+        })
+}
+
+async fn cleanup_expired_revoked_tokens(db: &Pool<Postgres>) -> sqlx::Result<()> {
+    sqlx::query("DELETE FROM revoked_auth_tokens WHERE expires_at <= NOW()")
+        .execute(db)
+        .await?;
+    Ok(())
+}
+
+async fn is_token_revoked(db: &Pool<Postgres>, token: &str) -> Result<bool, sqlx::Error> {
+    cleanup_expired_revoked_tokens(db).await?;
+    sqlx::query_scalar::<_, bool>(
+        "SELECT EXISTS(
+            SELECT 1
+            FROM revoked_auth_tokens
+            WHERE token_hash = $1
+        )",
+    )
+    .bind(token_hash(token))
+    .fetch_one(db)
+    .await
+}
+
+fn expiration_timestamp_to_datetime(exp: usize) -> Option<DateTime<Utc>> {
+    DateTime::<Utc>::from_timestamp(exp as i64, 0)
+}
+
+pub async fn revoke_auth_token(
+    db: &Pool<Postgres>,
+    token: &str,
+    secret: &str,
+) -> Result<(), HttpResponse> {
+    let claims = match decode_jwt(token, secret) {
+        Ok(value) => value,
+        Err(_) => return Ok(()),
     };
+    let Some(expires_at) = expiration_timestamp_to_datetime(claims.exp) else {
+        return Ok(());
+    };
+
+    cleanup_expired_revoked_tokens(db).await.map_err(|_| {
+        HttpResponse::InternalServerError().json(ErrorResponse {
+            error: "db_error".into(),
+            details: None,
+        })
+    })?;
+
+    sqlx::query(
+        "INSERT INTO revoked_auth_tokens (token_hash, expires_at)
+         VALUES ($1, $2)
+         ON CONFLICT (token_hash) DO NOTHING",
+    )
+    .bind(token_hash(token))
+    .bind(expires_at)
+    .execute(db)
+    .await
+    .map_err(|_| {
+        HttpResponse::InternalServerError().json(ErrorResponse {
+            error: "db_error".into(),
+            details: None,
+        })
+    })?;
+
+    Ok(())
+}
+
+pub async fn revoke_auth_token_from_request(
+    req: &HttpRequest,
+    db: &Pool<Postgres>,
+    secret: &str,
+) -> Result<(), HttpResponse> {
+    let Some(token) = extract_token_from_auth_optional(req) else {
+        return Ok(());
+    };
+    revoke_auth_token(db, &token, secret).await
+}
+
+pub fn extract_claims_from_auth(req: &HttpRequest, secret: &str) -> Result<Claims, HttpResponse> {
+    let token = extract_token_from_auth(req)?;
     decode_jwt(&token, secret)
+}
+
+pub async fn extract_verified_claims_from_auth(
+    req: &HttpRequest,
+    db: &Pool<Postgres>,
+    secret: &str,
+) -> Result<Claims, HttpResponse> {
+    let token = extract_token_from_auth(req)?;
+    let revoked = is_token_revoked(db, &token).await.map_err(|_| {
+        HttpResponse::InternalServerError().json(ErrorResponse {
+            error: "db_error".into(),
+            details: None,
+        })
+    })?;
+    if revoked {
+        return Err(HttpResponse::Unauthorized().json(ErrorResponse {
+            error: "revoked_token".into(),
+            details: None,
+        }));
+    }
+    decode_jwt(&token, secret)
+}
+
+async fn active_user_exists(db: &Pool<Postgres>, email: &str) -> Result<bool, sqlx::Error> {
+    sqlx::query_scalar::<_, bool>(
+        "SELECT EXISTS(
+            SELECT 1
+            FROM users
+            WHERE lower(email) = lower($1)
+        )",
+    )
+    .bind(email)
+    .fetch_one(db)
+    .await
+}
+
+pub async fn extract_active_claims_from_auth(
+    req: &HttpRequest,
+    db: &Pool<Postgres>,
+    secret: &str,
+) -> Result<Claims, HttpResponse> {
+    let claims = extract_verified_claims_from_auth(req, db, secret).await?;
+    let exists = active_user_exists(db, &claims.sub).await.map_err(|_| {
+        HttpResponse::InternalServerError().json(ErrorResponse {
+            error: "db_error".into(),
+            details: None,
+        })
+    })?;
+    if !exists {
+        return Err(HttpResponse::Unauthorized().json(ErrorResponse {
+            error: "user_not_found".into(),
+            details: None,
+        }));
+    }
+    Ok(claims)
 }
 
 #[cfg(test)]
