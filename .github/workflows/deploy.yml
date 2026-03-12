@@ -133,6 +133,8 @@ jobs:
                 exit 1
               fi
             fi
+            docker container prune -f >/dev/null 2>&1 || true
+            docker image prune -af >/dev/null 2>&1 || true
             ${compose_cmd} pull api
             # Ne touche pas aux dépendances (db/redis) pour éviter les recréations inutiles et bugs docker-compose v1
             ${compose_cmd} up -d --no-deps api
