@@ -8,6 +8,11 @@ use fiestaaa_back::{
 };
 use sqlx::PgPool;
 
+#[derive(sqlx::FromRow)]
+struct ExistingUser {
+    handle: String,
+}
+
 struct CliArgs {
     email: String,
     password: String,
@@ -63,7 +68,21 @@ fn parse_args() -> Result<CliArgs, String> {
     })
 }
 
-async fn resolve_handle(pool: &PgPool, raw_handle: Option<String>) -> Result<String, String> {
+async fn fetch_existing_user(
+    pool: &PgPool,
+    email: &str,
+) -> Result<Option<ExistingUser>, sqlx::Error> {
+    sqlx::query_as::<_, ExistingUser>("SELECT handle FROM users WHERE lower(email) = lower($1)")
+        .bind(email)
+        .fetch_optional(pool)
+        .await
+}
+
+async fn resolve_handle(
+    pool: &PgPool,
+    raw_handle: Option<String>,
+    existing_handle: Option<&str>,
+) -> Result<String, String> {
     match raw_handle {
         Some(value) => {
             let normalized = normalize_handle(&value).normalized;
@@ -75,9 +94,12 @@ async fn resolve_handle(pool: &PgPool, raw_handle: Option<String>) -> Result<Str
             }
             Ok(normalized)
         }
-        None => generate_unique_handle(pool)
-            .await
-            .map_err(|err| format!("failed to generate handle: {err}")),
+        None => match existing_handle {
+            Some(value) => Ok(value.to_string()),
+            None => generate_unique_handle(pool)
+                .await
+                .map_err(|err| format!("failed to generate handle: {err}")),
+        },
     }
 }
 
@@ -144,7 +166,20 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let database_url = std::env::var("DATABASE_URL")
         .unwrap_or_else(|_| "postgres://postgres:postgres@localhost:5432/fiestaaa".to_string());
     let pool = db::connect_and_migrate(&database_url).await;
-    let handle = match resolve_handle(&pool, args.handle).await {
+    let existing_user = match fetch_existing_user(&pool, &args.email).await {
+        Ok(value) => value,
+        Err(err) => {
+            eprintln!("Failed to look up local user: {err}");
+            std::process::exit(1);
+        }
+    };
+    let handle = match resolve_handle(
+        &pool,
+        args.handle,
+        existing_user.as_ref().map(|user| user.handle.as_str()),
+    )
+    .await
+    {
         Ok(value) => value,
         Err(message) => {
             eprintln!("{message}");
