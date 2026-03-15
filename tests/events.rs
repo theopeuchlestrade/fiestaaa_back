@@ -251,6 +251,55 @@ async fn create_event_allows_authenticated_user() -> Result<(), Box<dyn Error>> 
 }
 
 #[tokio::test]
+async fn create_event_accepts_ticketing_feature() -> Result<(), Box<dyn Error>> {
+    let Some(pool) = obtain_pool().await else {
+        eprintln!("Skipping events tests: DATABASE_URL or TEST_DATABASE_URL not set");
+        return Ok(());
+    };
+    let _guard = DB_LOCK.lock().await;
+    reset_tables(&pool, &["events", "payment_providers"]).await?;
+
+    let secret = "secret";
+    let state = build_state(pool.clone(), secret, &["admin@example.com"]);
+    let app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
+
+    let token = admin_token(secret, "user@example.com").expect("token");
+
+    let resp = test::call_service(
+        &app,
+        test::TestRequest::post()
+            .uri("/events")
+            .insert_header(("Authorization", format!("Bearer {}", token)))
+            .set_json(&EventPayload {
+                enabled_features: Some(vec!["ticketing".to_string(), "items".to_string()]),
+                name_event: "Ticketed Party".to_string(),
+                description: "Entry with QR".to_string(),
+                date_event: NaiveDate::from_ymd_opt(2024, 7, 1).unwrap(),
+                start_time: NaiveTime::from_hms_opt(20, 0, 0).unwrap(),
+                end_date: None,
+                end_time: None,
+                invitation_deadline: None,
+                address: "123 Party Street".to_string(),
+                latitude: None,
+                longitude: None,
+                payment_provider_id: None,
+                payment_identifier: None,
+                payment_requested_amount: None,
+                payment_per_person: None,
+                playlist_url: None,
+                playlist_provider: None,
+            })
+            .to_request(),
+    )
+    .await;
+
+    assert_eq!(resp.status(), StatusCode::CREATED);
+    let created: Event = test::read_body_json(resp).await;
+    assert_eq!(created.enabled_features, vec!["ticketing", "items"]);
+    Ok(())
+}
+
+#[tokio::test]
 async fn events_crud_flow() -> Result<(), Box<dyn Error>> {
     let Some(pool) = obtain_pool().await else {
         eprintln!("Skipping events tests: DATABASE_URL or TEST_DATABASE_URL not set");
