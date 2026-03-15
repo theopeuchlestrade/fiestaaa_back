@@ -300,6 +300,61 @@ async fn create_event_accepts_ticketing_feature() -> Result<(), Box<dyn Error>> 
 }
 
 #[tokio::test]
+async fn ticketing_migration_backfills_existing_events() -> Result<(), Box<dyn Error>> {
+    let Some(pool) = obtain_pool().await else {
+        eprintln!("Skipping events tests: DATABASE_URL or TEST_DATABASE_URL not set");
+        return Ok(());
+    };
+    let _guard = DB_LOCK.lock().await;
+    reset_tables(&pool, &["events", "payment_providers"]).await?;
+
+    let event_id = sqlx::query_scalar::<_, i64>(
+        "INSERT INTO events (name_event, description, date_event, start_time, address, owner_email, enabled_features)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)
+         RETURNING event_id",
+    )
+    .bind("Legacy party")
+    .bind("Created before ticketing became explicit")
+    .bind(NaiveDate::from_ymd_opt(2026, 3, 20).unwrap())
+    .bind(NaiveTime::from_hms_opt(21, 0, 0).unwrap())
+    .bind("123 Legacy Street")
+    .bind("legacy@example.com")
+    .bind(vec![
+        "carpools".to_string(),
+        "polls".to_string(),
+        "items".to_string(),
+    ])
+    .fetch_one(&pool)
+    .await?;
+
+    sqlx::query(
+        "UPDATE events
+         SET enabled_features = array_append(enabled_features, 'ticketing')
+         WHERE NOT (enabled_features @> ARRAY['ticketing']::TEXT[])",
+    )
+    .execute(&pool)
+    .await?;
+
+    let features = sqlx::query_scalar::<_, Vec<String>>(
+        "SELECT enabled_features FROM events WHERE event_id = $1",
+    )
+    .bind(event_id)
+    .fetch_one(&pool)
+    .await?;
+
+    assert_eq!(
+        features,
+        vec![
+            "carpools".to_string(),
+            "polls".to_string(),
+            "items".to_string(),
+            "ticketing".to_string(),
+        ]
+    );
+    Ok(())
+}
+
+#[tokio::test]
 async fn events_crud_flow() -> Result<(), Box<dyn Error>> {
     let Some(pool) = obtain_pool().await else {
         eprintln!("Skipping events tests: DATABASE_URL or TEST_DATABASE_URL not set");
