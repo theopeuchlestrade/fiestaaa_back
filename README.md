@@ -18,6 +18,12 @@ Quick dev workflow using Docker Compose for both Postgres and the Rust API.
 - API: http://127.0.0.1:8080
 - Ctrl+C to stop; `docker compose down` to clean up.
 
+## Local test user
+- To create or update a local user directly in Postgres, use:
+  `cargo run --manifest-path Cargo.toml --bin create_local_user -- --email test@local.dev --password changeme --handle test_local`
+- The command hashes the password with Argon2 and removes any pending registration for the same email.
+- If `--handle` is omitted, a unique handle is generated automatically.
+
 ### Clean database 
 - `docker compose down -v`
 - `docker compose up --build`
