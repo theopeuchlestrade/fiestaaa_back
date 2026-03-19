@@ -257,14 +257,16 @@ const PLAYLIST_DEEZER_REGEX: &str = r"^https?://(www\.)?deezer\.com/.+$";
 const FEATURE_CARPOOLS: &str = "carpools";
 const FEATURE_POLLS: &str = "polls";
 const FEATURE_ITEMS: &str = "items";
+const FEATURE_TICKETING: &str = "ticketing";
 const FEATURE_PLAYLIST: &str = "playlist";
 const FEATURE_PAYMENT: &str = "payment";
 const FEATURE_EXPENSES: &str = "expenses";
 const DEFAULT_EVENT_FEATURES: [&str; 3] = [FEATURE_CARPOOLS, FEATURE_POLLS, FEATURE_ITEMS];
-const ALLOWED_EVENT_FEATURES: [&str; 6] = [
+const ALLOWED_EVENT_FEATURES: [&str; 7] = [
     FEATURE_CARPOOLS,
     FEATURE_POLLS,
     FEATURE_ITEMS,
+    FEATURE_TICKETING,
     FEATURE_PLAYLIST,
     FEATURE_PAYMENT,
     FEATURE_EXPENSES,
