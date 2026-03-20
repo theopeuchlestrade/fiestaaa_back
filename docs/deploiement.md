@@ -5,6 +5,7 @@ Documentation opérationnelle pour déployer les projets `fiestaaa_back` (API Ru
 - Stack de prod décrite dans `fiestaaa_back/docker-compose.prod.yml` (Traefik + Postgres + Redis + API + Front).
 - Pipeline CI existante côté backend : `fiestaaa_back/.github/workflows/deploy.yml`.
 - Registre d'images : `ghcr.io/theopeuchlestrade/{fiestaaa_back,fiestaaa_front}` (tag `latest` + tag SHA).
+- En cas de compromission ou de doute sur le VPS / les secrets : suivre aussi `fiestaaa_back/docs/incident-securite.md`.
 
 ## Vue d'ensemble de l'architecture
 
