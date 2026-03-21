@@ -52,75 +52,95 @@ graph TD
 ## 1) Préparer le VPS
 
 1. **Accès**
-   - Confirmer l'IP du serveur et les DNS (`fiestaaa.app`, `api.fiestaaa.app` pointent sur le VPS pour que Traefik puisse générer les certificats).
-   - Vérifier l'accès SSH : `ssh <user>@<ip>`.
+	- Confirmer l'IP du serveur et les DNS (`fiestaaa.app`, `api.fiestaaa.app` pointent sur le VPS pour que Traefik puisse générer les certificats).
+	- Vérifier l'accès SSH : `ssh <user>@<ip>`.
 2. **Dépendances système**
-   ```bash
-   sudo apt update
-   sudo apt upgrade
-  sudo apt install docker.io docker-compose-plugin  # Compose V2 (requis)
-  # Si docker-compose v1 (python) est déjà installé, le retirer pour éviter le bug "KeyError: 'ContainerConfig'"
-  sudo apt purge -y docker-compose || true
-  sudo usermod -aG docker ${USER}  # puis reconnectez-vous
-  ```
-   > Si `docker-compose-plugin` n'existe pas dans vos dépôts (ex. images cloud minimales), ajoutez le repo officiel Docker :  
-   > ```
-   > sudo apt-get update
-   > sudo apt-get install -y ca-certificates curl gnupg
-   > sudo install -m 0755 -d /etc/apt/keyrings
-   > curl -fsSL https://download.docker.com/linux/$(. /etc/os-release && echo "$ID")/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
-  > echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/$(. /etc/os-release && echo "$ID") $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | sudo tee /etc/apt/sources.list.d/docker.list >/dev/null
-  > sudo apt-get update
-  > sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
-  > ```
-   > Note : récupérez l'API version du démon Docker (`docker version --format '{{.Server.APIVersion}}'`, ex. `1.52`) et, si besoin, ajoutez-la dans `~/apps/fiestaaa/.env` via `echo "DOCKER_API_VERSION=<valeur>" >> ~/apps/fiestaaa/.env` pour aligner Traefik.
+	```bash
+	sudo apt update
+	sudo apt upgrade
+	sudo apt install docker.io docker-compose-plugin  # Compose V2 (requis)
+	# Si docker-compose v1 (python) est déjà installé, le retirer pour éviter le bug "KeyError: 'ContainerConfig'"
+	sudo apt purge -y docker-compose || true
+	sudo usermod -aG docker ${USER}  # puis reconnectez-vous
+	```
+	> Si `docker-compose-plugin` n'existe pas dans vos dépôts (ex. images cloud minimales), ajoutez le repo officiel Docker :  
+	> ```
+	> sudo apt-get update
+	> sudo apt-get install -y ca-certificates curl gnupg
+	> sudo install -m 0755 -d /etc/apt/keyrings
+	> curl -fsSL https://download.docker.com/linux/$(. /etc/os-release && echo "$ID")/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+	> echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/$(. /etc/os-release && echo "$ID") $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | sudo tee /etc/apt/sources.list.d/docker.list >/dev/null
+	> sudo apt-get update
+	> sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+	> ```
+	> Note : récupérez l'API version du démon Docker (`docker version --format '{{.Server.APIVersion}}'`, ex. `1.52`) et, si besoin, ajoutez-la dans `~/apps/fiestaaa/.env` via `echo "DOCKER_API_VERSION=<valeur>" >> ~/apps/fiestaaa/.env` pour aligner Traefik.
 3. **Utilisateur de déploiement (recommandé)**
-   ```bash
-   sudo adduser deploy
-   sudo usermod -aG docker deploy
-   ```
+	```bash
+	sudo adduser deploy
+	sudo usermod -aG docker deploy
+	```
 4. **Clés SSH pour GitHub Actions**
-   - Depuis le VPS (ou votre machine), générer une clé dédiée :  
-     `ssh-keygen -t rsa -b 4096 -C "github-actions" -f /home/<user>/.ssh/deploy_key`
-   - Ajouter la clé publique au serveur :  
-     `cat /home/<user>/.ssh/deploy_key.pub >> /home/<user>/.ssh/authorized_keys && chmod 600 /home/<user>/.ssh/authorized_keys`
-5. **Pare-feu**
-   ```bash
-   sudo apt install -y ufw
-   sudo ufw allow 22/tcp
-   sudo ufw allow 80,443/tcp
-   sudo ufw enable
-   ```
-6. **Fail2ban (protection brute-force SSH)**
-   ```bash
-   sudo apt install -y fail2ban
-   sudo systemctl enable --now fail2ban
-   ```
-   Configuration de base (adapter `ignoreip` et le port SSH si besoin) :
-   ```bash
-   sudo tee /etc/fail2ban/jail.local >/dev/null <<'EOF'
-   [DEFAULT]
-   bantime = 1h
-   findtime = 10m
-   maxretry = 5
-   ignoreip = 127.0.0.1/8 ::1 <votre_ip_fixee>
+	- Depuis le VPS (ou votre machine), générer une clé dédiée :  
+		`ssh-keygen -t rsa -b 4096 -C "github-actions" -f /home/<user>/.ssh/deploy_key`
+	- Ajouter la clé publique au serveur :  
+		`cat /home/<user>/.ssh/deploy_key.pub >> /home/<user>/.ssh/authorized_keys && chmod 600 /home/<user>/.ssh/authorized_keys`
+5. **Port SSH non standard (recommandé)**
+	```bash
+	SSH_PORT=2222  # adaptez la valeur
+	echo "Port ${SSH_PORT}" | sudo tee /etc/ssh/sshd_config.d/60-fiestaaa-port.conf >/dev/null
+	# Ubuntu 24.04+ peut utiliser ssh.socket par défaut ; repassez sur ssh.service
+	# pour que la directive Port soit appliquée de façon prévisible.
+	sudo rm -f /etc/systemd/system/ssh.service.d/00-socket.conf
+	sudo rm -f /etc/systemd/system/ssh.socket.d/addresses.conf
+	sudo systemctl disable --now ssh.socket
+	sudo systemctl daemon-reload
+	sudo systemctl enable --now ssh.service
+	sudo /usr/sbin/sshd -t
+	sudo systemctl restart ssh
+	sudo ss -ltnp | grep ":${SSH_PORT}"
+	```
+	- Gardez la session SSH courante ouverte tant qu'une seconde connexion `ssh -p <ssh_port> <user>@<ip>` n'a pas été validée.
+	- Mettez aussi à jour votre `~/.ssh/config` local si vous utilisez un alias SSH.
+	- Si `ssh -p <ssh_port> ...` est refusé alors que `ssh -p 22 ...` fonctionne encore, c'est généralement `ssh.socket` qui écoute toujours sur 22 : la séquence ci-dessus bascule volontairement vers `ssh.service` pour éviter ce comportement.
+	- Changer le port réduit surtout le bruit des scans automatisés ; cela ne remplace pas les clés SSH, UFW et Fail2ban.
+6. **Pare-feu**
+	```bash
+	sudo apt install -y ufw
+	sudo ufw allow <ssh_port>/tcp
+	sudo ufw allow 80,443/tcp
+	sudo ufw enable
+	```
+	Si vous aviez déjà ouvert `22/tcp`, supprimez la règle après validation de la nouvelle connexion : `sudo ufw delete allow 22/tcp`.
+7. **Fail2ban (protection brute-force SSH)**
+	```bash
+	sudo apt install -y fail2ban
+	sudo systemctl enable --now fail2ban
+	```
+	Configuration de base (adapter `ignoreip` et le port SSH si besoin) :
+	```bash
+	sudo tee /etc/fail2ban/jail.local >/dev/null <<'EOF'
+	[DEFAULT]
+	bantime = 1h
+	findtime = 10m
+	maxretry = 5
+	ignoreip = 127.0.0.1/8 ::1 <votre_ip_fixee>
 
-   [sshd]
-   enabled = true
-   port = ssh
-   backend = systemd
-   banaction = ufw
-   EOF
-   sudo systemctl restart fail2ban
-   ```
-   `ignoreip` est la liste des IPs/réseaux jamais bannis (séparés par des espaces). Ajoutez votre IP publique/VPN d'administration, et évitez `0.0.0.0/0` qui désactive la protection.
-   Vérifications utiles :
-   ```bash
-   sudo fail2ban-client status
-   sudo fail2ban-client status sshd
-   sudo tail -f /var/log/fail2ban.log
-   ```
-   Si vous utilisez un port SSH non standard, remplacez `port = ssh` par le port réel (et ouvrez-le dans UFW).
+	[sshd]
+	enabled = true
+	port = <ssh_port>
+	backend = systemd
+	banaction = ufw
+	EOF
+	sudo systemctl restart fail2ban
+	```
+	`ignoreip` est la liste des IPs/réseaux jamais bannis (séparés par des espaces). Ajoutez votre IP publique/VPN d'administration, et évitez `0.0.0.0/0` qui désactive la protection.
+	Vérifications utiles :
+	```bash
+	sudo fail2ban-client status
+	sudo fail2ban-client status sshd
+	sudo tail -f /var/log/fail2ban.log
+	```
+	Si vous conservez finalement le port 22, remplacez `port = <ssh_port>` par `ssh` ou `22`.
 
 ## 2) Préparer l'arborescence sur le VPS
 
@@ -136,36 +156,36 @@ touch ~/apps/fiestaaa/traefik/letsencrypt/acme.json && chmod 600 ~/apps/fiestaaa
 - **COMPOSE_FILE attendu** : le workflow lance `docker compose ...` sans `-f`, d'où le renommage en `docker-compose.yml`.
 - **Secrets runtime (.env)** : le workflow CI générera le `.env` sur le serveur à partir des secrets GitHub (voir section suivante). Pour un premier run manuel, créez-le avec les placeholders :
 
-  ```bash
-  cat > ~/apps/fiestaaa/.env <<'EOF'
-  # Base de données et cache
-  POSTGRES_USER=...
-  POSTGRES_PASSWORD=...
-  POSTGRES_DB=...
-  DATABASE_URL=postgres://<user>:<pass>@db:5432/<db>
-  REDIS_URL=redis://redis:6379
-  # Important : dans le réseau Docker Compose, utilisez le hostname du service
-  # Redis ("redis") et non localhost ; 6379 est le port par défaut.
-  # API
-  JWT_SECRET=...
-  APP_BASE_URL=https://fiestaaa.app
-  AVATAR_BASE_URL=https://api.fiestaaa.app/media/avatars
-  CORS_ALLOWED_ORIGINS=https://fiestaaa.app,https://www.fiestaaa.app
-  # Email / push (adapter selon besoins)
-  INVITATION_EMAIL_SENDER=Fiestaaa <no-reply@fiestaaa.app>
-  RESEND_API_KEY=...
-  FCM_SERVER_KEY=...
-  FIESTAAA_FCM_VAPID_KEY=...
-  FCM_PROJECT_ID=...
-  FCM_SERVICE_ACCOUNT_PATH=/app/service-account.json
-  EOF
-  ```
+	```bash
+	cat > ~/apps/fiestaaa/.env <<'EOF'
+	# Base de données et cache
+	POSTGRES_USER=...
+	POSTGRES_PASSWORD=...
+	POSTGRES_DB=...
+	DATABASE_URL=postgres://<user>:<pass>@db:5432/<db>
+	REDIS_URL=redis://redis:6379
+	# Important : dans le réseau Docker Compose, utilisez le hostname du service
+	# Redis ("redis") et non localhost ; 6379 est le port par défaut.
+	# API
+	JWT_SECRET=...
+	APP_BASE_URL=https://fiestaaa.app
+	AVATAR_BASE_URL=https://api.fiestaaa.app/media/avatars
+	CORS_ALLOWED_ORIGINS=https://fiestaaa.app,https://www.fiestaaa.app
+	# Email / push (adapter selon besoins)
+	INVITATION_EMAIL_SENDER=Fiestaaa <no-reply@fiestaaa.app>
+	RESEND_API_KEY=...
+	FCM_SERVER_KEY=...
+	FIESTAAA_FCM_VAPID_KEY=...
+	FCM_PROJECT_ID=...
+	FCM_SERVICE_ACCOUNT_PATH=/app/service-account.json
+	EOF
+	```
 
 - **Fichier de service Firebase** : placez le JSON dans `~/apps/fiestaaa/backend/service-account.json` (non versionné, monté en read-only dans le conteneur API).
 - **Données persistantes** :
-  - Postgres : `./data/postgres` (volume `db`).
-  - Uploads avatars : `./data/uploads` (volume monté sur `/data/uploads` par `api`).
-  - Certificats : `./traefik/letsencrypt/acme.json`.
+	- Postgres : `./data/postgres` (volume `db`).
+	- Uploads avatars : `./data/uploads` (volume monté sur `/data/uploads` par `api`).
+	- Certificats : `./traefik/letsencrypt/acme.json`.
 
 ## 3) Premier démarrage manuel (optionnel)
 
@@ -182,13 +202,13 @@ docker compose logs -f api # debug si besoin
 Workflow : `fiestaaa_back/.github/workflows/deploy.yml`
 - Déclencheurs : push sur `main` ou `master`, ou `workflow_dispatch`.
 - Jobs :
-  1. Vérifie la présence des secrets requis.
-  2. `docker login` sur GHCR (`ghcr.io`).
-  3. Build l'image `ghcr.io/theopeuchlestrade/fiestaaa_back:${{ github.sha }}` + `latest` (sauf si déjà présente).
-  4. Push de l'image sur GHCR.
-  5. Connexion SSH au VPS (appleboy/ssh-action) puis :
-     - Génère `.env` sur le serveur avec les secrets (here-doc non quoté pour expanser les variables côté runner).
-     - `docker compose pull api && docker compose up -d --no-deps api` (le reste de la stack doit déjà être présent grâce au compose prod).
+	1. Vérifie la présence des secrets requis.
+	2. `docker login` sur GHCR (`ghcr.io`).
+	3. Build l'image `ghcr.io/theopeuchlestrade/fiestaaa_back:${{ github.sha }}` + `latest` (sauf si déjà présente).
+	4. Push de l'image sur GHCR.
+	5. Connexion SSH au VPS (appleboy/ssh-action) puis :
+		- Génère `.env` sur le serveur avec les secrets (here-doc non quoté pour expanser les variables côté runner).
+		- `docker compose pull api && docker compose up -d --no-deps api` (le reste de la stack doit déjà être présent grâce au compose prod).
 
 ### Secrets à ajouter dans GitHub (Settings > Secrets and variables > Actions)
 
@@ -196,7 +216,7 @@ Nom | Description
 --- | ---
 `JWT_SECRET` | Secret JWT (32+ chars)
 `VPS_HOST` | IP ou hostname du VPS
-`VPS_PORT` | Port SSH (optionnel, 22 par défaut)
+`VPS_PORT` | Port SSH du VPS (renseignez la valeur configurée dans `sshd`, ex. `2222`)
 `VPS_USER` | Utilisateur de déploiement (ex. `deploy`)
 `VPS_SSH_KEY` | Contenu de la clé privée `deploy_key` (sans passphrase)
 `GHCR_TOKEN` | PAT GitHub avec `write:packages` (push) et `read:packages` (pull côté VPS)
@@ -227,6 +247,7 @@ Nom | Description
 - Le répertoire cible (`~/apps/fiestaaa`) contient `docker-compose.yml` (copie de `docker-compose.prod.yml`) et les dossiers `data/`, `traefik/`, `backend/`.
 - L'utilisateur défini dans `VPS_USER` peut lancer `docker compose` sans sudo et dispose de Compose V2 (plugin). Éviter `docker-compose` v1 (bug connu `KeyError: 'ContainerConfig'` avec Docker récents).
 - La clé publique associée à `VPS_SSH_KEY` est dans `~/.ssh/authorized_keys`.
+- Si SSH écoute sur un port non standard, `VPS_PORT` côté GitHub Actions correspond à ce port et celui-ci est autorisé par UFW.
 
 ### Validation
 - Push sur `main` ➜ vérifier que le job "Build and Deploy" passe au vert.
@@ -236,12 +257,12 @@ Nom | Description
 
 - L'image attendue par le compose prod est `ghcr.io/theopeuchlestrade/fiestaaa_front:latest` (bundle Flutter web servi par Nginx via `fiestaaa_front/Dockerfile`).
 - Workflow GitHub : `fiestaaa_front/.github/workflows/deploy.yml`
-  - Étapes : vérifie les secrets ➜ login GHCR ➜ build + push image (tags `${{ github.sha }}` + `latest`) ➜ SSH VPS ➜ `docker compose pull front && docker compose up -d --no-deps front`.
-  - `~/apps/fiestaaa/frontend` : dossier optionnel (pas de volume monté). Vous pouvez le créer pour héberger d'éventuels overrides Nginx ou archives, mais le conteneur front est autonome.
+	- Étapes : vérifie les secrets ➜ login GHCR ➜ build + push image (tags `${{ github.sha }}` + `latest`) ➜ SSH VPS ➜ `docker compose pull front && docker compose up -d --no-deps front`.
+	- `~/apps/fiestaaa/frontend` : dossier optionnel (pas de volume monté). Vous pouvez le créer pour héberger d'éventuels overrides Nginx ou archives, mais le conteneur front est autonome.
 - Secrets à créer sur le repo `fiestaaa_front` (Settings > Secrets and variables > Actions) :
-  - Accès VPS / registre : `VPS_HOST`, `VPS_PORT` (optionnel), `VPS_USER`, `VPS_SSH_KEY`, `GHCR_TOKEN` (PAT avec write/read:packages).
-  - Dart defines / Firebase / OAuth : `FIESTAAA_API_BASE_URL`, `FIESTAAA_GOOGLE_WEB_CLIENT_ID`, `FIESTAAA_APPLE_SERVICE_ID`, `FIESTAAA_APPLE_REDIRECT_URI`, `FIESTAAA_FCM_VAPID_KEY`, `FIREBASE_PROJECT_ID`, `FIREBASE_STORAGE_BUCKET`, `FIREBASE_MESSAGING_SENDER_ID`, `FIREBASE_WEB_API_KEY`, `FIREBASE_WEB_APP_ID`, optionnels `FIREBASE_WEB_MEASUREMENT_ID`, `FIREBASE_AUTH_DOMAIN` (sinon `${project}.firebaseapp.com`).
-  - Partage de secrets avec le backend : `FIESTAAA_FCM_VAPID_KEY`, `FIESTAAA_GOOGLE_WEB_CLIENT_ID`, `FIREBASE_*`/`FCM_PROJECT_ID` doivent correspondre aux valeurs du backend pour que les notifications et OAuth fonctionnent.
+	- Accès VPS / registre : `VPS_HOST`, `VPS_PORT` (port SSH configuré sur le VPS), `VPS_USER`, `VPS_SSH_KEY`, `GHCR_TOKEN` (PAT avec write/read:packages).
+	- Dart defines / Firebase / OAuth : `FIESTAAA_API_BASE_URL`, `FIESTAAA_GOOGLE_WEB_CLIENT_ID`, `FIESTAAA_APPLE_SERVICE_ID`, `FIESTAAA_APPLE_REDIRECT_URI`, `FIESTAAA_FCM_VAPID_KEY`, `FIREBASE_PROJECT_ID`, `FIREBASE_STORAGE_BUCKET`, `FIREBASE_MESSAGING_SENDER_ID`, `FIREBASE_WEB_API_KEY`, `FIREBASE_WEB_APP_ID`, optionnels `FIREBASE_WEB_MEASUREMENT_ID`, `FIREBASE_AUTH_DOMAIN` (sinon `${project}.firebaseapp.com`).
+	- Partage de secrets avec le backend : `FIESTAAA_FCM_VAPID_KEY`, `FIESTAAA_GOOGLE_WEB_CLIENT_ID`, `FIREBASE_*`/`FCM_PROJECT_ID` doivent correspondre aux valeurs du backend pour que les notifications et OAuth fonctionnent.
 - Les valeurs ci-dessus sont injectées au build (visibles dans le bundle web, normal pour un front public).
 - Déploiement : le `docker-compose.yml` déjà en place contient le service `front`, aucune config supplémentaire côté VPS.
 
@@ -274,9 +295,10 @@ Le script charge `.env`, construit l’URL Postgres (`DATABASE_URL` ou `POSTGRES
 ### MEP VPS (infra)
 - [ ] IP/DNS validés (`fiestaaa.app`, `api.fiestaaa.app` ➜ VPS)
 - [ ] SSH OK, utilisateur de déploiement ajouté au groupe docker
+- [ ] Port SSH non standard configuré et testé depuis une seconde session
 - [ ] Docker + Docker Compose installés
 - [ ] Clé SSH dédiée créée, clé publique dans `authorized_keys`
-- [ ] UFW ouvert sur 22/80/443
+- [ ] UFW ouvert sur `<ssh_port>`/80/443
 - [ ] Dossier `~/apps/fiestaaa` prêt avec `docker-compose.yml`, `.env`, `backend/service-account.json`, `data/`, `traefik/`
 
 ### MEP GitHub Actions (CI)
