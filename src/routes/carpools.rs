@@ -407,8 +407,8 @@ pub async fn create_carpool(
 
     let payload = payload.into_inner();
     info!(
-        "Received carpool payload: origin={}, depart_at={:?}, seats_total={}, notes={:?}",
-        payload.origin, payload.depart_at, payload.seats_total, payload.notes
+        "Received carpool create request for event {} by user {}",
+        *event_id, user_id
     );
 
     let origin = payload.origin.trim().to_string();
@@ -429,17 +429,8 @@ pub async fn create_carpool(
     }
 
     let now = Utc::now();
-    info!(
-        "Now UTC: {:?}, payload.depart_at: {:?}, comparison: {}",
-        now,
-        payload.depart_at,
-        payload.depart_at < now
-    );
     if payload.depart_at < now {
-        warn!(
-            "Departure time is in past: now={:?}, depart_at={:?}",
-            now, payload.depart_at
-        );
+        warn!("Departure time is in past for event {}", *event_id);
         return HttpResponse::BadRequest().json(ErrorResponse {
             error: "invalid_payload".into(),
             details: Some("La date de départ doit être dans le futur".into()),

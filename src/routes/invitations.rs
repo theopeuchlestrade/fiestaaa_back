@@ -463,8 +463,7 @@ async fn send_invitation_email(
         Ok(resp) if resp.status().is_success() => Ok(()),
         Ok(resp) => {
             let status = resp.status();
-            let body = resp.text().await.unwrap_or_else(|_| "".into());
-            warn!("Invitation email provider failure: status {status}, body: {body}");
+            warn!("Invitation email provider failure: status {status}");
             Err(HttpResponse::BadGateway().json(ErrorResponse {
                 error: "email_send_failed".into(),
                 details: Some(format!("provider status {status}")),

@@ -91,6 +91,57 @@ pub fn session_cookie_name() -> &'static str {
     SESSION_COOKIE_NAME
 }
 
+fn header_first_value<'a>(req: &'a HttpRequest, name: &str) -> Option<&'a str> {
+    req.headers()
+        .get(name)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.split(',').next())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+}
+
+fn forwarded_proto_is_https(req: &HttpRequest) -> bool {
+    if let Some(value) = header_first_value(req, "Forwarded") {
+        for part in value.split(';') {
+            let mut split = part.splitn(2, '=');
+            let key = split.next().map(str::trim);
+            let value = split
+                .next()
+                .map(str::trim)
+                .map(|v| v.trim_matches('"'))
+                .unwrap_or_default();
+            if matches!(key, Some(k) if k.eq_ignore_ascii_case("proto"))
+                && value.eq_ignore_ascii_case("https")
+            {
+                return true;
+            }
+        }
+    }
+
+    matches!(
+        header_first_value(req, "X-Forwarded-Proto"),
+        Some(value) if value.eq_ignore_ascii_case("https")
+    )
+}
+
+pub fn should_secure_cookie(
+    req: &HttpRequest,
+    app_base_url: &str,
+    trust_proxy_headers: bool,
+) -> bool {
+    if app_base_url.starts_with("https://") {
+        return true;
+    }
+
+    if let Some(scheme) = req.uri().scheme_str()
+        && scheme.eq_ignore_ascii_case("https")
+    {
+        return true;
+    }
+
+    trust_proxy_headers && forwarded_proto_is_https(req)
+}
+
 pub fn build_session_cookie(token: &str, secure: bool) -> Cookie<'static> {
     Cookie::build(SESSION_COOKIE_NAME, token.to_string())
         .http_only(true)

@@ -11,7 +11,7 @@ use crate::{
     auth::{
         build_cleared_session_cookie, build_session_cookie, encode_jwt, fetch_user_auth,
         hash_password, now_ts, random_password_token, revoke_auth_token_from_request,
-        validate_password_strength, verify_password,
+        should_secure_cookie, validate_password_strength, verify_password,
     },
     handles::{generate_unique_handle, handle_available, is_valid_handle, normalize_handle},
     models::{
@@ -33,10 +33,6 @@ struct PendingRegistrationRow {
 #[derive(Deserialize)]
 pub struct OAuthPath {
     provider: String,
-}
-
-fn auth_cookie_is_secure(state: &AppState) -> bool {
-    state.app_base_url.starts_with("https://")
 }
 
 fn auth_rate_limit_remote(req: &HttpRequest, state: &AppState) -> String {
@@ -282,8 +278,7 @@ async fn send_verification_email(
         Ok(resp) if resp.status().is_success() => Ok(true),
         Ok(resp) => {
             let status = resp.status();
-            let body = resp.text().await.unwrap_or_default();
-            warn!("verification email provider failure: status {status}, body: {body}");
+            warn!("verification email provider failure: status {status}");
             Err(HttpResponse::BadGateway().json(ErrorResponse {
                 error: "email_send_failed".into(),
                 details: Some(format!("provider status {status}")),
@@ -816,7 +811,7 @@ pub async fn complete_registration(
         handle: final_handle.clone(),
         exp,
     };
-    let secure_cookie = auth_cookie_is_secure(state.get_ref());
+    let secure_cookie = should_secure_cookie(&req, &state.app_base_url, state.trust_proxy_headers);
 
     match encode_jwt(&claims, &state.jwt_secret) {
         Ok(token) => token_response(
@@ -1248,7 +1243,7 @@ async fn oauth_google(
         handle: user.handle.clone(),
         exp,
     };
-    let secure_cookie = auth_cookie_is_secure(state.get_ref());
+    let secure_cookie = should_secure_cookie(&req, &state.app_base_url, state.trust_proxy_headers);
 
     match encode_jwt(&claims, &state.jwt_secret) {
         Ok(token) => token_response(
@@ -1359,7 +1354,7 @@ async fn oauth_apple(
         handle: user.handle.clone(),
         exp,
     };
-    let secure_cookie = auth_cookie_is_secure(state.get_ref());
+    let secure_cookie = should_secure_cookie(&req, &state.app_base_url, state.trust_proxy_headers);
 
     match encode_jwt(&claims, &state.jwt_secret) {
         Ok(token) => token_response(
@@ -1417,10 +1412,9 @@ pub async fn logout(state: web::Data<AppState>, req: HttpRequest) -> impl Respon
     if let Err(resp) = revoke_auth_token_from_request(&req, &state.db, &state.jwt_secret).await {
         return resp;
     }
+    let secure_cookie = should_secure_cookie(&req, &state.app_base_url, state.trust_proxy_headers);
     HttpResponse::Ok()
-        .cookie(build_cleared_session_cookie(auth_cookie_is_secure(
-            state.get_ref(),
-        )))
+        .cookie(build_cleared_session_cookie(secure_cookie))
         .json(StatusResponse {
             status: "logged_out".into(),
         })
@@ -1475,7 +1469,7 @@ pub async fn login(
         handle: auth_row.handle.clone(),
         exp,
     };
-    let secure_cookie = auth_cookie_is_secure(state.get_ref());
+    let secure_cookie = should_secure_cookie(&req, &state.app_base_url, state.trust_proxy_headers);
 
     match encode_jwt(&claims, &state.jwt_secret) {
         Ok(token) => token_response(

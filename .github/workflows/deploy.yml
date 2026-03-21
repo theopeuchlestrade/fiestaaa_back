@@ -103,6 +103,8 @@ jobs:
               exit 1
             fi
             cd ~/apps/fiestaaa
+            umask 077
+            install -m 600 /dev/null .env
             # Génère un .env à partir des secrets GitHub pour le runtime docker compose
             # Pas de quotes sur EOF afin d'expanser les variables côté runner et éviter les valeurs littérales ${VAR}
             cat > .env <<EOF
@@ -133,6 +135,7 @@ jobs:
             REDIS_URL=${REDIS_URL}
             ADMIN_EMAILS=${ADMIN_EMAILS}
             EOF
+            chmod 600 .env
             echo "${GHCR_TOKEN}" | docker login ghcr.io -u "${GHCR_USERNAME}" --password-stdin
             compose_cmd="docker compose"
             if ! docker compose version >/dev/null 2>&1; then
