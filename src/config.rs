@@ -1,5 +1,5 @@
-use dotenvy::dotenv;
 use log::warn;
+use crate::load_dotenv_from_repo;
 use std::collections::HashSet;
 
 fn load_resend_api_key() -> Option<String> {
@@ -99,7 +99,7 @@ pub struct AppConfig {
 
 impl AppConfig {
     pub fn from_env() -> Self {
-        let _ = dotenv();
+        load_dotenv_from_repo();
         let host = std::env::var("HOST").unwrap_or_else(|_| "0.0.0.0".into());
         let port = std::env::var("PORT")
             .ok()

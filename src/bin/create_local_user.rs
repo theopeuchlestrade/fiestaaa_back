@@ -1,10 +1,10 @@
 use std::error::Error;
 
-use dotenvy::dotenv;
 use fiestaaa_back::{
     auth::{hash_password, validate_password_strength},
     db,
     handles::{generate_unique_handle, is_valid_handle, normalize_handle},
+    load_dotenv_from_repo,
     security::normalize_email,
 };
 use sqlx::PgPool;
@@ -167,7 +167,7 @@ async fn upsert_user(
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     fiestaaa_back::install_rustls_crypto_provider();
-    let _ = dotenv();
+    load_dotenv_from_repo();
 
     let args = match parse_args() {
         Ok(value) => value,
