@@ -34,7 +34,12 @@ pub async fn me(state: web::Data<AppState>, req: HttpRequest) -> impl Responder 
     match extract_active_claims_from_auth(&req, &state.db, &state.jwt_secret).await {
         Ok(claims) => {
             let record = sqlx::query(
-                "SELECT email, handle, avatar_url FROM users WHERE lower(email)=lower($1)",
+                "SELECT public_id::text AS public_id,
+                        fiestaaa_decrypt_text(email_ciphertext) AS email,
+                        handle,
+                        avatar_url
+                 FROM users
+                 WHERE fiestaaa_email_matches(email_lookup_hash, $1)",
             )
             .bind(&claims.sub)
             .fetch_optional(&state.db)
@@ -44,8 +49,10 @@ pub async fn me(state: web::Data<AppState>, req: HttpRequest) -> impl Responder 
                 Ok(Some(user)) => {
                     let email: String = user.try_get("email").unwrap_or(claims.sub.clone());
                     let handle: String = user.try_get("handle").unwrap_or(claims.handle);
+                    let public_id: String = user.try_get("public_id").unwrap_or_default();
                     let avatar_url: Option<String> = user.try_get("avatar_url").ok();
                     HttpResponse::Ok().json(MeResponse {
+                        public_id,
                         email,
                         handle,
                         avatar_url,

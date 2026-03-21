@@ -23,7 +23,12 @@ async fn main() -> std::io::Result<()> {
 
     // Config + DB
     let cfg = config::AppConfig::from_env();
-    let pool = db::connect_and_migrate(&cfg.database_url).await;
+    let pool = db::connect_and_migrate(
+        &cfg.database_url,
+        &cfg.data_encryption_key,
+        &cfg.data_lookup_key,
+    )
+    .await;
 
     cleanup::CleanupService::new(pool.clone())
         .with_cleanup_days(cfg.event_cleanup_days)

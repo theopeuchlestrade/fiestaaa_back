@@ -24,8 +24,8 @@ fn make_token(secret: &str, email: &str, handle: &str) -> Option<String> {
 async fn seed_user(pool: &PgPool, email: &str, handle: &str) -> sqlx::Result<i64> {
     let hash = hash_password("StrongPassw0rd!").expect("hash");
     sqlx::query_scalar::<_, i64>(
-        "INSERT INTO users (email, password_hash, handle)
-         VALUES ($1, $2, $3)
+        "INSERT INTO users (email_ciphertext, email_lookup_hash, password_hash, handle)
+         VALUES (fiestaaa_encrypt_text($1), fiestaaa_email_lookup($1), $2, $3)
          RETURNING id",
     )
     .bind(email)
@@ -74,7 +74,8 @@ async fn device_registration_refresh_and_delete_flow() -> Result<(), Box<dyn Err
     let registered: (String, Option<String>, Option<String>, bool) = sqlx::query_as(
         "SELECT platform, locale, app_version, disabled_at IS NULL
          FROM user_devices
-         WHERE user_id = $1 AND fcm_token = $2",
+         WHERE user_id = $1
+           AND fiestaaa_lookup_matches(fcm_token_lookup_hash, $2)",
     )
     .bind(user_id)
     .bind("device-token-1")
@@ -108,7 +109,11 @@ async fn device_registration_refresh_and_delete_flow() -> Result<(), Box<dyn Err
     );
 
     let old_disabled: (bool,) =
-        sqlx::query_as("SELECT disabled_at IS NOT NULL FROM user_devices WHERE fcm_token = $1")
+        sqlx::query_as(
+            "SELECT disabled_at IS NOT NULL
+             FROM user_devices
+             WHERE fiestaaa_lookup_matches(fcm_token_lookup_hash, $1)",
+        )
             .bind("device-token-1")
             .fetch_one(&pool)
             .await?;
@@ -117,7 +122,8 @@ async fn device_registration_refresh_and_delete_flow() -> Result<(), Box<dyn Err
     let refreshed: (String, Option<String>, Option<String>, bool) = sqlx::query_as(
         "SELECT platform, locale, app_version, disabled_at IS NULL
          FROM user_devices
-         WHERE user_id = $1 AND fcm_token = $2",
+         WHERE user_id = $1
+           AND fiestaaa_lookup_matches(fcm_token_lookup_hash, $2)",
     )
     .bind(user_id)
     .bind("device-token-2")
@@ -142,7 +148,11 @@ async fn device_registration_refresh_and_delete_flow() -> Result<(), Box<dyn Err
     assert_eq!(delete_resp.status(), StatusCode::OK);
 
     let deleted: (bool,) =
-        sqlx::query_as("SELECT disabled_at IS NOT NULL FROM user_devices WHERE fcm_token = $1")
+        sqlx::query_as(
+            "SELECT disabled_at IS NOT NULL
+             FROM user_devices
+             WHERE fiestaaa_lookup_matches(fcm_token_lookup_hash, $1)",
+        )
             .bind("device-token-2")
             .fetch_one(&pool)
             .await?;

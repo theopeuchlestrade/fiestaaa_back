@@ -23,6 +23,7 @@ use crate::{
     notifications::{NotificationRequest, event_member_user_ids, notify_users},
     realtime::{event_types, publish_event, publish_event_type, publish_global_type},
     routes::event_access::{ensure_event_writable, fetch_event_timing},
+    security::sha256_hex,
     state::AppState,
 };
 
@@ -31,6 +32,55 @@ const OWNER_SHARE_TOKEN_TTL_HOURS: i64 = 24;
 async fn claims_email(req: &HttpRequest, state: &AppState) -> Result<String, HttpResponse> {
     let claims = extract_active_claims_from_auth(req, &state.db, &state.jwt_secret).await?;
     Ok(claims.sub.to_lowercase())
+}
+
+fn event_projection(event_alias: &str, owner_alias: &str) -> String {
+    format!(
+        "{event_alias}.event_id,
+         {event_alias}.name_event,
+         {event_alias}.description,
+         {event_alias}.date_event,
+         {event_alias}.start_time,
+         {event_alias}.end_date,
+         {event_alias}.end_time,
+         {event_alias}.invitation_deadline,
+         fiestaaa_decrypt_text({event_alias}.address_ciphertext) AS address,
+         CAST(fiestaaa_decrypt_text({event_alias}.latitude_ciphertext) AS DOUBLE PRECISION) AS latitude,
+         CAST(fiestaaa_decrypt_text({event_alias}.longitude_ciphertext) AS DOUBLE PRECISION) AS longitude,
+         {event_alias}.payment_provider_id,
+         fiestaaa_decrypt_text({event_alias}.payment_identifier_ciphertext) AS payment_identifier,
+         {event_alias}.payment_requested_amount,
+         {event_alias}.payment_per_person,
+         {event_alias}.playlist_url,
+         {event_alias}.playlist_provider,
+         {event_alias}.enabled_features,
+         fiestaaa_decrypt_text({owner_alias}.email_ciphertext) AS owner_email"
+    )
+}
+
+fn select_events_sql(from_and_where: &str) -> String {
+    format!(
+        "SELECT {}
+         {from_and_where}",
+        event_projection("e", "owner"),
+    )
+}
+
+fn upsert_event_returning_sql(body: &str) -> String {
+    format!(
+        "WITH saved_event AS (
+            {body}
+         )
+         SELECT {}
+         FROM saved_event e
+         JOIN users owner ON owner.id = e.owner_user_id",
+        event_projection("e", "owner"),
+    )
+}
+
+#[derive(Debug)]
+struct EventOwnerIdentity {
+    user_id: i64,
 }
 
 fn normalize_item_kind(value: &str) -> Option<String> {
@@ -80,26 +130,42 @@ fn invalid_items_scope_response() -> HttpResponse {
     })
 }
 
-async fn fetch_event_owner_email(db: &PgPool, event_id: i64) -> Result<String, HttpResponse> {
-    let owner =
-        sqlx::query_scalar::<_, String>("SELECT owner_email FROM events WHERE event_id = $1")
-            .bind(event_id)
-            .fetch_optional(db)
-            .await
-            .map_err(|_| {
-                HttpResponse::InternalServerError().json(ErrorResponse {
-                    error: "db_error".into(),
-                    details: None,
-                })
-            })?;
+async fn fetch_event_owner_identity(
+    db: &PgPool,
+    event_id: i64,
+) -> Result<EventOwnerIdentity, HttpResponse> {
+    let owner = sqlx::query(
+        "SELECT e.owner_user_id,
+                fiestaaa_decrypt_text(u.email_ciphertext) AS owner_email
+         FROM events e
+         JOIN users u ON u.id = e.owner_user_id
+         WHERE e.event_id = $1",
+    )
+    .bind(event_id)
+    .fetch_optional(db)
+    .await
+    .map_err(|_| {
+        HttpResponse::InternalServerError().json(ErrorResponse {
+            error: "db_error".into(),
+            details: None,
+        })
+    })?;
 
     match owner {
-        Some(email) => Ok(email),
+        Some(row) => Ok(EventOwnerIdentity {
+            user_id: row.get("owner_user_id"),
+        }),
         None => Err(HttpResponse::NotFound().json(ErrorResponse {
             error: "event_not_found".into(),
             details: None,
         })),
     }
+}
+
+async fn fetch_event_owner_id(db: &PgPool, event_id: i64) -> Result<i64, HttpResponse> {
+    fetch_event_owner_identity(db, event_id)
+        .await
+        .map(|owner| owner.user_id)
 }
 
 async fn ensure_event_owner(
@@ -111,8 +177,9 @@ async fn ensure_event_owner(
     if state.admin_emails.contains(&requester) {
         return Ok(());
     }
-    let owner = fetch_event_owner_email(&state.db, event_id).await?;
-    if owner.eq_ignore_ascii_case(&requester) || owner.is_empty() {
+    let requester_id = fetch_user_id(&state.db, &requester).await?;
+    let owner_id = fetch_event_owner_id(&state.db, event_id).await?;
+    if owner_id == requester_id {
         Ok(())
     } else {
         Err(HttpResponse::Forbidden().json(ErrorResponse {
@@ -128,8 +195,9 @@ async fn ensure_event_member(
     event_id: i64,
 ) -> Result<(), HttpResponse> {
     let requester = claims_email(req, state).await?;
-    let owner = fetch_event_owner_email(&state.db, event_id).await?;
-    if owner.eq_ignore_ascii_case(&requester) || owner.is_empty() {
+    let requester_id = fetch_user_id(&state.db, &requester).await?;
+    let owner_id = fetch_event_owner_id(&state.db, event_id).await?;
+    if owner_id == requester_id {
         return Ok(());
     }
 
@@ -137,14 +205,13 @@ async fn ensure_event_member(
         "SELECT EXISTS(
             SELECT 1
             FROM invitations i
-            JOIN users u ON u.id = i.user_id
             WHERE i.event_id = $1
-              AND lower(u.email) = lower($2)
+              AND i.user_id = $2
               AND i.status = 'Accepted'
         )",
     )
     .bind(event_id)
-    .bind(&requester)
+    .bind(requester_id)
     .fetch_one(&state.db)
     .await
     .map_err(|_| server_error())?;
@@ -607,29 +674,13 @@ pub async fn get_event(
         return resp;
     }
 
-    match sqlx::query_as::<_, Event>(
-        "SELECT event_id,
-                name_event,
-                description,
-                date_event,
-                start_time,
-                end_date,
-                end_time,
-                invitation_deadline,
-                address,
-                latitude,
-                longitude,
-                payment_provider_id,
-                payment_identifier,
-                payment_requested_amount,
-                payment_per_person,
-                playlist_url,
-                playlist_provider,
-                enabled_features,
-                owner_email
-         FROM events
-         WHERE event_id = $1",
-    )
+    let sql = select_events_sql(
+        "FROM events e
+         JOIN users owner ON owner.id = e.owner_user_id
+         WHERE e.event_id = $1",
+    );
+
+    match sqlx::query_as::<_, Event>(&sql)
     .bind(*event_id)
     .fetch_optional(&state.db)
     .await
@@ -659,43 +710,30 @@ pub async fn list_events(state: web::Data<AppState>, req: HttpRequest) -> impl R
         Ok(e) => e,
         Err(resp) => return resp,
     };
+    let user_id = match fetch_user_id(&state.db, &email).await {
+        Ok(id) => id,
+        Err(resp) => return resp,
+    };
     if let Err(resp) = expire_overdue_invitations(&state.db).await {
         return resp;
     }
 
-    let res = sqlx::query_as::<_, Event>(
-        "SELECT e.event_id,
-                e.name_event,
-                e.description,
-                e.date_event,
-                e.start_time,
-                e.end_date,
-                e.end_time,
-                e.invitation_deadline,
-                e.address,
-                e.latitude,
-                e.longitude,
-                e.payment_provider_id,
-                e.payment_identifier,
-                e.payment_requested_amount,
-                e.payment_per_person,
-                e.playlist_url,
-                e.playlist_provider,
-                e.enabled_features,
-                e.owner_email
-         FROM events e
-         WHERE lower(e.owner_email) = lower($1)
+    let sql = select_events_sql(
+        "FROM events e
+         JOIN users owner ON owner.id = e.owner_user_id
+         WHERE e.owner_user_id = $1
             OR EXISTS (
                 SELECT 1
                 FROM invitations i
-                JOIN users u ON u.id = i.user_id
                 WHERE i.event_id = e.event_id
-                  AND lower(u.email) = lower($1)
+                  AND i.user_id = $1
                   AND i.status NOT IN ('Declined', 'Expired')
             )
          ORDER BY e.date_event, e.start_time",
-    )
-    .bind(&email)
+    );
+
+    let res = sqlx::query_as::<_, Event>(&sql)
+    .bind(user_id)
     .fetch_all(&state.db)
     .await;
 
@@ -728,6 +766,10 @@ pub async fn create_event(
 ) -> impl Responder {
     let owner_email = match claims_email(&req, state.get_ref()).await {
         Ok(email) => email,
+        Err(resp) => return resp,
+    };
+    let owner_user_id = match fetch_user_id(&state.db, &owner_email).await {
+        Ok(id) => id,
         Err(resp) => return resp,
     };
     let payload = payload.into_inner();
@@ -795,11 +837,51 @@ pub async fn create_event(
         Err(resp) => return resp,
     };
 
-    let res = sqlx::query_as::<_, Event>(
-        "INSERT INTO events (name_event, description, date_event, start_time, end_date, end_time, invitation_deadline, address, latitude, longitude, payment_provider_id, payment_identifier, payment_requested_amount, payment_per_person, playlist_url, playlist_provider, enabled_features, owner_email)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
-         RETURNING event_id, name_event, description, date_event, start_time, end_date, end_time, invitation_deadline, address, latitude, longitude, payment_provider_id, payment_identifier, payment_requested_amount, payment_per_person, playlist_url, playlist_provider, enabled_features, owner_email",
-    )
+    let sql = upsert_event_returning_sql(
+        "INSERT INTO events (
+            name_event,
+            description,
+            date_event,
+            start_time,
+            end_date,
+            end_time,
+            invitation_deadline,
+            address_ciphertext,
+            latitude_ciphertext,
+            longitude_ciphertext,
+            payment_provider_id,
+            payment_identifier_ciphertext,
+            payment_requested_amount,
+            payment_per_person,
+            playlist_url,
+            playlist_provider,
+            enabled_features,
+            owner_user_id
+         )
+         VALUES (
+            $1,
+            $2,
+            $3,
+            $4,
+            $5,
+            $6,
+            $7,
+            fiestaaa_encrypt_text($8),
+            CASE WHEN $9 IS NULL THEN NULL ELSE fiestaaa_encrypt_text($9::TEXT) END,
+            CASE WHEN $10 IS NULL THEN NULL ELSE fiestaaa_encrypt_text($10::TEXT) END,
+            $11,
+            CASE WHEN $12 IS NULL THEN NULL ELSE fiestaaa_encrypt_text($12) END,
+            $13,
+            $14,
+            $15,
+            $16,
+            $17,
+            $18
+         )
+         RETURNING *",
+    );
+
+    let res = sqlx::query_as::<_, Event>(&sql)
     .bind(payload.name_event.trim())
     .bind(payload.description.trim())
     .bind(payload.date_event)
@@ -817,7 +899,7 @@ pub async fn create_event(
     .bind(&playlist_url)
     .bind(&playlist_provider)
     .bind(&enabled_features)
-    .bind(owner_email)
+    .bind(owner_user_id)
     .fetch_one(&state.db)
     .await;
 
@@ -940,14 +1022,30 @@ pub async fn replace_event(
         updated_fields.push("features");
     }
 
-    let res = sqlx::query_as::<_, Event>(
-         "UPDATE events
-          SET name_event = $1, description = $2, date_event = $3, start_time = $4, end_date = $5, end_time = $6,
-              invitation_deadline = $7, address = $8, latitude = $9, longitude = $10, payment_provider_id = $11, payment_identifier = $12,
-              payment_requested_amount = $13, payment_per_person = $14, playlist_url = $15, playlist_provider = $16, enabled_features = $17
-          WHERE event_id = $18
-         RETURNING event_id, name_event, description, date_event, start_time, end_date, end_time, invitation_deadline, address, latitude, longitude, payment_provider_id, payment_identifier, payment_requested_amount, payment_per_person, playlist_url, playlist_provider, enabled_features, owner_email",
-     )
+    let sql = upsert_event_returning_sql(
+        "UPDATE events
+         SET name_event = $1,
+             description = $2,
+             date_event = $3,
+             start_time = $4,
+             end_date = $5,
+             end_time = $6,
+             invitation_deadline = $7,
+             address_ciphertext = fiestaaa_encrypt_text($8),
+             latitude_ciphertext = CASE WHEN $9 IS NULL THEN NULL ELSE fiestaaa_encrypt_text($9::TEXT) END,
+             longitude_ciphertext = CASE WHEN $10 IS NULL THEN NULL ELSE fiestaaa_encrypt_text($10::TEXT) END,
+             payment_provider_id = $11,
+             payment_identifier_ciphertext = CASE WHEN $12 IS NULL THEN NULL ELSE fiestaaa_encrypt_text($12) END,
+             payment_requested_amount = $13,
+             payment_per_person = $14,
+             playlist_url = $15,
+             playlist_provider = $16,
+             enabled_features = $17
+         WHERE event_id = $18
+         RETURNING *",
+    );
+
+    let res = sqlx::query_as::<_, Event>(&sql)
     .bind(payload.name_event.trim())
     .bind(payload.description.trim())
     .bind(payload.date_event)
@@ -1208,7 +1306,7 @@ pub async fn update_event(
         None => (false, None),
     };
 
-    let res = sqlx::query_as::<_, Event>(
+    let sql = upsert_event_returning_sql(
         "UPDATE events
          SET name_event = COALESCE($1, name_event),
              description = COALESCE($2, description),
@@ -1217,19 +1315,33 @@ pub async fn update_event(
              end_date = CASE WHEN $5 THEN $6 ELSE end_date END,
              end_time = CASE WHEN $7 THEN $8 ELSE end_time END,
              invitation_deadline = CASE WHEN $9 THEN $10 ELSE invitation_deadline END,
-             address = COALESCE($11, address),
-             latitude = COALESCE($12, latitude),
-             longitude = COALESCE($13, longitude),
+             address_ciphertext = COALESCE(
+                CASE WHEN $11 IS NULL THEN NULL ELSE fiestaaa_encrypt_text($11) END,
+                address_ciphertext
+             ),
+             latitude_ciphertext = COALESCE(
+                CASE WHEN $12 IS NULL THEN NULL ELSE fiestaaa_encrypt_text($12::TEXT) END,
+                latitude_ciphertext
+             ),
+             longitude_ciphertext = COALESCE(
+                CASE WHEN $13 IS NULL THEN NULL ELSE fiestaaa_encrypt_text($13::TEXT) END,
+                longitude_ciphertext
+             ),
              payment_provider_id = COALESCE($14, payment_provider_id),
-             payment_identifier = COALESCE($15, payment_identifier),
+             payment_identifier_ciphertext = COALESCE(
+                CASE WHEN $15 IS NULL THEN NULL ELSE fiestaaa_encrypt_text($15) END,
+                payment_identifier_ciphertext
+             ),
              payment_requested_amount = COALESCE($16, payment_requested_amount),
              payment_per_person = $17,
              playlist_url = CASE WHEN $18 THEN $19 ELSE playlist_url END,
              playlist_provider = CASE WHEN $20 THEN $21 ELSE playlist_provider END,
              enabled_features = $22
          WHERE event_id = $23
-         RETURNING event_id, name_event, description, date_event, start_time, end_date, end_time, invitation_deadline, address, latitude, longitude, payment_provider_id, payment_identifier, payment_requested_amount, payment_per_person, playlist_url, playlist_provider, enabled_features, owner_email",
-    )
+         RETURNING *",
+    );
+
+    let res = sqlx::query_as::<_, Event>(&sql)
     .bind(payload.name_event.as_ref().map(|v| v.trim()).filter(|v| !v.is_empty()))
     .bind(payload.description.as_ref().map(|v| v.trim()).filter(|v| !v.is_empty()))
     .bind(payload.date_event)
@@ -1375,6 +1487,10 @@ pub async fn create_share_link(
         Ok(email) => email,
         Err(resp) => return resp,
     };
+    let owner_user_id = match fetch_user_id(&state.db, &owner_email).await {
+        Ok(id) => id,
+        Err(resp) => return resp,
+    };
 
     if let Err(resp) = ensure_event_owner(&req, state.get_ref(), *event_id).await {
         return resp;
@@ -1389,15 +1505,16 @@ pub async fn create_share_link(
     }
 
     let token = Uuid::new_v4();
+    let token_hash = sha256_hex(&token.to_string());
     let expires_at = Utc::now() + Duration::hours(OWNER_SHARE_TOKEN_TTL_HOURS);
 
     let res = sqlx::query(
-        "INSERT INTO event_share_tokens (token, event_id, created_by_email, expires_at)
+        "INSERT INTO event_share_tokens (token_hash, event_id, created_by_user_id, expires_at)
          VALUES ($1, $2, $3, $4)",
     )
-    .bind(token)
+    .bind(&token_hash)
     .bind(*event_id)
-    .bind(&owner_email)
+    .bind(owner_user_id)
     .bind(expires_at)
     .execute(&state.db)
     .await;
@@ -1456,6 +1573,7 @@ pub async fn claim_share_link(
             });
         }
     };
+    let token_hash = sha256_hex(&parsed_token.to_string());
 
     let mut tx = match state.db.begin().await {
         Ok(tx) => tx,
@@ -1463,12 +1581,15 @@ pub async fn claim_share_link(
     };
 
     let token_row = match sqlx::query(
-        "SELECT event_id, used_at, expires_at, target_email
+        "SELECT event_id,
+                used_at,
+                expires_at,
+                fiestaaa_decrypt_text(target_email_ciphertext) AS target_email
          FROM event_share_tokens
-         WHERE token = $1
+         WHERE token_hash = $1
          FOR UPDATE",
     )
-    .bind(parsed_token)
+    .bind(&token_hash)
     .fetch_optional(&mut *tx)
     .await
     {
@@ -1522,11 +1643,12 @@ pub async fn claim_share_link(
         return resp;
     }
 
-    let event = sqlx::query_as::<_, Event>(
-        "SELECT event_id, name_event, description, date_event, start_time, end_date, end_time, invitation_deadline, address, latitude, longitude, payment_provider_id, payment_identifier, payment_requested_amount, payment_per_person, playlist_url, playlist_provider, enabled_features, owner_email
-         FROM events
-         WHERE event_id = $1",
-    )
+    let event_sql = select_events_sql(
+        "FROM events e
+         JOIN users owner ON owner.id = e.owner_user_id
+         WHERE e.event_id = $1",
+    );
+    let event = sqlx::query_as::<_, Event>(&event_sql)
     .bind(event_id)
     .fetch_optional(&mut *tx)
     .await;
@@ -1572,10 +1694,12 @@ pub async fn claim_share_link(
     };
 
     let update_res = sqlx::query(
-        "UPDATE event_share_tokens SET used_at = NOW(), used_by_email = $1 WHERE token = $2",
+        "UPDATE event_share_tokens
+         SET used_at = NOW(), used_by_user_id = $1
+         WHERE token_hash = $2",
     )
-    .bind(&claims.sub)
-    .bind(parsed_token)
+    .bind(user_id)
+    .bind(&token_hash)
     .execute(&mut *tx)
     .await;
 
@@ -1663,7 +1787,7 @@ pub async fn list_event_items(
                 ei.quantity AS reserved_quantity,
                 i.unit_label,
                 i.item_kind,
-                cu.email AS created_by_email,
+                fiestaaa_decrypt_text(cu.email_ciphertext) AS created_by_email,
                 cu.handle AS created_by_handle,
                 cu.avatar_url AS created_by_avatar_url
          FROM events_items ei
@@ -1746,7 +1870,7 @@ pub async fn list_event_item_contributions(
     let result = sqlx::query_as::<_, ItemContribution>(
         "SELECT ui.item_id,
                 ui.quantity,
-                u.email,
+                fiestaaa_decrypt_text(u.email_ciphertext) AS email,
                 u.handle,
                 u.avatar_url
          FROM user_items ui
@@ -1898,16 +2022,15 @@ pub async fn create_custom_event_item(
         Err(resp) => return resp,
     };
 
-    let owner_email = match fetch_event_owner_email(&state.db, *event_id).await {
-        Ok(owner) => owner,
-        Err(resp) => return resp,
-    };
-    let is_owner = owner_email.eq_ignore_ascii_case(&creator_email) || owner_email.is_empty();
-
     let creator_id = match fetch_user_id(&state.db, &creator_email).await {
         Ok(id) => id,
         Err(resp) => return resp,
     };
+    let owner_id = match fetch_event_owner_id(&state.db, *event_id).await {
+        Ok(id) => id,
+        Err(resp) => return resp,
+    };
+    let is_owner = owner_id == creator_id;
 
     let payload = payload.into_inner();
     let EventCustomItemPayload {
@@ -2292,8 +2415,8 @@ pub async fn delete_event_item(
         return resp;
     }
 
-    let owner_email = match fetch_event_owner_email(&state.db, event_id).await {
-        Ok(owner) => owner,
+    let owner_id = match fetch_event_owner_id(&state.db, event_id).await {
+        Ok(id) => id,
         Err(resp) => return resp,
     };
 
@@ -2326,7 +2449,7 @@ pub async fn delete_event_item(
 
     let created_by: Option<i64> = record.get("created_by");
 
-    let is_owner = owner_email.eq_ignore_ascii_case(&claims.sub);
+    let is_owner = owner_id == user_id;
     let is_creator = created_by.is_some_and(|id| id == user_id);
 
     if !is_owner && !is_creator {
@@ -2830,11 +2953,6 @@ pub async fn delete_event_poll(
         return resp;
     }
 
-    let owner_email = match fetch_event_owner_email(&state.db, event_id).await {
-        Ok(email) => email,
-        Err(resp) => return resp,
-    };
-
     let poll_row = sqlx::query("SELECT event_id, created_by FROM event_polls WHERE poll_id = $1")
         .bind(poll_id)
         .fetch_optional(&state.db)
@@ -2868,8 +2986,11 @@ pub async fn delete_event_poll(
         Ok(id) => id,
         Err(resp) => return resp,
     };
-
-    let is_owner = owner_email.eq_ignore_ascii_case(&claims.sub);
+    let owner_id = match fetch_event_owner_id(&state.db, event_id).await {
+        Ok(id) => id,
+        Err(resp) => return resp,
+    };
+    let is_owner = owner_id == user_id;
     let is_creator = creator_id.is_some_and(|id| id == user_id);
     if !is_owner && !is_creator {
         return HttpResponse::Forbidden().json(ErrorResponse {
@@ -3131,11 +3252,11 @@ pub async fn delete_event_expense(
         Ok(id) => id,
         Err(resp) => return resp,
     };
-    let owner_email = match fetch_event_owner_email(&state.db, event_id).await {
-        Ok(email) => email,
+    let owner_id = match fetch_event_owner_id(&state.db, event_id).await {
+        Ok(id) => id,
         Err(resp) => return resp,
     };
-    let is_owner = owner_email.eq_ignore_ascii_case(&claims.sub);
+    let is_owner = owner_id == requester_id;
 
     let expense_row = match sqlx::query(
         "SELECT paid_by_user_id, created_by_user_id
@@ -3244,7 +3365,7 @@ async fn fetch_poll_views(
                 p.allow_multiple,
                 p.expires_at,
                 p.created_at,
-                u.email AS created_by_email
+                fiestaaa_decrypt_text(u.email_ciphertext) AS created_by_email
          FROM event_polls p
          LEFT JOIN users u ON u.id = p.created_by
          WHERE p.event_id = $1
@@ -3278,7 +3399,7 @@ async fn fetch_poll_views(
         "SELECT v.poll_id,
                 v.option_id,
                 v.user_id,
-                u.email,
+                fiestaaa_decrypt_text(u.email_ciphertext) AS email,
                 u.handle,
                 u.avatar_url
          FROM event_poll_votes v
@@ -3375,7 +3496,7 @@ async fn fetch_event_member_directory(
     let rows = sqlx::query(
         "SELECT DISTINCT u.id, u.handle, u.avatar_url
          FROM users u
-         WHERE lower(u.email) = lower((SELECT owner_email FROM events WHERE event_id = $1))
+         WHERE u.id = (SELECT owner_user_id FROM events WHERE event_id = $1)
          UNION
          SELECT DISTINCT u.id, u.handle, u.avatar_url
          FROM invitations i
@@ -3823,7 +3944,19 @@ async fn fetch_event_payment_info(
             Vec<String>,
         ),
     >(
-        "SELECT payment_provider_id, payment_identifier, payment_per_person, date_event, start_time, end_date, end_time, invitation_deadline, playlist_provider, playlist_url, enabled_features FROM events WHERE event_id = $1",
+        "SELECT payment_provider_id,
+                fiestaaa_decrypt_text(payment_identifier_ciphertext) AS payment_identifier,
+                payment_per_person,
+                date_event,
+                start_time,
+                end_date,
+                end_time,
+                invitation_deadline,
+                playlist_provider,
+                playlist_url,
+                enabled_features
+         FROM events
+         WHERE event_id = $1",
     )
     .bind(event_id)
     .fetch_optional(db)
@@ -3872,7 +4005,7 @@ async fn fetch_event_item_view(
                 ei.quantity AS reserved_quantity,
                 i.unit_label,
                 i.item_kind,
-                cu.email AS created_by_email,
+                fiestaaa_decrypt_text(cu.email_ciphertext) AS created_by_email,
                 cu.handle AS created_by_handle,
                 cu.avatar_url AS created_by_avatar_url
          FROM events_items ei
@@ -3898,7 +4031,9 @@ async fn fetch_event_item_view(
 
 async fn fetch_user_id(db: &PgPool, email: &str) -> Result<i64, HttpResponse> {
     let record =
-        sqlx::query_scalar::<_, i64>("SELECT id FROM users WHERE lower(email) = lower($1)")
+        sqlx::query_scalar::<_, i64>(
+            "SELECT id FROM users WHERE fiestaaa_email_matches(email_lookup_hash, $1)",
+        )
             .bind(email)
             .fetch_optional(db)
             .await

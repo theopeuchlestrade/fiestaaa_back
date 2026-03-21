@@ -23,7 +23,9 @@ async fn claims_email(req: &HttpRequest, state: &AppState) -> Result<String, Htt
 }
 
 async fn fetch_user_id(db: &PgPool, email: &str) -> Result<i64, HttpResponse> {
-    sqlx::query_scalar::<_, i64>("SELECT id FROM users WHERE lower(email) = lower($1)")
+    sqlx::query_scalar::<_, i64>(
+        "SELECT id FROM users WHERE fiestaaa_email_matches(email_lookup_hash, $1)",
+    )
         .bind(email)
         .fetch_optional(db)
         .await
@@ -41,36 +43,30 @@ async fn fetch_user_id(db: &PgPool, email: &str) -> Result<i64, HttpResponse> {
         })
 }
 
-async fn fetch_event_owner_email(db: &PgPool, event_id: i64) -> Result<String, HttpResponse> {
-    let owner =
-        sqlx::query_scalar::<_, String>("SELECT owner_email FROM events WHERE event_id = $1")
-            .bind(event_id)
-            .fetch_optional(db)
-            .await
-            .map_err(|_| {
-                HttpResponse::InternalServerError().json(ErrorResponse {
-                    error: "db_error".into(),
-                    details: None,
-                })
-            })?;
-
-    match owner {
-        Some(email) => Ok(email),
-        None => Err(HttpResponse::NotFound().json(ErrorResponse {
-            error: "event_not_found".into(),
-            details: None,
-        })),
-    }
-}
-
 async fn ensure_event_member(
     req: &HttpRequest,
     state: &AppState,
     event_id: i64,
 ) -> Result<(), HttpResponse> {
     let requester = claims_email(req, state).await?;
-    let owner = fetch_event_owner_email(&state.db, event_id).await?;
-    if owner.eq_ignore_ascii_case(&requester) || owner.is_empty() {
+    let requester_id = fetch_user_id(&state.db, &requester).await?;
+    let owner_id = sqlx::query_scalar::<_, i64>("SELECT owner_user_id FROM events WHERE event_id = $1")
+        .bind(event_id)
+        .fetch_optional(&state.db)
+        .await
+        .map_err(|_| {
+            HttpResponse::InternalServerError().json(ErrorResponse {
+                error: "db_error".into(),
+                details: None,
+            })
+        })?
+        .ok_or_else(|| {
+            HttpResponse::NotFound().json(ErrorResponse {
+                error: "event_not_found".into(),
+                details: None,
+            })
+        })?;
+    if owner_id == requester_id {
         return Ok(());
     }
 
@@ -78,14 +74,13 @@ async fn ensure_event_member(
         "SELECT EXISTS(
             SELECT 1
             FROM invitations i
-            JOIN users u ON u.id = i.user_id
             WHERE i.event_id = $1
-              AND lower(u.email) = lower($2)
+              AND i.user_id = $2
               AND i.status = 'Accepted'
         )",
     )
     .bind(event_id)
-    .bind(&requester)
+    .bind(requester_id)
     .fetch_one(&state.db)
     .await
     .map_err(|_| {
@@ -145,13 +140,50 @@ fn server_error() -> HttpResponse {
     })
 }
 
+fn carpool_projection(alias: &str) -> String {
+    format!(
+        "{alias}.carpool_id,
+         {alias}.event_id,
+         {alias}.driver_id,
+         fiestaaa_decrypt_text({alias}.origin_ciphertext) AS origin,
+         CAST(fiestaaa_decrypt_text({alias}.origin_latitude_ciphertext) AS DOUBLE PRECISION) AS origin_latitude,
+         CAST(fiestaaa_decrypt_text({alias}.origin_longitude_ciphertext) AS DOUBLE PRECISION) AS origin_longitude,
+         {alias}.depart_at,
+         {alias}.seats_total,
+         {alias}.seats_taken,
+         fiestaaa_decrypt_text({alias}.notes_ciphertext) AS notes,
+         {alias}.created_at,
+         {alias}.updated_at"
+    )
+}
+
+fn select_carpools_sql(from_and_where: &str) -> String {
+    format!("SELECT {} {from_and_where}", carpool_projection("c"))
+}
+
+async fn fetch_carpool(db: &PgPool, carpool_id: i64) -> Result<Carpool, HttpResponse> {
+    let sql = select_carpools_sql("FROM carpools c WHERE c.carpool_id = $1");
+    sqlx::query_as::<_, Carpool>(&sql)
+        .bind(carpool_id)
+        .fetch_optional(db)
+        .await
+        .map_err(|_| server_error())?
+        .ok_or_else(|| {
+            HttpResponse::NotFound().json(ErrorResponse {
+                error: "carpool_not_found".into(),
+                details: None,
+            })
+        })
+}
+
 async fn fetch_carpool_views(
     db: &PgPool,
     event_id: i64,
     user_id: Option<i64>,
     sort_by: Option<String>,
 ) -> Result<Vec<CarpoolView>, HttpResponse> {
-    let carpools = sqlx::query_as::<_, Carpool>("SELECT * FROM carpools WHERE event_id = $1")
+    let sql = select_carpools_sql("FROM carpools c WHERE c.event_id = $1");
+    let carpools = sqlx::query_as::<_, Carpool>(&sql)
         .bind(event_id)
         .fetch_all(db)
         .await
@@ -412,7 +444,10 @@ pub async fn create_carpool(
             details: Some("La date de départ doit être dans le futur".into()),
         });
     }
-    let notes = payload.notes.map(|n| n.trim().to_string());
+    let notes = payload
+        .notes
+        .map(|n| n.trim().to_string())
+        .filter(|n| !n.is_empty());
 
     let existing_carpool = match sqlx::query_scalar::<_, i64>(
         "SELECT carpool_id FROM carpool_passengers WHERE user_id = $1 AND carpool_id IN (SELECT carpool_id FROM carpools WHERE event_id = $2)
@@ -443,11 +478,31 @@ pub async fn create_carpool(
     }
 
     // Insert the carpool into the database
-    let carpool = match sqlx::query_as::<_, Carpool>(
+    let carpool_id = match sqlx::query_scalar::<_, i64>(
         r#"
-        INSERT INTO carpools (event_id, driver_id, origin, origin_latitude, origin_longitude, depart_at, seats_total, seats_taken, notes)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, 0, $8)
-        RETURNING *
+        INSERT INTO carpools (
+            event_id,
+            driver_id,
+            origin_ciphertext,
+            origin_latitude_ciphertext,
+            origin_longitude_ciphertext,
+            depart_at,
+            seats_total,
+            seats_taken,
+            notes_ciphertext
+        )
+        VALUES (
+            $1,
+            $2,
+            fiestaaa_encrypt_text($3),
+            CASE WHEN $4 IS NULL THEN NULL ELSE fiestaaa_encrypt_text($4::TEXT) END,
+            CASE WHEN $5 IS NULL THEN NULL ELSE fiestaaa_encrypt_text($5::TEXT) END,
+            $6,
+            $7,
+            0,
+            CASE WHEN $8 IS NULL THEN NULL ELSE fiestaaa_encrypt_text($8) END
+        )
+        RETURNING carpool_id
         "#,
     )
     .bind(*event_id)
@@ -461,7 +516,7 @@ pub async fn create_carpool(
     .fetch_one(&state.db)
     .await
     {
-        Ok(c) => c,
+        Ok(id) => id,
         Err(_) => {
             return server_error();
         }
@@ -469,19 +524,19 @@ pub async fn create_carpool(
 
     info!(
         "Carpool {} created by user {} for event {}",
-        carpool.carpool_id, user_id, event_id
+        carpool_id, user_id, event_id
     );
 
     publish_event(
         &state.redis_client,
         *event_id,
-        &json!({"type": "carpool_created", "carpool_id": carpool.carpool_id}),
+        &json!({"type": "carpool_created", "carpool_id": carpool_id}),
     )
     .await;
 
     match fetch_carpool_views(&state.db, *event_id, None, None).await {
         Ok(views) => {
-            let view = views.iter().find(|v| v.carpool_id == carpool.carpool_id);
+            let view = views.iter().find(|v| v.carpool_id == carpool_id);
             match view {
                 Some(v) => HttpResponse::Created().json(v),
                 None => server_error(),
@@ -519,18 +574,9 @@ pub async fn update_carpool(
 
     let payload = payload.into_inner();
 
-    let current = match sqlx::query_as::<_, Carpool>("SELECT * FROM carpools WHERE carpool_id = $1")
-        .bind(*carpool_id)
-        .fetch_one(&state.db)
-        .await
-    {
+    let current = match fetch_carpool(&state.db, *carpool_id).await {
         Ok(c) => c,
-        Err(_) => {
-            return HttpResponse::NotFound().json(ErrorResponse {
-                error: "carpool_not_found".into(),
-                details: None,
-            });
-        }
+        Err(resp) => return resp,
     };
     if let Err(resp) = ensure_event_writable(&state.db, current.event_id).await {
         return resp;
@@ -570,10 +616,10 @@ pub async fn update_carpool(
         });
     }
 
-    let notes = payload
-        .notes
-        .map(|n| n.trim().to_string())
-        .filter(|n| !n.is_empty());
+    let notes = match payload.notes {
+        Some(notes) => Some(notes.trim().to_string()).filter(|n| !n.is_empty()),
+        None => current.notes.clone(),
+    };
 
     let origin_latitude = payload.origin_latitude.or(current.origin_latitude);
     let origin_longitude = payload.origin_longitude.or(current.origin_longitude);
@@ -581,7 +627,13 @@ pub async fn update_carpool(
     match sqlx::query(
         r#"
         UPDATE carpools
-        SET origin = $1, origin_latitude = $2, origin_longitude = $3, depart_at = $4, seats_total = $5, notes = $6, updated_at = now()
+        SET origin_ciphertext = fiestaaa_encrypt_text($1),
+            origin_latitude_ciphertext = CASE WHEN $2 IS NULL THEN NULL ELSE fiestaaa_encrypt_text($2::TEXT) END,
+            origin_longitude_ciphertext = CASE WHEN $3 IS NULL THEN NULL ELSE fiestaaa_encrypt_text($3::TEXT) END,
+            depart_at = $4,
+            seats_total = $5,
+            notes_ciphertext = CASE WHEN $6 IS NULL THEN NULL ELSE fiestaaa_encrypt_text($6) END,
+            updated_at = now()
         WHERE carpool_id = $7
         "#,
     )
@@ -642,19 +694,9 @@ pub async fn delete_carpool(
     req: HttpRequest,
     carpool_id: web::Path<i64>,
 ) -> impl Responder {
-    let current = match sqlx::query_as::<_, Carpool>("SELECT * FROM carpools WHERE carpool_id = $1")
-        .bind(*carpool_id)
-        .fetch_optional(&state.db)
-        .await
-    {
-        Ok(Some(c)) => c,
-        Ok(None) => {
-            return HttpResponse::NotFound().json(ErrorResponse {
-                error: "carpool_not_found".into(),
-                details: None,
-            });
-        }
-        Err(_) => return server_error(),
+    let current = match fetch_carpool(&state.db, *carpool_id).await {
+        Ok(c) => c,
+        Err(resp) => return resp,
     };
 
     if let Err(resp) = ensure_carpool_driver(&req, state.get_ref(), *carpool_id).await {
@@ -770,19 +812,9 @@ pub async fn join_carpool(
         Err(resp) => return resp,
     };
 
-    let carpool = match sqlx::query_as::<_, Carpool>("SELECT * FROM carpools WHERE carpool_id = $1")
-        .bind(*carpool_id)
-        .fetch_optional(&state.db)
-        .await
-    {
-        Ok(Some(c)) => c,
-        Ok(None) => {
-            return HttpResponse::NotFound().json(ErrorResponse {
-                error: "carpool_not_found".into(),
-                details: None,
-            });
-        }
-        Err(_) => return server_error(),
+    let carpool = match fetch_carpool(&state.db, *carpool_id).await {
+        Ok(c) => c,
+        Err(resp) => return resp,
     };
 
     if let Err(resp) = ensure_event_member(&req, state.get_ref(), carpool.event_id).await {
@@ -990,19 +1022,9 @@ pub async fn leave_carpool(
         Err(resp) => return resp,
     };
 
-    let carpool = match sqlx::query_as::<_, Carpool>("SELECT * FROM carpools WHERE carpool_id = $1")
-        .bind(*carpool_id)
-        .fetch_optional(&state.db)
-        .await
-    {
-        Ok(Some(c)) => c,
-        Ok(None) => {
-            return HttpResponse::NotFound().json(ErrorResponse {
-                error: "carpool_not_found".into(),
-                details: None,
-            });
-        }
-        Err(_) => return server_error(),
+    let carpool = match fetch_carpool(&state.db, *carpool_id).await {
+        Ok(c) => c,
+        Err(resp) => return resp,
     };
     if let Err(resp) = ensure_event_writable(&state.db, carpool.event_id).await {
         return resp;

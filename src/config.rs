@@ -50,11 +50,22 @@ fn read_bool_env(name: &str, default: bool) -> bool {
         .unwrap_or(default)
 }
 
+fn required_secret_env(name: &str, min_len: usize) -> String {
+    let value = std::env::var(name).unwrap_or_default();
+    let trimmed = value.trim();
+    if trimmed.len() < min_len {
+        panic!("{name} doit être défini et contenir au moins {min_len} caractères");
+    }
+    trimmed.to_string()
+}
+
 pub struct AppConfig {
     pub host: String,
     pub port: u16,
     pub database_url: String,
     pub jwt_secret: String,
+    pub data_encryption_key: String,
+    pub data_lookup_key: String,
     pub admin_emails: Vec<String>,
     pub trust_proxy_headers: bool,
     pub geocoding_base_url: String,
@@ -96,10 +107,9 @@ impl AppConfig {
             .unwrap_or(8080);
         let database_url = std::env::var("DATABASE_URL")
             .unwrap_or_else(|_| "postgres://postgres:postgres@localhost:5432/fiestaaa".into());
-        let jwt_secret = std::env::var("JWT_SECRET").unwrap_or_default();
-        if jwt_secret.len() < 32 {
-            panic!("JWT_SECRET doit être défini et contenir au moins 32 caractères");
-        }
+        let jwt_secret = required_secret_env("JWT_SECRET", 32);
+        let data_encryption_key = required_secret_env("DATA_ENCRYPTION_KEY", 32);
+        let data_lookup_key = required_secret_env("DATA_LOOKUP_KEY", 32);
         let admin_emails_raw = std::env::var("ADMIN_EMAILS").unwrap_or_default();
         let admin_emails = admin_emails_raw
             .split(',')
@@ -210,6 +220,8 @@ impl AppConfig {
             port,
             database_url,
             jwt_secret,
+            data_encryption_key,
+            data_lookup_key,
             admin_emails,
             trust_proxy_headers,
             geocoding_base_url,

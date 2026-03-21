@@ -47,7 +47,7 @@ graph TD
 - Uploads avatars : volume `data/uploads` monté dans le conteneur API (exposé via `AVATAR_BASE_URL`, servi par l'API).
 - Certificats Traefik : `traefik/letsencrypt/acme.json` (chmod 600).
 - CI/CD : workflows GitHub Actions (back/front) buildent et poussent les images sur GHCR puis déploient via SSH (`docker compose pull/up`).
-- Arborescence VPS : `~/apps/fiestaaa` avec `docker-compose.yml`, `data/`, `traefik/`, `backend/service-account.json`, et optionnel `frontend/` pour éventuels overrides.
+- Arborescence VPS : `~/apps/fiestaaa` avec `docker-compose.yml`, `data/`, `traefik/`, `data/service-account.json`, et optionnel `frontend/` pour éventuels overrides.
 
 ## 1) Préparer le VPS
 
@@ -148,7 +148,7 @@ Les commandes ci-dessous supposent un dossier `/home/<user>/apps/fiestaaa` (ajus
 Copiez au préalable le `docker-compose.prod.yml` du repo vers le VPS (git clone sur le serveur ou `rsync` depuis votre machine).
 
 ```bash
-mkdir -p ~/apps/fiestaaa/{backend,frontend,data/uploads,traefik/letsencrypt}
+mkdir -p ~/apps/fiestaaa/{frontend,data/uploads,traefik/letsencrypt}
 cp fiestaaa_back/docker-compose.prod.yml ~/apps/fiestaaa/docker-compose.yml
 touch ~/apps/fiestaaa/traefik/letsencrypt/acme.json && chmod 600 ~/apps/fiestaaa/traefik/letsencrypt/acme.json
 ```
@@ -164,6 +164,8 @@ touch ~/apps/fiestaaa/traefik/letsencrypt/acme.json && chmod 600 ~/apps/fiestaaa
 	POSTGRES_DB=...
 	DATABASE_URL=postgres://<user>:<pass>@db:5432/<db>
 	REDIS_URL=redis://redis:6379
+	DATA_ENCRYPTION_KEY=...
+	DATA_LOOKUP_KEY=...
 	# Important : dans le réseau Docker Compose, utilisez le hostname du service
 	# Redis ("redis") et non localhost ; 6379 est le port par défaut.
 	# API
@@ -171,17 +173,24 @@ touch ~/apps/fiestaaa/traefik/letsencrypt/acme.json && chmod 600 ~/apps/fiestaaa
 	APP_BASE_URL=https://fiestaaa.app
 	AVATAR_BASE_URL=https://api.fiestaaa.app/media/avatars
 	CORS_ALLOWED_ORIGINS=https://fiestaaa.app,https://www.fiestaaa.app
+	ADMIN_EMAILS=admin@fiestaaa.app
 	# Email / push (adapter selon besoins)
 	INVITATION_EMAIL_SENDER=Fiestaaa <no-reply@fiestaaa.app>
 	RESEND_API_KEY=...
 	FCM_SERVER_KEY=...
 	FIESTAAA_FCM_VAPID_KEY=...
 	FCM_PROJECT_ID=...
+	FIESTAAA_GOOGLE_WEB_CLIENT_ID=...
+	FIESTAAA_GOOGLE_ANDROID_CLIENT_ID=...
+	FIESTAAA_GOOGLE_IOS_CLIENT_ID=...
+	FIESTAAA_APPLE_APP_ID=...
+	FIESTAAA_APPLE_SERVICE_ID=...
+	FIESTAAA_APPLE_REDIRECT_URI=...
 	FCM_SERVICE_ACCOUNT_PATH=/app/service-account.json
 	EOF
 	```
 
-- **Fichier de service Firebase** : placez le JSON dans `~/apps/fiestaaa/backend/service-account.json` (non versionné, monté en read-only dans le conteneur API).
+- **Fichier de service Firebase** : placez le JSON dans `~/apps/fiestaaa/data/service-account.json` (non versionné, monté en read-only dans le conteneur API).
 - **Données persistantes** :
 	- Postgres : `./data/postgres` (volume `db`).
 	- Uploads avatars : `./data/uploads` (volume monté sur `/data/uploads` par `api`).
@@ -222,6 +231,8 @@ Nom | Description
 `GHCR_TOKEN` | PAT GitHub avec `write:packages` (push) et `read:packages` (pull côté VPS)
 `DATABASE_URL` | URL Postgres utilisée par l'API (ex. `postgres://<user>:<pass>@db:5432/<db>`)
 `REDIS_URL` | URL Redis (ex. `redis://redis:6379`, ne pas utiliser `localhost` dans Docker)
+`DATA_ENCRYPTION_KEY` | Clé de chiffrement des données sensibles en base, 32 caractères minimum
+`DATA_LOOKUP_KEY` | Clé HMAC utilisée pour les blind indexes / lookups, 32 caractères minimum
 `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB` | Variables Postgres utilisées par le service `db`
 `APP_BASE_URL` | URL publique du front (ex. `https://fiestaaa.app`)
 `CORS_ALLOWED_ORIGINS` | Liste des origines autorisées (séparées par virgules)
@@ -235,16 +246,16 @@ Nom | Description
 `FCM_PROJECT_ID` | ID du projet Firebase
 `NOTIFICATION_DEDUP_TTL_SECONDS` | TTL de déduplication des notifications (ex. 300)
 `FIESTAAA_GOOGLE_WEB_CLIENT_ID` | Client ID Google OAuth web
-`FIESTAAA_GOOGLE_ANDROID_CLIENT_ID` | Client ID Google OAuth Android
+`FIESTAAA_GOOGLE_ANDROID_CLIENT_ID` | (optionnel) Client ID Google OAuth Android
 `FIESTAAA_GOOGLE_IOS_CLIENT_ID` | Client ID Google OAuth iOS
-`FIESTAAA_APPLE_APP_ID` | Bundle ID iOS/macOS pour vérifier les tokens Apple natifs
+`FIESTAAA_APPLE_APP_ID` | (optionnel) Bundle ID iOS/macOS pour vérifier les tokens Apple natifs
 `FIESTAAA_APPLE_SERVICE_ID` / `FIESTAAA_APPLE_REDIRECT_URI` | OAuth Apple (web) — requis si vous voulez afficher le bouton Apple (transmis dans le `.env` généré)
 `ADMIN_EMAILS` | (optionnel) Liste d'emails admin séparés par des virgules
 
 > Les valeurs front (VAPID, FCM project, client Google) sont partagées : renseignez les mêmes secrets dans le repo `fiestaaa_front` pour la build du bundle web.
 
 ### Attendus côté VPS pour que la CI fonctionne
-- Le répertoire cible (`~/apps/fiestaaa`) contient `docker-compose.yml` (copie de `docker-compose.prod.yml`) et les dossiers `data/`, `traefik/`, `backend/`.
+- Le répertoire cible (`~/apps/fiestaaa`) contient `docker-compose.yml` (copie de `docker-compose.prod.yml`) et les dossiers `data/`, `traefik/`.
 - L'utilisateur défini dans `VPS_USER` peut lancer `docker compose` sans sudo et dispose de Compose V2 (plugin). Éviter `docker-compose` v1 (bug connu `KeyError: 'ContainerConfig'` avec Docker récents).
 - La clé publique associée à `VPS_SSH_KEY` est dans `~/.ssh/authorized_keys`.
 - Si SSH écoute sur un port non standard, `VPS_PORT` côté GitHub Actions correspond à ce port et celui-ci est autorisé par UFW.
@@ -290,7 +301,7 @@ Le script charge `.env`, construit l’URL Postgres (`DATABASE_URL` ou `POSTGRES
 - Répartition des devices actifs par plateforme.
 - Nouveaux utilisateurs par jour (14 derniers jours).
 
-## 6) Checklists rapides
+## 7) Checklists rapides
 
 ### MEP VPS (infra)
 - [ ] IP/DNS validés (`fiestaaa.app`, `api.fiestaaa.app` ➜ VPS)
@@ -299,7 +310,7 @@ Le script charge `.env`, construit l’URL Postgres (`DATABASE_URL` ou `POSTGRES
 - [ ] Docker + Docker Compose installés
 - [ ] Clé SSH dédiée créée, clé publique dans `authorized_keys`
 - [ ] UFW ouvert sur `<ssh_port>`/80/443
-- [ ] Dossier `~/apps/fiestaaa` prêt avec `docker-compose.yml`, `.env`, `backend/service-account.json`, `data/`, `traefik/`
+- [ ] Dossier `~/apps/fiestaaa` prêt avec `docker-compose.yml`, `.env`, `data/service-account.json`, `data/`, `traefik/`
 
 ### MEP GitHub Actions (CI)
 - [ ] Secrets `VPS_*`, `GHCR_TOKEN`, DB/Redis/JWT/URLs ajoutés

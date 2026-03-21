@@ -9,6 +9,7 @@ pub mod notifications;
 pub mod rate_limit;
 pub mod realtime;
 pub mod routes;
+pub mod security;
 pub mod state;
 
 use std::sync::OnceLock;

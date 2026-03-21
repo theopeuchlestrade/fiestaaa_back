@@ -95,8 +95,11 @@ pub async fn update_handle(
     let res = sqlx::query(
         "UPDATE users
          SET handle = $1
-         WHERE lower(email) = lower($2)
-         RETURNING email, handle, avatar_url",
+         WHERE fiestaaa_email_matches(email_lookup_hash, $2)
+         RETURNING public_id::text AS public_id,
+                   fiestaaa_decrypt_text(email_ciphertext) AS email,
+                   handle,
+                   avatar_url",
     )
     .bind(&candidate)
     .bind(&claims.sub)
@@ -105,6 +108,7 @@ pub async fn update_handle(
 
     match res {
         Ok(row) => HttpResponse::Ok().json(MeResponse {
+            public_id: row.get("public_id"),
             email: row.get("email"),
             handle: row.get("handle"),
             avatar_url: row.get::<Option<String>, _>("avatar_url"),
@@ -255,8 +259,11 @@ pub async fn upload_avatar(
     let res = sqlx::query(
         "UPDATE users
          SET avatar_url = $1
-         WHERE lower(email) = lower($2)
-         RETURNING email, handle, avatar_url",
+         WHERE fiestaaa_email_matches(email_lookup_hash, $2)
+         RETURNING public_id::text AS public_id,
+                   fiestaaa_decrypt_text(email_ciphertext) AS email,
+                   handle,
+                   avatar_url",
     )
     .bind(&public_url)
     .bind(&claims.sub)
@@ -265,6 +272,7 @@ pub async fn upload_avatar(
 
     match res {
         Ok(row) => HttpResponse::Ok().json(MeResponse {
+            public_id: row.get("public_id"),
             email: row.get("email"),
             handle: row.get("handle"),
             avatar_url: row.get::<Option<String>, _>("avatar_url"),
@@ -304,7 +312,7 @@ pub async fn delete_account(state: web::Data<AppState>, req: HttpRequest) -> imp
     }
 
     // Supprimer l'utilisateur (les CASCADE s'occupent des données liées)
-    let res = sqlx::query("DELETE FROM users WHERE lower(email) = lower($1)")
+    let res = sqlx::query("DELETE FROM users WHERE fiestaaa_email_matches(email_lookup_hash, $1)")
         .bind(&claims.sub)
         .execute(&state.db)
         .await;

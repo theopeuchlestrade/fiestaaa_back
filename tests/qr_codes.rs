@@ -11,6 +11,7 @@ use fiestaaa_back::{
         Claims, QRCodeGenerateResponse, QRCodeScanPayload, QRCodeScanResponse, QRCodeStatsResponse,
     },
     routes,
+    security::sha256_hex,
 };
 use sqlx::PgPool;
 
@@ -26,8 +27,8 @@ fn make_token(secret: &str, email: &str, handle: &str) -> Option<String> {
 async fn seed_user(pool: &PgPool, email: &str, handle: &str) -> sqlx::Result<i64> {
     let hash = hash_password("StrongPassw0rd!").expect("hash");
     sqlx::query_scalar::<_, i64>(
-        "INSERT INTO users (email, password_hash, handle)
-         VALUES ($1, $2, $3)
+        "INSERT INTO users (email_ciphertext, email_lookup_hash, password_hash, handle)
+         VALUES (fiestaaa_encrypt_text($1), fiestaaa_email_lookup($1), $2, $3)
          RETURNING id",
     )
     .bind(email)
@@ -267,9 +268,9 @@ async fn scan_qr_code_rejects_expired_tokens() -> Result<(), Box<dyn Error>> {
     sqlx::query(
         "UPDATE event_checkins
          SET generated_at = NOW() - INTERVAL '10 minutes'
-         WHERE qr_token = $1::uuid",
+         WHERE qr_token_hash = $1",
     )
-    .bind(&generated.qr_token)
+    .bind(sha256_hex(&generated.qr_token))
     .execute(&pool)
     .await?;
 

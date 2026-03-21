@@ -9,8 +9,10 @@ use fiestaaa_back::{
     auth::{encode_jwt, hash_password, now_ts},
     models::{Claims, Invitation, InvitationPatchPayload, InvitationPayload},
     routes,
+    security::sha256_hex,
 };
 use sqlx::PgPool;
+use uuid::Uuid;
 
 fn admin_token(secret: &str, email: &str) -> Option<String> {
     let handle = email
@@ -36,7 +38,9 @@ async fn seed_user(pool: &PgPool, email: &str) -> sqlx::Result<i64> {
         .unwrap_or("user")
         .replace(|c: char| !c.is_ascii_alphanumeric(), "_");
     sqlx::query_scalar::<_, i64>(
-        "INSERT INTO users (email, password_hash, handle) VALUES ($1, $2, $3) RETURNING id",
+        "INSERT INTO users (email_ciphertext, email_lookup_hash, password_hash, handle)
+         VALUES (fiestaaa_encrypt_text($1), fiestaaa_email_lookup($1), $2, $3)
+         RETURNING id",
     )
     .bind(email)
     .bind(hash)
@@ -59,6 +63,23 @@ async fn seed_event(pool: &PgPool, owner_email: &str) -> sqlx::Result<i64> {
     .bind(owner_email)
     .fetch_one(pool)
     .await
+}
+
+async fn overwrite_share_token_for_target(
+    pool: &PgPool,
+    target_email: &str,
+) -> sqlx::Result<String> {
+    let token = Uuid::new_v4().to_string();
+    sqlx::query(
+        "UPDATE event_share_tokens
+         SET token_hash = $1
+         WHERE lower(target_email) = lower($2)",
+    )
+    .bind(sha256_hex(&token))
+    .bind(target_email)
+    .execute(pool)
+    .await?;
+    Ok(token)
 }
 
 #[tokio::test]
@@ -369,12 +390,7 @@ async fn email_invite_share_token_is_bound_to_target_email() -> Result<(), Box<d
     .await;
     assert_eq!(invite_resp.status(), StatusCode::ACCEPTED);
 
-    let share_token: String = sqlx::query_scalar(
-        "SELECT token::text FROM event_share_tokens WHERE lower(target_email) = lower($1)",
-    )
-    .bind(target_email)
-    .fetch_one(&pool)
-    .await?;
+    let share_token = overwrite_share_token_for_target(&pool, target_email).await?;
 
     let _target_id = seed_user(&pool, target_email).await?;
     let _attacker_id = seed_user(&pool, attacker_email).await?;
@@ -527,10 +543,14 @@ async fn share_token_claim_rejects_expired_token() -> Result<(), Box<dyn Error>>
         .expect("share token");
 
     let _guest_id = seed_user(&pool, guest_email).await?;
-    sqlx::query("UPDATE event_share_tokens SET expires_at = NOW() - INTERVAL '1 hour' WHERE token = $1::uuid")
-        .bind(share_token)
-        .execute(&pool)
-        .await?;
+    sqlx::query(
+        "UPDATE event_share_tokens
+         SET expires_at = NOW() - INTERVAL '1 hour'
+         WHERE token_hash = $1",
+    )
+    .bind(sha256_hex(share_token))
+    .execute(&pool)
+    .await?;
 
     let guest_token = admin_token(secret, guest_email).expect("token");
     let claim_resp = test::call_service(

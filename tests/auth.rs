@@ -7,18 +7,27 @@ use common::{DB_LOCK, build_state, obtain_pool, reset_tables};
 use fiestaaa_back::{
     auth::{hash_password, session_cookie_name, verify_password},
     routes,
+    security::sha256_hex,
 };
 use serde_json::Value;
+use uuid::Uuid;
+
+async fn overwrite_pending_token_for(pool: &sqlx::PgPool, email: &str) -> sqlx::Result<String> {
+    let token = Uuid::new_v4().to_string();
+    sqlx::query(
+        "UPDATE pending_registrations
+         SET verification_token_hash = $1
+         WHERE fiestaaa_email_matches(email_lookup_hash, $2)",
+    )
+    .bind(sha256_hex(&token))
+    .bind(email)
+    .execute(pool)
+    .await
+    .map(|_| token)
+}
 
 async fn pending_token_for(pool: &sqlx::PgPool, email: &str) -> sqlx::Result<String> {
-    sqlx::query_scalar::<_, String>(
-        "SELECT verification_token::text
-         FROM pending_registrations
-         WHERE lower(email) = lower($1)",
-    )
-    .bind(email)
-    .fetch_one(pool)
-    .await
+    overwrite_pending_token_for(pool, email).await
 }
 
 #[tokio::test]
@@ -60,7 +69,10 @@ async fn register_creates_pending_registration_and_completes_user() -> Result<()
     assert_eq!(user_count.0, 0);
 
     let (stored_email, stored_hash): (String, String) =
-        sqlx::query_as("SELECT email, password_hash FROM pending_registrations")
+        sqlx::query_as(
+            "SELECT fiestaaa_decrypt_text(email_ciphertext) AS email, password_hash
+             FROM pending_registrations",
+        )
             .fetch_one(&pool)
             .await?;
     assert_eq!(stored_email, email.to_lowercase());
@@ -71,7 +83,9 @@ async fn register_creates_pending_registration_and_completes_user() -> Result<()
         &app,
         test::TestRequest::post()
             .uri("/auth/verify-email")
-            .set_json(serde_json::json!({ "token": pending_token_for(&pool, email).await? }))
+            .set_json(
+                serde_json::json!({ "token": overwrite_pending_token_for(&pool, email).await? }),
+            )
             .to_request(),
     )
     .await;
@@ -92,7 +106,7 @@ async fn register_creates_pending_registration_and_completes_user() -> Result<()
         test::TestRequest::post()
             .uri("/auth/complete-registration")
             .set_json(serde_json::json!({
-                "token": pending_token_for(&pool, email).await?,
+                "token": overwrite_pending_token_for(&pool, email).await?,
                 "password": password,
                 "handle": handle,
             }))
@@ -111,7 +125,10 @@ async fn register_creates_pending_registration_and_completes_user() -> Result<()
     );
 
     let (verified_email, verified_hash, verified_handle): (String, String, String) =
-        sqlx::query_as("SELECT email, password_hash, handle FROM users")
+        sqlx::query_as(
+            "SELECT fiestaaa_decrypt_text(email_ciphertext) AS email, password_hash, handle
+             FROM users",
+        )
             .fetch_one(&pool)
             .await?;
     assert_eq!(verified_email, email.to_lowercase());
@@ -173,7 +190,10 @@ async fn register_hides_duplicate_email_state() -> Result<(), Box<dyn Error>> {
     let app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
 
     let hash = hash_password("Sup3rSecurePass!")?;
-    sqlx::query("INSERT INTO users (email, password_hash, handle) VALUES ($1, $2, $3)")
+    sqlx::query(
+        "INSERT INTO users (email_ciphertext, email_lookup_hash, password_hash, handle)
+         VALUES (fiestaaa_encrypt_text($1), fiestaaa_email_lookup($1), $2, $3)",
+    )
         .bind("dup@example.com")
         .bind(hash)
         .bind("dupuser")
@@ -199,7 +219,11 @@ async fn register_hides_duplicate_email_state() -> Result<(), Box<dyn Error>> {
     );
 
     let pending_count: (i64,) =
-        sqlx::query_as("SELECT COUNT(*) FROM pending_registrations WHERE lower(email) = lower($1)")
+        sqlx::query_as(
+            "SELECT COUNT(*)
+             FROM pending_registrations
+             WHERE fiestaaa_email_matches(email_lookup_hash, $1)",
+        )
             .bind("dup@example.com")
             .fetch_one(&pool)
             .await?;
@@ -649,7 +673,7 @@ async fn delete_account_returns_404_for_missing_user() -> Result<(), Box<dyn Err
         .and_then(|v| v.as_str())
         .expect("token");
 
-    sqlx::query("DELETE FROM users WHERE lower(email) = lower($1)")
+    sqlx::query("DELETE FROM users WHERE fiestaaa_email_matches(email_lookup_hash, $1)")
         .bind(email)
         .execute(&pool)
         .await?;
@@ -920,7 +944,7 @@ async fn deleted_user_token_cannot_access_events() -> Result<(), Box<dyn Error>>
         .expect("token in response")
         .to_string();
 
-    sqlx::query("DELETE FROM users WHERE lower(email) = lower($1)")
+    sqlx::query("DELETE FROM users WHERE fiestaaa_email_matches(email_lookup_hash, $1)")
         .bind(email)
         .execute(&pool)
         .await?;

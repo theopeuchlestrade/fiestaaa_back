@@ -10,6 +10,7 @@ use crate::{
         QRCodeStatsResponse,
     },
     routes::event_access::ensure_event_writable,
+    security::sha256_hex,
     state::AppState,
 };
 
@@ -26,36 +27,35 @@ fn qr_code_expires_at(
     generated_at + chrono::Duration::seconds(QR_CODE_TTL_SECONDS)
 }
 
-async fn fetch_event_owner_email(db: &sqlx::PgPool, event_id: i64) -> Result<String, HttpResponse> {
-    let owner =
-        sqlx::query_scalar::<_, String>("SELECT owner_email FROM events WHERE event_id = $1")
-            .bind(event_id)
-            .fetch_optional(db)
-            .await
-            .map_err(|_| {
-                HttpResponse::InternalServerError().json(ErrorResponse {
-                    error: "db_error".into(),
-                    details: None,
-                })
-            })?;
-
-    owner.ok_or_else(|| {
-        HttpResponse::NotFound().json(ErrorResponse {
-            error: "event_not_found".into(),
-            details: None,
-        })
-    })
+fn hash_qr_token(token: &Uuid) -> String {
+    sha256_hex(&token.to_string())
 }
 
 async fn ensure_event_owner(
     req: &HttpRequest,
     state: &AppState,
     event_id: i64,
-) -> Result<String, HttpResponse> {
+) -> Result<i64, HttpResponse> {
     let requester = claims_email(req, state).await?;
-    let owner = fetch_event_owner_email(&state.db, event_id).await?;
-    if owner == requester {
-        Ok(owner)
+    let requester_id = get_user_id_from_email(&state.db, &requester).await?;
+    let owner = sqlx::query_scalar::<_, i64>(
+        "SELECT e.owner_user_id
+         FROM events e
+         WHERE e.event_id = $1
+           AND e.owner_user_id = $2",
+    )
+    .bind(event_id)
+    .bind(requester_id)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(|_| {
+        HttpResponse::InternalServerError().json(ErrorResponse {
+            error: "db_error".into(),
+            details: None,
+        })
+    })?;
+    if let Some(owner_id) = owner {
+        Ok(owner_id)
     } else {
         Err(HttpResponse::Forbidden().json(ErrorResponse {
             error: "forbidden".into(),
@@ -65,7 +65,9 @@ async fn ensure_event_owner(
 }
 
 async fn get_user_id_from_email(db: &sqlx::PgPool, email: &str) -> Result<i64, HttpResponse> {
-    sqlx::query_scalar::<_, i64>("SELECT id FROM users WHERE lower(email) = lower($1)")
+    sqlx::query_scalar::<_, i64>(
+        "SELECT id FROM users WHERE fiestaaa_email_matches(email_lookup_hash, $1)",
+    )
         .bind(email)
         .fetch_optional(db)
         .await
@@ -158,7 +160,7 @@ pub async fn generate_my_qr_code(
     };
 
     let existing_qr = sqlx::query(
-        "SELECT qr_token, generated_at, scanned_at
+        "SELECT generated_at, scanned_at
          FROM event_checkins
          WHERE event_id = $1 AND user_id = $2
          FOR UPDATE",
@@ -169,34 +171,16 @@ pub async fn generate_my_qr_code(
     .await;
 
     match existing_qr {
-        Ok(Some(row)) => {
-            let generated_at: chrono::DateTime<chrono::Utc> = row.try_get("generated_at").unwrap();
-            let scanned_at: Option<chrono::DateTime<chrono::Utc>> = row.try_get("scanned_at").ok();
-
-            if scanned_at.is_some() {
-                let token: Uuid = row.try_get("qr_token").unwrap();
-                if tx.commit().await.is_err() {
-                    return HttpResponse::InternalServerError().json(ErrorResponse {
-                        error: "db_error".into(),
-                        details: None,
-                    });
-                }
-                return HttpResponse::Ok().json(QRCodeGenerateResponse {
-                    qr_token: token.to_string(),
-                    event_id: *event_id,
-                    generated_at,
-                    expires_at: qr_code_expires_at(generated_at),
-                });
-            }
-
+        Ok(Some(_existing)) => {
             let rotated_token = Uuid::new_v4();
+            let rotated_token_hash = hash_qr_token(&rotated_token);
             match sqlx::query(
                 "UPDATE event_checkins
-                 SET qr_token = $1, generated_at = NOW(), is_valid = TRUE
+                 SET qr_token_hash = $1, generated_at = NOW(), is_valid = TRUE
                  WHERE event_id = $2 AND user_id = $3
                  RETURNING generated_at",
             )
-            .bind(rotated_token)
+            .bind(&rotated_token_hash)
             .bind(*event_id)
             .bind(user_id)
             .fetch_one(&mut *tx)
@@ -230,12 +214,13 @@ pub async fn generate_my_qr_code(
         }
         Ok(None) => {
             let new_token = Uuid::new_v4();
+            let new_token_hash = hash_qr_token(&new_token);
             match sqlx::query(
-                "INSERT INTO event_checkins (qr_token, event_id, user_id)
+                "INSERT INTO event_checkins (qr_token_hash, event_id, user_id)
                  VALUES ($1, $2, $3)
                  RETURNING generated_at",
             )
-            .bind(new_token)
+            .bind(&new_token_hash)
             .bind(*event_id)
             .bind(user_id)
             .fetch_one(&mut *tx)
@@ -301,8 +286,8 @@ pub async fn scan_qr_code(
     event_id: web::Path<i64>,
     payload: web::Json<QRCodeScanPayload>,
 ) -> impl Responder {
-    let scanner_email = match ensure_event_owner(&req, state.get_ref(), *event_id).await {
-        Ok(email) => email,
+    let scanner_user_id = match ensure_event_owner(&req, state.get_ref(), *event_id).await {
+        Ok(user_id) => user_id,
         Err(resp) => return resp,
     };
     if let Err(resp) = ensure_event_writable(&state.db, *event_id).await {
@@ -319,6 +304,7 @@ pub async fn scan_qr_code(
             });
         }
     };
+    let qr_token_hash = hash_qr_token(&qr_token);
 
     // Start a transaction to ensure atomicity
     let mut tx = match state.db.begin().await {
@@ -334,15 +320,15 @@ pub async fn scan_qr_code(
     // Fetch the QR code details with user info
     let qr_details = sqlx::query(
         "SELECT ec.event_id, ec.user_id, ec.generated_at, ec.scanned_at, ec.is_valid,
-                u.email, u.handle, u.avatar_url,
+                fiestaaa_decrypt_text(u.email_ciphertext) AS email, u.handle, u.avatar_url,
                 i.status as invitation_status
          FROM event_checkins ec
          JOIN users u ON u.id = ec.user_id
          LEFT JOIN invitations i ON i.event_id = ec.event_id AND i.user_id = ec.user_id
-         WHERE ec.qr_token = $1
+         WHERE ec.qr_token_hash = $1
          FOR UPDATE",
     )
-    .bind(qr_token)
+    .bind(&qr_token_hash)
     .fetch_optional(&mut *tx)
     .await;
 
@@ -442,13 +428,13 @@ pub async fn scan_qr_code(
     let now = chrono::Utc::now();
     let update_result = sqlx::query(
         "UPDATE event_checkins
-         SET scanned_at = $1, scanned_by_email = $2
-         WHERE qr_token = $3
+         SET scanned_at = $1, scanned_by_user_id = $2
+         WHERE qr_token_hash = $3
            AND scanned_at IS NULL",
     )
     .bind(now)
-    .bind(&scanner_email)
-    .bind(qr_token)
+    .bind(scanner_user_id)
+    .bind(&qr_token_hash)
     .execute(&mut *tx)
     .await;
 

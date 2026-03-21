@@ -10,13 +10,13 @@ use jsonwebtoken::{
     Algorithm, DecodingKey, EncodingKey, Header, Validation, decode, encode, errors::ErrorKind,
 };
 use rand_core::OsRng;
-use sha2::{Digest, Sha256};
 use sqlx::{Pool, Postgres};
 use uuid::Uuid;
 
 use crate::{
     handles::{looks_like_email, normalize_handle},
     models::{Claims, ErrorResponse},
+    security::sha256_hex,
 };
 
 const SESSION_COOKIE_NAME: &str = "fiestaaa_session";
@@ -113,9 +113,16 @@ pub fn build_cleared_session_cookie(secure: bool) -> Cookie<'static> {
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct UserAuthRow {
     pub id: i64,
+    pub public_id: Uuid,
     pub email: String,
     pub handle: String,
     pub password_hash: String,
+}
+
+#[derive(Debug, Clone, sqlx::FromRow)]
+struct ActiveUserIdentityRow {
+    pub email: String,
+    pub handle: String,
 }
 
 pub async fn fetch_user_auth(
@@ -125,7 +132,13 @@ pub async fn fetch_user_auth(
     let trimmed = identifier.trim();
     if looks_like_email(trimmed) {
         sqlx::query_as::<_, UserAuthRow>(
-            "SELECT id, email, handle, password_hash FROM users WHERE lower(email)=lower($1)",
+            "SELECT id,
+                    public_id,
+                    fiestaaa_decrypt_text(email_ciphertext) AS email,
+                    handle,
+                    password_hash
+             FROM users
+             WHERE fiestaaa_email_matches(email_lookup_hash, $1)",
         )
         .bind(trimmed)
         .fetch_optional(pool)
@@ -133,7 +146,13 @@ pub async fn fetch_user_auth(
     } else {
         let normalized = normalize_handle(trimmed).normalized;
         sqlx::query_as::<_, UserAuthRow>(
-            "SELECT id, email, handle, password_hash FROM users WHERE lower(handle)=lower($1)",
+            "SELECT id,
+                    public_id,
+                    fiestaaa_decrypt_text(email_ciphertext) AS email,
+                    handle,
+                    password_hash
+             FROM users
+             WHERE lower(handle)=lower($1)",
         )
         .bind(normalized)
         .fetch_optional(pool)
@@ -174,7 +193,7 @@ pub fn decode_jwt(token: &str, secret: &str) -> Result<Claims, HttpResponse> {
 }
 
 fn token_hash(token: &str) -> String {
-    format!("{:x}", Sha256::digest(token.as_bytes()))
+    sha256_hex(token)
 }
 
 fn extract_token_from_auth(req: &HttpRequest) -> Result<String, HttpResponse> {
@@ -218,6 +237,42 @@ async fn cleanup_expired_revoked_tokens(db: &Pool<Postgres>) -> sqlx::Result<()>
         .execute(db)
         .await?;
     Ok(())
+}
+
+async fn find_active_user_by_subject(
+    db: &Pool<Postgres>,
+    subject: &str,
+) -> Result<Option<ActiveUserIdentityRow>, sqlx::Error> {
+    let trimmed = subject.trim();
+    if looks_like_email(trimmed) {
+        return sqlx::query_as::<_, ActiveUserIdentityRow>(
+            "SELECT fiestaaa_decrypt_text(email_ciphertext) AS email, handle
+             FROM users
+             WHERE fiestaaa_email_matches(email_lookup_hash, $1)",
+        )
+        .bind(trimmed)
+        .fetch_optional(db)
+        .await;
+    }
+
+    let Ok(public_id) = Uuid::parse_str(trimmed) else {
+        return Ok(None);
+    };
+
+    sqlx::query_as::<_, ActiveUserIdentityRow>(
+        "SELECT fiestaaa_decrypt_text(email_ciphertext) AS email, handle
+         FROM users
+         WHERE public_id = $1",
+    )
+    .bind(public_id)
+    .fetch_optional(db)
+    .await
+}
+
+fn normalize_claims_with_user(mut claims: Claims, user: &ActiveUserIdentityRow) -> Claims {
+    claims.sub = user.email.clone();
+    claims.handle = user.handle.clone();
+    claims
 }
 
 async fn is_token_revoked(db: &Pool<Postgres>, token: &str) -> Result<bool, sqlx::Error> {
@@ -311,20 +366,22 @@ pub async fn extract_verified_claims_from_auth(
             details: None,
         }));
     }
-    decode_jwt(&token, secret)
-}
-
-async fn active_user_exists(db: &Pool<Postgres>, email: &str) -> Result<bool, sqlx::Error> {
-    sqlx::query_scalar::<_, bool>(
-        "SELECT EXISTS(
-            SELECT 1
-            FROM users
-            WHERE lower(email) = lower($1)
-        )",
-    )
-    .bind(email)
-    .fetch_one(db)
-    .await
+    let claims = decode_jwt(&token, secret)?;
+    let Some(user) = find_active_user_by_subject(db, &claims.sub)
+        .await
+        .map_err(|_| {
+            HttpResponse::InternalServerError().json(ErrorResponse {
+                error: "db_error".into(),
+                details: None,
+            })
+        })?
+    else {
+        return Err(HttpResponse::Unauthorized().json(ErrorResponse {
+            error: "user_not_found".into(),
+            details: None,
+        }));
+    };
+    Ok(normalize_claims_with_user(claims, &user))
 }
 
 pub async fn extract_active_claims_from_auth(
@@ -332,20 +389,7 @@ pub async fn extract_active_claims_from_auth(
     db: &Pool<Postgres>,
     secret: &str,
 ) -> Result<Claims, HttpResponse> {
-    let claims = extract_verified_claims_from_auth(req, db, secret).await?;
-    let exists = active_user_exists(db, &claims.sub).await.map_err(|_| {
-        HttpResponse::InternalServerError().json(ErrorResponse {
-            error: "db_error".into(),
-            details: None,
-        })
-    })?;
-    if !exists {
-        return Err(HttpResponse::Unauthorized().json(ErrorResponse {
-            error: "user_not_found".into(),
-            details: None,
-        }));
-    }
-    Ok(claims)
+    extract_verified_claims_from_auth(req, db, secret).await
 }
 
 #[cfg(test)]

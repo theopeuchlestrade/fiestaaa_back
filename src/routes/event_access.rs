@@ -95,7 +95,7 @@ pub async fn ensure_event_member_email(
     event_id: i64,
     email: &str,
 ) -> Result<(), HttpResponse> {
-    let owner_row = sqlx::query("SELECT owner_email FROM events WHERE event_id = $1")
+    let owner_row = sqlx::query("SELECT owner_user_id FROM events WHERE event_id = $1")
         .bind(event_id)
         .fetch_optional(db)
         .await
@@ -108,8 +108,16 @@ pub async fn ensure_event_member_email(
         }));
     };
 
-    let owner_email: String = owner_row.get("owner_email");
-    if owner_email.eq_ignore_ascii_case(email) {
+    let owner_user_id: i64 = owner_row.get("owner_user_id");
+    let requester_id = sqlx::query_scalar::<_, i64>(
+        "SELECT id FROM users WHERE fiestaaa_email_matches(email_lookup_hash, $1)",
+    )
+    .bind(email)
+    .fetch_optional(db)
+    .await
+    .map_err(|_| server_error())?;
+
+    if requester_id.is_some_and(|id| id == owner_user_id) {
         return Ok(());
     }
 
@@ -117,10 +125,11 @@ pub async fn ensure_event_member_email(
         "SELECT EXISTS(
             SELECT 1
             FROM invitations i
-            JOIN users u ON u.id = i.user_id
             WHERE i.event_id = $1
               AND i.status = 'Accepted'
-              AND lower(u.email) = lower($2)
+              AND i.user_id = (
+                  SELECT id FROM users WHERE fiestaaa_email_matches(email_lookup_hash, $2)
+              )
         )",
     )
     .bind(event_id)
