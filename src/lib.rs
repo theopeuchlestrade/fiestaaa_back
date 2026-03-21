@@ -12,7 +12,7 @@ pub mod routes;
 pub mod security;
 pub mod state;
 
-use dotenvy::{dotenv, from_path};
+use dotenvy::from_path;
 use std::path::Path;
 use std::sync::OnceLock;
 use std::time::Duration;
@@ -39,8 +39,12 @@ pub fn build_http_client(user_agent: &str) -> reqwest::Client {
 }
 
 pub fn load_dotenv_from_repo() {
-    let _ = dotenv();
-    let _ = from_path(Path::new(env!("CARGO_MANIFEST_DIR")).join(".env"));
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join(".env");
+    if let Err(err) = from_path(&path)
+        && path.exists()
+    {
+        eprintln!("Warning: failed to load {}: {err}", path.display());
+    }
 }
 
 #[cfg(test)]
