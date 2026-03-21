@@ -68,21 +68,21 @@ async fn get_user_id_from_email(db: &sqlx::PgPool, email: &str) -> Result<i64, H
     sqlx::query_scalar::<_, i64>(
         "SELECT id FROM users WHERE fiestaaa_email_matches(email_lookup_hash, $1)",
     )
-        .bind(email)
-        .fetch_optional(db)
-        .await
-        .map_err(|_| {
-            HttpResponse::InternalServerError().json(ErrorResponse {
-                error: "db_error".into(),
-                details: None,
-            })
-        })?
-        .ok_or_else(|| {
-            HttpResponse::NotFound().json(ErrorResponse {
-                error: "user_not_found".into(),
-                details: None,
-            })
+    .bind(email)
+    .fetch_optional(db)
+    .await
+    .map_err(|_| {
+        HttpResponse::InternalServerError().json(ErrorResponse {
+            error: "db_error".into(),
+            details: None,
         })
+    })?
+    .ok_or_else(|| {
+        HttpResponse::NotFound().json(ErrorResponse {
+            error: "user_not_found".into(),
+            details: None,
+        })
+    })
 }
 
 #[utoipa::path(

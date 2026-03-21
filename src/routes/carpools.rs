@@ -26,21 +26,21 @@ async fn fetch_user_id(db: &PgPool, email: &str) -> Result<i64, HttpResponse> {
     sqlx::query_scalar::<_, i64>(
         "SELECT id FROM users WHERE fiestaaa_email_matches(email_lookup_hash, $1)",
     )
-        .bind(email)
-        .fetch_optional(db)
-        .await
-        .map_err(|_| {
-            HttpResponse::InternalServerError().json(ErrorResponse {
-                error: "db_error".into(),
-                details: None,
-            })
-        })?
-        .ok_or_else(|| {
-            HttpResponse::Unauthorized().json(ErrorResponse {
-                error: "user_not_found".into(),
-                details: None,
-            })
+    .bind(email)
+    .fetch_optional(db)
+    .await
+    .map_err(|_| {
+        HttpResponse::InternalServerError().json(ErrorResponse {
+            error: "db_error".into(),
+            details: None,
         })
+    })?
+    .ok_or_else(|| {
+        HttpResponse::Unauthorized().json(ErrorResponse {
+            error: "user_not_found".into(),
+            details: None,
+        })
+    })
 }
 
 async fn ensure_event_member(
@@ -50,22 +50,23 @@ async fn ensure_event_member(
 ) -> Result<(), HttpResponse> {
     let requester = claims_email(req, state).await?;
     let requester_id = fetch_user_id(&state.db, &requester).await?;
-    let owner_id = sqlx::query_scalar::<_, i64>("SELECT owner_user_id FROM events WHERE event_id = $1")
-        .bind(event_id)
-        .fetch_optional(&state.db)
-        .await
-        .map_err(|_| {
-            HttpResponse::InternalServerError().json(ErrorResponse {
-                error: "db_error".into(),
-                details: None,
-            })
-        })?
-        .ok_or_else(|| {
-            HttpResponse::NotFound().json(ErrorResponse {
-                error: "event_not_found".into(),
-                details: None,
-            })
-        })?;
+    let owner_id =
+        sqlx::query_scalar::<_, i64>("SELECT owner_user_id FROM events WHERE event_id = $1")
+            .bind(event_id)
+            .fetch_optional(&state.db)
+            .await
+            .map_err(|_| {
+                HttpResponse::InternalServerError().json(ErrorResponse {
+                    error: "db_error".into(),
+                    details: None,
+                })
+            })?
+            .ok_or_else(|| {
+                HttpResponse::NotFound().json(ErrorResponse {
+                    error: "event_not_found".into(),
+                    details: None,
+                })
+            })?;
     if owner_id == requester_id {
         return Ok(());
     }

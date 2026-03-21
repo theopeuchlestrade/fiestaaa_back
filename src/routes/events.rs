@@ -681,9 +681,9 @@ pub async fn get_event(
     );
 
     match sqlx::query_as::<_, Event>(&sql)
-    .bind(*event_id)
-    .fetch_optional(&state.db)
-    .await
+        .bind(*event_id)
+        .fetch_optional(&state.db)
+        .await
     {
         Ok(Some(event)) => HttpResponse::Ok().json(event),
         Ok(None) => HttpResponse::NotFound().json(ErrorResponse {
@@ -733,9 +733,9 @@ pub async fn list_events(state: web::Data<AppState>, req: HttpRequest) -> impl R
     );
 
     let res = sqlx::query_as::<_, Event>(&sql)
-    .bind(user_id)
-    .fetch_all(&state.db)
-    .await;
+        .bind(user_id)
+        .fetch_all(&state.db)
+        .await;
 
     match res {
         Ok(events) => HttpResponse::Ok().json(events),
@@ -882,26 +882,26 @@ pub async fn create_event(
     );
 
     let res = sqlx::query_as::<_, Event>(&sql)
-    .bind(payload.name_event.trim())
-    .bind(payload.description.trim())
-    .bind(payload.date_event)
-    .bind(payload.start_time)
-    .bind(payload.end_date)
-    .bind(payload.end_time)
-    .bind(payload.invitation_deadline)
-    .bind(payload.address.trim())
-    .bind(payload.latitude)
-    .bind(payload.longitude)
-    .bind(payment_provider_id)
-    .bind(payment_identifier)
-    .bind(payload.payment_requested_amount)
-    .bind(payment_per_person)
-    .bind(&playlist_url)
-    .bind(&playlist_provider)
-    .bind(&enabled_features)
-    .bind(owner_user_id)
-    .fetch_one(&state.db)
-    .await;
+        .bind(payload.name_event.trim())
+        .bind(payload.description.trim())
+        .bind(payload.date_event)
+        .bind(payload.start_time)
+        .bind(payload.end_date)
+        .bind(payload.end_time)
+        .bind(payload.invitation_deadline)
+        .bind(payload.address.trim())
+        .bind(payload.latitude)
+        .bind(payload.longitude)
+        .bind(payment_provider_id)
+        .bind(payment_identifier)
+        .bind(payload.payment_requested_amount)
+        .bind(payment_per_person)
+        .bind(&playlist_url)
+        .bind(&playlist_provider)
+        .bind(&enabled_features)
+        .bind(owner_user_id)
+        .fetch_one(&state.db)
+        .await;
 
     match res {
         Ok(event) => {
@@ -1046,26 +1046,26 @@ pub async fn replace_event(
     );
 
     let res = sqlx::query_as::<_, Event>(&sql)
-    .bind(payload.name_event.trim())
-    .bind(payload.description.trim())
-    .bind(payload.date_event)
-    .bind(payload.start_time)
-    .bind(payload.end_date)
-    .bind(payload.end_time)
-    .bind(payload.invitation_deadline)
-    .bind(payload.address.trim())
-    .bind(payload.latitude)
-    .bind(payload.longitude)
-    .bind(payment_provider_id)
-    .bind(payment_identifier)
-    .bind(payload.payment_requested_amount)
-    .bind(payment_per_person)
-    .bind(&playlist_url)
-    .bind(&playlist_provider)
-    .bind(&enabled_features)
-    .bind(*event_id)
-    .fetch_optional(&state.db)
-    .await;
+        .bind(payload.name_event.trim())
+        .bind(payload.description.trim())
+        .bind(payload.date_event)
+        .bind(payload.start_time)
+        .bind(payload.end_date)
+        .bind(payload.end_time)
+        .bind(payload.invitation_deadline)
+        .bind(payload.address.trim())
+        .bind(payload.latitude)
+        .bind(payload.longitude)
+        .bind(payment_provider_id)
+        .bind(payment_identifier)
+        .bind(payload.payment_requested_amount)
+        .bind(payment_per_person)
+        .bind(&playlist_url)
+        .bind(&playlist_provider)
+        .bind(&enabled_features)
+        .bind(*event_id)
+        .fetch_optional(&state.db)
+        .await;
 
     match res {
         Ok(Some(event)) => {
@@ -1342,31 +1342,49 @@ pub async fn update_event(
     );
 
     let res = sqlx::query_as::<_, Event>(&sql)
-    .bind(payload.name_event.as_ref().map(|v| v.trim()).filter(|v| !v.is_empty()))
-    .bind(payload.description.as_ref().map(|v| v.trim()).filter(|v| !v.is_empty()))
-    .bind(payload.date_event)
-    .bind(payload.start_time)
-    .bind(end_date_set)
-    .bind(end_date_value)
-    .bind(end_time_set)
-    .bind(end_time_value)
-    .bind(invitation_deadline_set)
-    .bind(invitation_deadline_value)
-    .bind(payload.address.as_ref().map(|v| v.trim()).filter(|v| !v.is_empty()))
-    .bind(payload.latitude)
-    .bind(payload.longitude)
-    .bind(payment_provider_id)
-    .bind(payment_identifier)
-    .bind(payload.payment_requested_amount)
-    .bind(payment_per_person)
-    .bind(playlist_url_set)
-    .bind(playlist_url)
-    .bind(playlist_provider_set)
-    .bind(playlist_provider)
-    .bind(&enabled_features)
-    .bind(*event_id)
-    .fetch_optional(&state.db)
-    .await;
+        .bind(
+            payload
+                .name_event
+                .as_ref()
+                .map(|v| v.trim())
+                .filter(|v| !v.is_empty()),
+        )
+        .bind(
+            payload
+                .description
+                .as_ref()
+                .map(|v| v.trim())
+                .filter(|v| !v.is_empty()),
+        )
+        .bind(payload.date_event)
+        .bind(payload.start_time)
+        .bind(end_date_set)
+        .bind(end_date_value)
+        .bind(end_time_set)
+        .bind(end_time_value)
+        .bind(invitation_deadline_set)
+        .bind(invitation_deadline_value)
+        .bind(
+            payload
+                .address
+                .as_ref()
+                .map(|v| v.trim())
+                .filter(|v| !v.is_empty()),
+        )
+        .bind(payload.latitude)
+        .bind(payload.longitude)
+        .bind(payment_provider_id)
+        .bind(payment_identifier)
+        .bind(payload.payment_requested_amount)
+        .bind(payment_per_person)
+        .bind(playlist_url_set)
+        .bind(playlist_url)
+        .bind(playlist_provider_set)
+        .bind(playlist_provider)
+        .bind(&enabled_features)
+        .bind(*event_id)
+        .fetch_optional(&state.db)
+        .await;
 
     match res {
         Ok(Some(event)) => {
@@ -1649,9 +1667,9 @@ pub async fn claim_share_link(
          WHERE e.event_id = $1",
     );
     let event = sqlx::query_as::<_, Event>(&event_sql)
-    .bind(event_id)
-    .fetch_optional(&mut *tx)
-    .await;
+        .bind(event_id)
+        .fetch_optional(&mut *tx)
+        .await;
 
     let event = match event {
         Ok(Some(e)) => e,
@@ -4030,14 +4048,13 @@ async fn fetch_event_item_view(
 }
 
 async fn fetch_user_id(db: &PgPool, email: &str) -> Result<i64, HttpResponse> {
-    let record =
-        sqlx::query_scalar::<_, i64>(
-            "SELECT id FROM users WHERE fiestaaa_email_matches(email_lookup_hash, $1)",
-        )
-            .bind(email)
-            .fetch_optional(db)
-            .await
-            .map_err(|_| server_error())?;
+    let record = sqlx::query_scalar::<_, i64>(
+        "SELECT id FROM users WHERE fiestaaa_email_matches(email_lookup_hash, $1)",
+    )
+    .bind(email)
+    .fetch_optional(db)
+    .await
+    .map_err(|_| server_error())?;
 
     match record {
         Some(id) => Ok(id),

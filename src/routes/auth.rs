@@ -557,9 +557,9 @@ pub async fn verify_email(
         let _ = sqlx::query(
             "DELETE FROM pending_registrations WHERE fiestaaa_email_matches(email_lookup_hash, $1)",
         )
-            .bind(&pending.email)
-            .execute(&mut *tx)
-            .await;
+        .bind(&pending.email)
+        .execute(&mut *tx)
+        .await;
         let _ = tx.commit().await;
         return HttpResponse::Gone().json(ErrorResponse {
             error: "expired_token".into(),
@@ -693,9 +693,9 @@ pub async fn complete_registration(
         let _ = sqlx::query(
             "DELETE FROM pending_registrations WHERE fiestaaa_email_matches(email_lookup_hash, $1)",
         )
-            .bind(&pending.email)
-            .execute(&mut *tx)
-            .await;
+        .bind(&pending.email)
+        .execute(&mut *tx)
+        .await;
         let _ = tx.commit().await;
         return HttpResponse::Gone().json(ErrorResponse {
             error: "expired_token".into(),
@@ -791,10 +791,10 @@ pub async fn complete_registration(
     if sqlx::query(
         "DELETE FROM pending_registrations WHERE fiestaaa_email_matches(email_lookup_hash, $1)",
     )
-        .bind(&pending.email)
-        .execute(&mut *tx)
-        .await
-        .is_err()
+    .bind(&pending.email)
+    .execute(&mut *tx)
+    .await
+    .is_err()
     {
         let _ = tx.rollback().await;
         return HttpResponse::InternalServerError().json(ErrorResponse {
@@ -1095,9 +1095,9 @@ async fn resolve_oauth_user(
     let _ = sqlx::query(
         "DELETE FROM pending_registrations WHERE fiestaaa_email_matches(email_lookup_hash, $1)",
     )
-        .bind(&email)
-        .execute(&state.db)
-        .await;
+    .bind(&email)
+    .execute(&state.db)
+    .await;
 
     match fetch_oauth_user_by_identity(&state.db, provider, provider_subject).await {
         Ok(Some(user)) => {

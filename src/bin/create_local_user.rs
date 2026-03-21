@@ -86,9 +86,9 @@ async fn fetch_existing_user(
     sqlx::query_as::<_, ExistingUser>(
         "SELECT handle FROM users WHERE fiestaaa_email_matches(email_lookup_hash, $1)",
     )
-        .bind(email)
-        .fetch_optional(pool)
-        .await
+    .bind(email)
+    .fetch_optional(pool)
+    .await
 }
 
 async fn resolve_handle(
@@ -124,18 +124,19 @@ async fn upsert_user(
 ) -> Result<(i64, bool), sqlx::Error> {
     let mut tx = pool.begin().await?;
 
-    sqlx::query("DELETE FROM pending_registrations WHERE fiestaaa_email_matches(email_lookup_hash, $1)")
-        .bind(email)
-        .execute(&mut *tx)
-        .await?;
+    sqlx::query(
+        "DELETE FROM pending_registrations WHERE fiestaaa_email_matches(email_lookup_hash, $1)",
+    )
+    .bind(email)
+    .execute(&mut *tx)
+    .await?;
 
-    let existing_id =
-        sqlx::query_scalar::<_, i64>(
-            "SELECT id FROM users WHERE fiestaaa_email_matches(email_lookup_hash, $1)",
-        )
-            .bind(email)
-            .fetch_optional(&mut *tx)
-            .await?;
+    let existing_id = sqlx::query_scalar::<_, i64>(
+        "SELECT id FROM users WHERE fiestaaa_email_matches(email_lookup_hash, $1)",
+    )
+    .bind(email)
+    .fetch_optional(&mut *tx)
+    .await?;
 
     let result = if let Some(id) = existing_id {
         sqlx::query("UPDATE users SET password_hash = $1, handle = $2 WHERE id = $3")

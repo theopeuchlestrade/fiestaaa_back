@@ -108,15 +108,14 @@ async fn device_registration_refresh_and_delete_flow() -> Result<(), Box<dyn Err
         Some("refreshed")
     );
 
-    let old_disabled: (bool,) =
-        sqlx::query_as(
-            "SELECT disabled_at IS NOT NULL
+    let old_disabled: (bool,) = sqlx::query_as(
+        "SELECT disabled_at IS NOT NULL
              FROM user_devices
              WHERE fiestaaa_lookup_matches(fcm_token_lookup_hash, $1)",
-        )
-            .bind("device-token-1")
-            .fetch_one(&pool)
-            .await?;
+    )
+    .bind("device-token-1")
+    .fetch_one(&pool)
+    .await?;
     assert!(old_disabled.0);
 
     let refreshed: (String, Option<String>, Option<String>, bool) = sqlx::query_as(
@@ -147,15 +146,14 @@ async fn device_registration_refresh_and_delete_flow() -> Result<(), Box<dyn Err
     .await;
     assert_eq!(delete_resp.status(), StatusCode::OK);
 
-    let deleted: (bool,) =
-        sqlx::query_as(
-            "SELECT disabled_at IS NOT NULL
+    let deleted: (bool,) = sqlx::query_as(
+        "SELECT disabled_at IS NOT NULL
              FROM user_devices
              WHERE fiestaaa_lookup_matches(fcm_token_lookup_hash, $1)",
-        )
-            .bind("device-token-2")
-            .fetch_one(&pool)
-            .await?;
+    )
+    .bind("device-token-2")
+    .fetch_one(&pool)
+    .await?;
     assert!(deleted.0);
     Ok(())
 }

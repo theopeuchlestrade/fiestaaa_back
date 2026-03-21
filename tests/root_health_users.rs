@@ -84,10 +84,10 @@ async fn me_returns_authenticated_profile() -> Result<(), Box<dyn Error>> {
     sqlx::query(
         "UPDATE users SET avatar_url = $1 WHERE fiestaaa_email_matches(email_lookup_hash, $2)",
     )
-        .bind("https://cdn.example.com/avatar.jpg")
-        .bind("owner@example.com")
-        .execute(&pool)
-        .await?;
+    .bind("https://cdn.example.com/avatar.jpg")
+    .bind("owner@example.com")
+    .execute(&pool)
+    .await?;
 
     let state = build_state(pool, secret, &[]);
     let app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
@@ -180,13 +180,12 @@ async fn handle_availability_and_update_cover_validation_and_conflicts()
     let updated: TestMeResponse = test::read_body_json(updated_resp).await;
     assert_eq!(updated.handle, "fresh_handle");
 
-    let stored: (String,) =
-        sqlx::query_as(
-            "SELECT handle FROM users WHERE fiestaaa_email_matches(email_lookup_hash, $1)",
-        )
-            .bind("owner@example.com")
-            .fetch_one(&pool)
-            .await?;
+    let stored: (String,) = sqlx::query_as(
+        "SELECT handle FROM users WHERE fiestaaa_email_matches(email_lookup_hash, $1)",
+    )
+    .bind("owner@example.com")
+    .fetch_one(&pool)
+    .await?;
     assert_eq!(stored.0, "fresh_handle");
     Ok(())
 }

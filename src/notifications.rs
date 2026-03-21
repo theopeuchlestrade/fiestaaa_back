@@ -257,9 +257,9 @@ impl NotificationService {
                  SET disabled_at = NOW()
                  WHERE fiestaaa_lookup_matches(fcm_token_lookup_hash, $1)",
             )
-                .bind(token)
-                .execute(ctx.db)
-                .await;
+            .bind(token)
+            .execute(ctx.db)
+            .await;
         }
     }
 
@@ -350,9 +350,9 @@ async fn handle_invalid_tokens(
                     ARRAY(SELECT fiestaaa_lookup_text(value) FROM unnest($1::text[]) AS value)
                  )",
             )
-                .bind(&invalid)
-                .execute(db)
-                .await?;
+            .bind(&invalid)
+            .execute(db)
+            .await?;
         }
     }
     Ok(())
@@ -365,9 +365,9 @@ pub async fn find_user_id_by_email(
     sqlx::query_scalar::<_, i64>(
         "SELECT id FROM users WHERE fiestaaa_email_matches(email_lookup_hash, $1)",
     )
-        .bind(email)
-        .fetch_optional(db)
-        .await
+    .bind(email)
+    .fetch_optional(db)
+    .await
 }
 
 pub async fn tokens_by_user_ids(

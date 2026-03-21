@@ -68,13 +68,12 @@ async fn register_creates_pending_registration_and_completes_user() -> Result<()
         .await?;
     assert_eq!(user_count.0, 0);
 
-    let (stored_email, stored_hash): (String, String) =
-        sqlx::query_as(
-            "SELECT fiestaaa_decrypt_text(email_ciphertext) AS email, password_hash
+    let (stored_email, stored_hash): (String, String) = sqlx::query_as(
+        "SELECT fiestaaa_decrypt_text(email_ciphertext) AS email, password_hash
              FROM pending_registrations",
-        )
-            .fetch_one(&pool)
-            .await?;
+    )
+    .fetch_one(&pool)
+    .await?;
     assert_eq!(stored_email, email.to_lowercase());
     assert_ne!(stored_hash, password);
     assert!(stored_hash.starts_with("$argon2"));
@@ -129,8 +128,8 @@ async fn register_creates_pending_registration_and_completes_user() -> Result<()
             "SELECT fiestaaa_decrypt_text(email_ciphertext) AS email, password_hash, handle
              FROM users",
         )
-            .fetch_one(&pool)
-            .await?;
+        .fetch_one(&pool)
+        .await?;
     assert_eq!(verified_email, email.to_lowercase());
     assert_ne!(verified_hash, stored_hash);
     assert!(verify_password(&verified_hash, password));
@@ -194,11 +193,11 @@ async fn register_hides_duplicate_email_state() -> Result<(), Box<dyn Error>> {
         "INSERT INTO users (email_ciphertext, email_lookup_hash, password_hash, handle)
          VALUES (fiestaaa_encrypt_text($1), fiestaaa_email_lookup($1), $2, $3)",
     )
-        .bind("dup@example.com")
-        .bind(hash)
-        .bind("dupuser")
-        .execute(&pool)
-        .await?;
+    .bind("dup@example.com")
+    .bind(hash)
+    .bind("dupuser")
+    .execute(&pool)
+    .await?;
 
     let resp = test::call_service(
         &app,
@@ -218,15 +217,14 @@ async fn register_hides_duplicate_email_state() -> Result<(), Box<dyn Error>> {
         Some("verification_pending")
     );
 
-    let pending_count: (i64,) =
-        sqlx::query_as(
-            "SELECT COUNT(*)
+    let pending_count: (i64,) = sqlx::query_as(
+        "SELECT COUNT(*)
              FROM pending_registrations
              WHERE fiestaaa_email_matches(email_lookup_hash, $1)",
-        )
-            .bind("dup@example.com")
-            .fetch_one(&pool)
-            .await?;
+    )
+    .bind("dup@example.com")
+    .fetch_one(&pool)
+    .await?;
     assert_eq!(pending_count.0, 0);
     Ok(())
 }
