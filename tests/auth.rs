@@ -30,6 +30,17 @@ async fn pending_token_for(pool: &sqlx::PgPool, email: &str) -> sqlx::Result<Str
     overwrite_pending_token_for(pool, email).await
 }
 
+async fn pending_token_hash_for(pool: &sqlx::PgPool, email: &str) -> sqlx::Result<String> {
+    sqlx::query_scalar(
+        "SELECT verification_token_hash
+         FROM pending_registrations
+         WHERE fiestaaa_email_matches(email_lookup_hash, $1)",
+    )
+    .bind(email)
+    .fetch_one(pool)
+    .await
+}
+
 #[tokio::test]
 async fn register_creates_pending_registration_and_completes_user() -> Result<(), Box<dyn Error>> {
     let Some(pool) = obtain_pool().await else {
@@ -251,7 +262,7 @@ async fn register_keeps_existing_pending_registration_unchanged() -> Result<(), 
     )
     .await;
     assert_eq!(first_resp.status(), StatusCode::CREATED);
-    let first_token = pending_token_for(&pool, email).await?;
+    let first_token_hash = pending_token_hash_for(&pool, email).await?;
 
     let second_resp = test::call_service(
         &app,
@@ -272,8 +283,8 @@ async fn register_keeps_existing_pending_registration_unchanged() -> Result<(), 
         Some("verification_pending")
     );
 
-    let second_token = pending_token_for(&pool, email).await?;
-    assert_eq!(second_token, first_token);
+    let second_token_hash = pending_token_hash_for(&pool, email).await?;
+    assert_eq!(second_token_hash, first_token_hash);
 
     let pending_count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM pending_registrations")
         .fetch_one(&pool)
@@ -610,7 +621,7 @@ async fn delete_account_requires_auth() -> Result<(), Box<dyn Error>> {
 }
 
 #[tokio::test]
-async fn delete_account_returns_404_for_missing_user() -> Result<(), Box<dyn Error>> {
+async fn delete_account_returns_401_for_missing_user() -> Result<(), Box<dyn Error>> {
     let Some(pool) = obtain_pool().await else {
         eprintln!("Skipping auth tests: DATABASE_URL or TEST_DATABASE_URL not set");
         return Ok(());
@@ -684,7 +695,12 @@ async fn delete_account_returns_404_for_missing_user() -> Result<(), Box<dyn Err
             .to_request(),
     )
     .await;
-    assert_eq!(delete_resp.status(), StatusCode::NOT_FOUND);
+    assert_eq!(delete_resp.status(), StatusCode::UNAUTHORIZED);
+    let delete_body: Value = test::read_body_json(delete_resp).await;
+    assert_eq!(
+        delete_body.get("error").and_then(|value| value.as_str()),
+        Some("user_not_found")
+    );
 
     Ok(())
 }

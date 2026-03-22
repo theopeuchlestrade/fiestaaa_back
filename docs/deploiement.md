@@ -273,6 +273,10 @@ Nom | Description
 
 - Créez un environnement `production` dans GitHub sur les repos `fiestaaa_back` et `fiestaaa_front`.
 - Déplacez les secrets de prod vers les `environment secrets` de `production`.
+- Une fois les repos publics, protégez `main` et rendez obligatoires au minimum :
+  - `Backend CI` sur `fiestaaa_back/.github/workflows/ci.yml`
+  - `Frontend CI` sur `fiestaaa_front/.github/workflows/ci.yml`
+  - `Dependency Review`
 - Ajoutez au minimum :
   - une restriction aux branches de déploiement (`main` / `master` selon le repo) ;
   - un ou plusieurs `required reviewers` avant exécution ;
@@ -304,6 +308,7 @@ Nom | Description
 - Les valeurs ci-dessus sont injectées au build (visibles dans le bundle web, normal pour un front public).
 - Déploiement : le `docker-compose.yml` déjà en place contient le service `front`, aucune config supplémentaire côté VPS. Le conteneur `front` ne charge plus le `.env` de prod au runtime.
 - Workflow PR recommandé : `fiestaaa_front/.github/workflows/dependency-review.yml` pour bloquer l'introduction de dépendances vulnérables avant merge.
+- Workflow CI PR : `fiestaaa_back/.github/workflows/ci.yml` pour le back (`cargo fmt`, `clippy`, tests unitaires/binaires + smoke tests `auth`) et `fiestaaa_front/.github/workflows/ci.yml` pour le front (`dart format`, `flutter analyze`, `flutter test`).
 
 ## 6) Vérifications runtime
 
@@ -378,6 +383,7 @@ Le script charge `.env`, construit l’URL Postgres (`DATABASE_URL` ou `POSTGRES
 - [ ] Environnement GitHub `production` créé sur les deux repos avec protection rules
 - [ ] PAT GHCR avec `read:packages` uniquement pour le pull côté VPS
 - [ ] `secret scanning`, `push protection`, `Dependabot alerts` et `security updates` activés
+- [ ] Workflows `ci.yml` back/front actifs sur les PRs
 - [ ] Workflows `dependency-review.yml` actifs sur les PRs
 - [ ] Attestations de provenance activées sur les workflows de déploiement
 - [ ] Push sur `main` déclenche la pipeline et le déploiement

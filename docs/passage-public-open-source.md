@@ -82,11 +82,18 @@ Après l'incident de sécurité, il faut partir du principe que tout secret coll
 
 Avant publication, vérifier au minimum :
 
-- licence choisie et fichier `LICENSE` ;
+- licences confirmées et fichiers `LICENSE` présents :
+  - `fiestaaa_back` sous `AGPL-3.0-only`
+  - `fiestaaa_front` sous `MPL-2.0`
 - politique de sécurité `SECURITY.md` ou document équivalent ;
 - `CONTRIBUTING.md` cohérent avec la contribution externe ;
 - description de repo, topics, homepage, éventuellement templates d'issues ou PR ;
 - revue des assets non open source : logos, visuels, fontes, captures, textes marketing, données d'exemple.
+
+Point important :
+
+- la politique `SECURITY.md` peut être préparée avant l'ouverture du code ;
+- le choix de licence est maintenant acté ; s'il change un jour, il faudra le faire volontairement et documenter l'impact.
 
 ### 4. Vérifier les packages GHCR
 
@@ -172,9 +179,10 @@ Réglages recommandés :
 Checks à rendre obligatoires quand ils existent :
 
 - `Dependency Review`
-- puis, dès qu'ils existeront, les workflows PR de test et d'analyse back et front
+- `Backend CI`
+- `Frontend CI`
 
-Point important : aujourd'hui il manque encore une vraie CI PR robuste pour imposer `cargo test` côté back et `flutter analyze` ou `flutter test` côté front. Il faudra ajouter ces checks si l'objectif est une vraie protection de branche de qualité.
+Ces workflows doivent déjà exister avant le passage en public pour que la protection de branche soit utile immédiatement.
 
 ### Étape 6. Activer les fonctionnalités GitHub de sécurité
 
@@ -221,10 +229,10 @@ Après passage en public, vérifier que les éléments déjà committés devienn
 
 Le passage en public rendra les protections GitHub disponibles, mais pour atteindre un niveau plus sérieux il restera utile de compléter :
 
-- un workflow PR backend avec `cargo test` ;
-- un workflow PR frontend avec `flutter analyze` et `flutter test` ;
 - éventuellement `CODEOWNERS` ;
-- éventuellement `SECURITY.md` si non présent ;
+- l'activation de GitHub Private Vulnerability Reporting une fois le repo public ;
+- l'élargissement progressif de la CI backend au-delà du smoke test `auth`, une fois les suites d'intégration encore liées à l'ancien schéma remises à niveau ;
+- éventuellement une politique séparée pour les marques, logos et autres assets non destinés à être librement réutilisés ;
 - éventuellement une décision explicite sur la visibilité publique ou privée des packages GHCR.
 
 ## Décision recommandée

@@ -79,3 +79,8 @@ Available users :
 - Deployment and VPS ops: `docs/deploiement.md`
 - Security incident runbook: `docs/incident-securite.md`
 - Future switch from private repos to public open source: `docs/passage-public-open-source.md`
+- Security policy: `SECURITY.md`
+
+## License
+
+`fiestaaa_back` is licensed under `AGPL-3.0-only`. See `LICENSE`.
