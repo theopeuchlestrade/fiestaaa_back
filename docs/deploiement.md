@@ -2,10 +2,17 @@
 
 Documentation opérationnelle pour déployer les projets `fiestaaa_back` (API Rust) et `fiestaaa_front` (front Flutter web) sur un VPS à l'aide de Docker, Traefik et GitHub Actions (GHCR).
 
-- Stack de prod décrite dans `fiestaaa_back/docker-compose.prod.yml` (Traefik + Postgres + Redis + API + Front).
+- Stack de prod décrite dans `fiestaaa_back/docker-compose.prod.yml` (Traefik + socket-proxy + Postgres + Redis + API + Front).
 - Pipeline CI existante côté backend : `fiestaaa_back/.github/workflows/deploy.yml`.
 - Registre d'images : `ghcr.io/theopeuchlestrade/{fiestaaa_back,fiestaaa_front}` (tag `latest` + tag SHA).
 - En cas de compromission ou de doute sur le VPS / les secrets : suivre aussi `fiestaaa_back/docs/incident-securite.md`.
+
+## Principes de sécurité
+
+- Les secrets de prod sont stockés dans GitHub Actions et matérialisés sur le VPS dans `~/apps/fiestaaa/.env` et `~/apps/fiestaaa/data/service-account.json` avec des permissions strictes. Les `.env.prod` locaux ne sont pas la source de vérité de la prod.
+- Le front ne reçoit plus les secrets runtime du backend : sa configuration publique est injectée uniquement au build.
+- Traefik n'accède plus directement à `/var/run/docker.sock` ; il passe par un proxy Docker en lecture limitée.
+- `FCM_SERVER_KEY` est optionnelle et ne sert qu'au fallback FCM legacy. Le chemin recommandé est FCM HTTP v1 avec `service-account.json`.
 
 ## Vue d'ensemble de l'architecture
 
@@ -17,11 +24,12 @@ graph TD
   end
 
   subgraph "VPS (ports 80/443 exposés)"
-    T["Traefik TLS + routes"] -->|Host: fiestaaa.app| F
+    T["Traefik TLS + routes"] -->|Docker metadata| S["socket-proxy"]
+    T -->|Host: fiestaaa.app| F
     T -->|Host: api.fiestaaa.app| A
 
     subgraph "Compose stack"
-      F["front Nginx + bundle Flutter web"] -->|80| T
+      F["front Nginx + bundle Flutter web"] -->|8080| T
       A["api Rust"] -->|8080| T
       A -->|SQL| DB[(Postgres)]
       A -->|cache/pubs| R[(Redis)]
@@ -41,12 +49,13 @@ graph TD
 
 ### Composants clés
 - Traefik : reverse-proxy unique, TLS (Let’s Encrypt), routes `fiestaaa.app` → service `front`, `api.fiestaaa.app` → service `api`.
-- front : conteneur Nginx servant le bundle Flutter web (port 80 interne, exposé à Traefik via labels).
+- socket-proxy : exposition limitée et en lecture seule de l’API Docker à Traefik, sur un réseau Docker interne dédié ; le socket Docker n’est plus monté directement dans Traefik.
+- front : conteneur Nginx servant le bundle Flutter web (port 8080 interne, exposé à Traefik via labels), sans secrets runtime du backend.
 - api : conteneur Rust (port 8080 interne), dépend de Postgres et Redis.
 - Postgres + volume persistant `data/postgres`; Redis sans persistance (config actuelle).
 - Uploads avatars : volume `data/uploads` monté dans le conteneur API (exposé via `AVATAR_BASE_URL`, servi par l'API).
 - Certificats Traefik : `traefik/letsencrypt/acme.json` (chmod 600).
-- CI/CD : workflows GitHub Actions (back/front) buildent et poussent les images sur GHCR puis déploient via SSH (`docker compose pull/up`).
+- CI/CD : workflows GitHub Actions (back/front) buildent et poussent les images sur GHCR puis déploient via SSH (`docker compose pull/up`). Le push d’image utilise `GITHUB_TOKEN`; le VPS n’a besoin que d’un `GHCR_TOKEN` en lecture.
 - Arborescence VPS : `~/apps/fiestaaa` avec `docker-compose.yml`, `data/`, `traefik/`, `data/service-account.json`, et optionnel `frontend/` pour éventuels overrides.
 
 ## 1) Préparer le VPS
@@ -73,7 +82,6 @@ graph TD
 	> sudo apt-get update
 	> sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
 	> ```
-	> Note : récupérez l'API version du démon Docker (`docker version --format '{{.Server.APIVersion}}'`, ex. `1.52`) et, si besoin, ajoutez-la dans `~/apps/fiestaaa/.env` via `echo "DOCKER_API_VERSION=<valeur>" >> ~/apps/fiestaaa/.env` pour aligner Traefik.
 3. **Utilisateur de déploiement (recommandé)**
 	```bash
 	sudo adduser deploy
@@ -148,13 +156,13 @@ Les commandes ci-dessous supposent un dossier `/home/<user>/apps/fiestaaa` (ajus
 Copiez au préalable le `docker-compose.prod.yml` du repo vers le VPS (git clone sur le serveur ou `rsync` depuis votre machine).
 
 ```bash
-mkdir -p ~/apps/fiestaaa/{frontend,data/uploads,traefik/letsencrypt}
+mkdir -p ~/apps/fiestaaa/{frontend,data/postgres,data/uploads,traefik/letsencrypt}
 cp fiestaaa_back/docker-compose.prod.yml ~/apps/fiestaaa/docker-compose.yml
 touch ~/apps/fiestaaa/traefik/letsencrypt/acme.json && chmod 600 ~/apps/fiestaaa/traefik/letsencrypt/acme.json
 ```
 
 - **COMPOSE_FILE attendu** : le workflow lance `docker compose ...` sans `-f`, d'où le renommage en `docker-compose.yml`.
-- **Secrets runtime (.env)** : le workflow CI générera le `.env` sur le serveur à partir des secrets GitHub (voir section suivante). Pour un premier run manuel, créez-le avec les placeholders :
+- **Secrets runtime (.env)** : le workflow CI générera le `.env` sur le serveur à partir des secrets GitHub (voir section suivante). Ce fichier reste en clair sur le VPS ; gardez-le en `chmod 600` et réservez l'accès SSH à l'admin/deploy. Si vous avez des exigences plus élevées, remplacez ce mécanisme par Docker secrets, SOPS/age ou un secret manager. Pour un premier run manuel, créez-le avec les placeholders :
 
 	```bash
 	cat > ~/apps/fiestaaa/.env <<'EOF'
@@ -177,7 +185,8 @@ touch ~/apps/fiestaaa/traefik/letsencrypt/acme.json && chmod 600 ~/apps/fiestaaa
 	# Email / push (adapter selon besoins)
 	INVITATION_EMAIL_SENDER="Fiestaaa <no-reply@fiestaaa.app>"
 	RESEND_API_KEY=...
-	FCM_SERVER_KEY=...
+	# Optionnel : uniquement si vous gardez un fallback FCM legacy
+	FCM_SERVER_KEY=
 	FIESTAAA_FCM_VAPID_KEY=...
 	FCM_PROJECT_ID=...
 	FIESTAAA_GOOGLE_WEB_CLIENT_ID=...
@@ -190,7 +199,7 @@ touch ~/apps/fiestaaa/traefik/letsencrypt/acme.json && chmod 600 ~/apps/fiestaaa
 	EOF
 	```
 
-- **Fichier de service Firebase** : placez le JSON dans `~/apps/fiestaaa/data/service-account.json` (non versionné, monté en read-only dans le conteneur API).
+- **Fichier de service Firebase** : placez le JSON dans `~/apps/fiestaaa/data/service-account.json` (non versionné, monté en read-only dans le conteneur API) et appliquez `chmod 600 ~/apps/fiestaaa/data/service-account.json`.
 - **Données persistantes** :
 	- Postgres : `./data/postgres` (volume `db`).
 	- Uploads avatars : `./data/uploads` (volume monté sur `/data/uploads` par `api`).
@@ -212,11 +221,11 @@ Workflow : `fiestaaa_back/.github/workflows/deploy.yml`
 - Déclencheurs : push sur `main` ou `master`, ou `workflow_dispatch`.
 - Jobs :
 	1. Vérifie la présence des secrets requis.
-	2. `docker login` sur GHCR (`ghcr.io`).
+	2. `docker login` sur GHCR (`ghcr.io`) avec `GITHUB_TOKEN` côté runner.
 	3. Build l'image `ghcr.io/theopeuchlestrade/fiestaaa_back:${{ github.sha }}` + `latest` (sauf si déjà présente).
 	4. Push de l'image sur GHCR.
 	5. Connexion SSH au VPS (appleboy/ssh-action) puis :
-		- Génère `.env` sur le serveur avec les secrets (here-doc non quoté pour expanser les variables côté runner).
+		- Génère `.env` sur le serveur avec les secrets GitHub pour le runtime Docker Compose.
 		- `docker compose pull api && docker compose up -d --no-deps api` (le reste de la stack doit déjà être présent grâce au compose prod).
 
 ### Secrets à ajouter dans GitHub (Settings > Secrets and variables > Actions)
@@ -228,7 +237,7 @@ Nom | Description
 `VPS_PORT` | Port SSH du VPS (renseignez la valeur configurée dans `sshd`, ex. `2222`)
 `VPS_USER` | Utilisateur de déploiement (ex. `deploy`)
 `VPS_SSH_KEY` | Contenu de la clé privée `deploy_key` (sans passphrase)
-`GHCR_TOKEN` | PAT GitHub avec `write:packages` (push) et `read:packages` (pull côté VPS)
+`GHCR_TOKEN` | PAT GitHub minimal avec `read:packages` pour le `docker login` côté VPS
 `DATABASE_URL` | URL Postgres utilisée par l'API (ex. `postgres://<user>:<pass>@db:5432/<db>`)
 `REDIS_URL` | URL Redis (ex. `redis://redis:6379`, ne pas utiliser `localhost` dans Docker)
 `DATA_ENCRYPTION_KEY` | Clé de chiffrement des données sensibles en base, 32 caractères minimum
@@ -240,7 +249,7 @@ Nom | Description
 `AVATAR_UPLOAD_DIR` | Chemin des uploads dans le conteneur API (ex. `/data/uploads/avatars`)
 `INVITATION_EMAIL_SENDER` | Expéditeur des emails d'invitations
 `RESEND_API_KEY` | Clé d'email Resend
-`FCM_SERVER_KEY` | Clé serveur FCM (notifications)
+`FCM_SERVER_KEY` | (optionnel) Clé serveur FCM legacy ; laissez vide si vous utilisez FCM HTTP v1 avec `service-account.json`
 `FIESTAAA_FCM_VAPID_KEY` | VAPID public key (web push) — réutilisée par le front
 `FCM_SERVICE_ACCOUNT_PATH` | Chemin vers la clé de service (ex. `/app/service-account.json`)
 `FCM_PROJECT_ID` | ID du projet Firebase
@@ -259,30 +268,41 @@ Nom | Description
 - L'utilisateur défini dans `VPS_USER` peut lancer `docker compose` sans sudo et dispose de Compose V2 (plugin). Éviter `docker-compose` v1 (bug connu `KeyError: 'ContainerConfig'` avec Docker récents).
 - La clé publique associée à `VPS_SSH_KEY` est dans `~/.ssh/authorized_keys`.
 - Si SSH écoute sur un port non standard, `VPS_PORT` côté GitHub Actions correspond à ce port et celui-ci est autorisé par UFW.
+- `~/apps/fiestaaa/.env`, `~/apps/fiestaaa/data/service-account.json` et `~/apps/fiestaaa/traefik/letsencrypt/acme.json` sont en `chmod 600`.
 
 ### Validation
 - Push sur `main` ➜ vérifier que le job "Build and Deploy" passe au vert.
-- Sur le VPS : `docker compose ps` puis tester les URLs `https://fiestaaa.app` et `https://api.fiestaaa.app/health` après le déploiement.
+- Sur le VPS : `docker compose ps` puis tester les URLs `https://fiestaaa.app` et `https://api.fiestaaa.app/health` après le déploiement. En cas de souci, utilisez `docker compose logs -f api` et `docker compose logs -f front`.
 
 ## 5) Frontend (fiestaaa_front)
 
-- L'image attendue par le compose prod est `ghcr.io/theopeuchlestrade/fiestaaa_front:latest` (bundle Flutter web servi par Nginx via `fiestaaa_front/Dockerfile`).
+- L'image attendue par le compose prod est `ghcr.io/theopeuchlestrade/fiestaaa_front:latest` (bundle Flutter web servi par Nginx via `fiestaaa_front/Dockerfile`, port interne `8080`, utilisateur non-root).
 - Workflow GitHub : `fiestaaa_front/.github/workflows/deploy.yml`
 	- Étapes : vérifie les secrets ➜ login GHCR ➜ build + push image (tags `${{ github.sha }}` + `latest`) ➜ SSH VPS ➜ `docker compose pull front && docker compose up -d --no-deps front`.
 	- `~/apps/fiestaaa/frontend` : dossier optionnel (pas de volume monté). Vous pouvez le créer pour héberger d'éventuels overrides Nginx ou archives, mais le conteneur front est autonome.
 - Secrets à créer sur le repo `fiestaaa_front` (Settings > Secrets and variables > Actions) :
-	- Accès VPS / registre : `VPS_HOST`, `VPS_PORT` (port SSH configuré sur le VPS), `VPS_USER`, `VPS_SSH_KEY`, `GHCR_TOKEN` (PAT avec write/read:packages).
+	- Accès VPS / registre : `VPS_HOST`, `VPS_PORT` (port SSH configuré sur le VPS), `VPS_USER`, `VPS_SSH_KEY`, `GHCR_TOKEN` (PAT minimal `read:packages` pour le pull sur le VPS).
 	- Dart defines / Firebase / OAuth : `FIESTAAA_API_BASE_URL`, `FIESTAAA_GOOGLE_WEB_CLIENT_ID`, `FIESTAAA_APPLE_SERVICE_ID`, `FIESTAAA_APPLE_REDIRECT_URI`, `FIESTAAA_FCM_VAPID_KEY`, `FIREBASE_PROJECT_ID`, `FIREBASE_STORAGE_BUCKET`, `FIREBASE_MESSAGING_SENDER_ID`, `FIREBASE_WEB_API_KEY`, `FIREBASE_WEB_APP_ID`, optionnels `FIREBASE_WEB_MEASUREMENT_ID`, `FIREBASE_AUTH_DOMAIN` (sinon `${project}.firebaseapp.com`).
 	- Partage de secrets avec le backend : `FIESTAAA_FCM_VAPID_KEY`, `FIESTAAA_GOOGLE_WEB_CLIENT_ID`, `FIREBASE_*`/`FCM_PROJECT_ID` doivent correspondre aux valeurs du backend pour que les notifications et OAuth fonctionnent.
 - Les valeurs ci-dessus sont injectées au build (visibles dans le bundle web, normal pour un front public).
-- Déploiement : le `docker-compose.yml` déjà en place contient le service `front`, aucune config supplémentaire côté VPS.
+- Déploiement : le `docker-compose.yml` déjà en place contient le service `front`, aucune config supplémentaire côté VPS. Le conteneur `front` ne charge plus le `.env` de prod au runtime.
 
 ## 6) Vérifications runtime
 
-- Santé API : `curl -vk https://api.fiestaaa.app/health` (passe par Traefik) ou `docker compose exec api curl -f http://localhost:8080/health`.
+- Santé API : `curl -vk https://api.fiestaaa.app/health` (passe par Traefik).
 - Healthcheck base : `docker compose exec db pg_isready -U ${POSTGRES_USER}`.
 - CORS : autorisations côté API via `CORS_ALLOWED_ORIGINS` (`https://fiestaaa.app,https://www.fiestaaa.app` en prod).
-- Stack up : `docker compose ps` (api doit être Up, db healthy, redis Up, traefik Up).
+- Front : `curl -I https://fiestaaa.app`.
+- Stack up : `docker compose ps` (`socket-proxy`, `traefik`, `api`, `front`, `redis` doivent être Up, `db` healthy).
+- Logs : `docker compose logs -f api`, `docker compose logs -f front`, `docker compose logs -f traefik`.
+
+## 7) Sauvegardes et reprise
+
+- Base de données : mettez en place un `pg_dump` régulier ou un snapshot de `data/postgres`, avec rétention et test de restauration.
+- Uploads : sauvegardez `data/uploads`.
+- Certificats : sauvegardez `traefik/letsencrypt/acme.json`.
+- Secrets : conservez une copie hors-VPS des valeurs GitHub Actions, du `service-account.json`, des keystores mobiles et des identifiants Apple/Google/Resend dans un coffre de secrets.
+- Reprise : testez périodiquement un redéploiement complet sur une machine vierge ou un nouveau VPS ; une sauvegarde non restaurée n’est pas une sauvegarde fiable.
 
 ### Stats rapides (sans Prometheus)
 
@@ -301,7 +321,7 @@ Le script charge `.env`, construit l’URL Postgres (`DATABASE_URL` ou `POSTGRES
 - Répartition des devices actifs par plateforme.
 - Nouveaux utilisateurs par jour (14 derniers jours).
 
-## 7) Checklists rapides
+## 8) Checklists rapides
 
 ### MEP VPS (infra)
 - [ ] IP/DNS validés (`fiestaaa.app`, `api.fiestaaa.app` ➜ VPS)
@@ -314,7 +334,7 @@ Le script charge `.env`, construit l’URL Postgres (`DATABASE_URL` ou `POSTGRES
 
 ### MEP GitHub Actions (CI)
 - [ ] Secrets `VPS_*`, `GHCR_TOKEN`, DB/Redis/JWT/URLs ajoutés
-- [ ] PAT GHCR avec `write:packages` (push) et utilisable en pull côté VPS
+- [ ] PAT GHCR avec `read:packages` uniquement pour le pull côté VPS
 - [ ] Push sur `main` déclenche la pipeline et le déploiement
 - [ ] Vérification manuelle : `docker compose ps` sur le VPS + URLs publiques accessibles
 - [ ] Workflow front actif (`fiestaaa_front/.github/workflows/deploy.yml`) + secrets front renseignés

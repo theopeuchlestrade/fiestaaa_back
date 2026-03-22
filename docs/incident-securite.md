@@ -97,7 +97,7 @@ Objectif :
 
 Actions :
 
-1. Creer un nouveau `GHCR_TOKEN`.
+1. Creer un nouveau `GHCR_TOKEN` dedie au VPS avec le scope minimal `read:packages`.
 2. Supprimer ou revoquer l'ancien token.
 3. Generer une nouvelle cle privee SSH pour le deploiement GitHub Actions si vous souhaitez la separer de votre cle admin.
 4. Mettre a jour les secrets GitHub Actions.
@@ -121,7 +121,7 @@ Secrets backend a verifier / regenerer si necessaire :
 - `AVATAR_UPLOAD_DIR`
 - `INVITATION_EMAIL_SENDER`
 - `RESEND_API_KEY`
-- `FCM_SERVER_KEY`
+- `FCM_SERVER_KEY` (optionnel, uniquement si vous gardez le fallback FCM legacy)
 - `FIESTAAA_FCM_VAPID_KEY`
 - `FCM_SERVICE_ACCOUNT_PATH`
 - `FCM_PROJECT_ID`
@@ -151,7 +151,7 @@ Secrets frontend a verifier / regenerer si necessaire :
 - `FIREBASE_WEB_API_KEY`
 - `FIREBASE_WEB_APP_ID`
 - `FIREBASE_WEB_MEASUREMENT_ID`
-- `FIREBASE_AUTH_DOMAIN`
+- `FIREBASE_AUTH_DOMAIN` (optionnel ; par defaut `${FIREBASE_PROJECT_ID}.firebaseapp.com`)
 
 Autres valeurs/fichiers sensibles ou a mettre a jour hors workflows :
 
@@ -197,7 +197,7 @@ Points de vigilance :
 
 - ne jamais reutiliser l'ancien `service-account.json` ;
 - les valeurs `FIREBASE_*` et `FIESTAAA_GOOGLE_*` doivent etre coherentes entre backend et frontend ;
-- si l'ancien projet contenait FCM, regenerer aussi `FCM_SERVER_KEY` si votre usage en depend ;
+- si vous utilisez encore le fallback FCM legacy, regenerer `FCM_SERVER_KEY` ; sinon, si vous etes passes a FCM HTTP v1 avec `service-account.json`, laissez `FCM_SERVER_KEY` vide ;
 - mettre a jour aussi les valeurs mobile liees au nouveau projet si vous les utilisez : `FIREBASE_ANDROID_API_KEY`, `FIREBASE_ANDROID_APP_ID`, `ANDROID_GOOGLE_SERVICES_JSON`, `google-services.json`, `GoogleService-Info.plist`.
 
 #### 3.3 Resend
