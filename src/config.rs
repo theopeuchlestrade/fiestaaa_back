@@ -1,5 +1,5 @@
-use log::warn;
 use crate::load_dotenv_from_repo;
+use log::warn;
 use std::collections::HashSet;
 
 fn load_resend_api_key() -> Option<String> {
