@@ -11,6 +11,7 @@ use fiestaaa_back::{
     routes,
     security::sha256_hex,
 };
+use serde::Deserialize;
 use sqlx::PgPool;
 use uuid::Uuid;
 
@@ -27,6 +28,11 @@ fn admin_token(secret: &str, email: &str) -> Option<String> {
         handle,
     };
     encode_jwt(&claims, secret).ok()
+}
+
+#[derive(Debug, Deserialize)]
+struct TestErrorResponse {
+    error: String,
 }
 
 async fn seed_user(pool: &PgPool, email: &str) -> sqlx::Result<i64> {
@@ -237,6 +243,42 @@ async fn waiting_invitee_cannot_list_event_invitations() -> Result<(), Box<dyn E
     .await;
 
     assert_eq!(list_resp.status(), StatusCode::FORBIDDEN);
+    Ok(())
+}
+
+#[tokio::test]
+async fn owner_invitation_routes_keep_not_found_for_missing_events() -> Result<(), Box<dyn Error>> {
+    let Some(pool) = obtain_pool().await else {
+        eprintln!("Skipping invitations tests: DATABASE_URL or TEST_DATABASE_URL not set");
+        return Ok(());
+    };
+    let _guard = DB_LOCK.lock().await;
+    reset_tables(&pool, &["invitations", "events", "users"]).await?;
+
+    let secret = "secret";
+    let owner_email = "owner@example.com";
+    let state = build_state(pool.clone(), secret, &[]);
+    let app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
+
+    let _owner_id = seed_user(&pool, owner_email).await?;
+    let owner_token = admin_token(secret, owner_email).expect("token");
+
+    let resp = test::call_service(
+        &app,
+        test::TestRequest::post()
+            .uri("/events/999999/invitations")
+            .insert_header(("Authorization", format!("Bearer {}", owner_token)))
+            .set_json(&InvitationPayload {
+                identifier: "guest".into(),
+                status: None,
+            })
+            .to_request(),
+    )
+    .await;
+
+    assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+    let body: TestErrorResponse = test::read_body_json(resp).await;
+    assert_eq!(body.error, "event_not_found");
     Ok(())
 }
 

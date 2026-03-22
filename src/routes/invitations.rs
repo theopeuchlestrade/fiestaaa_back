@@ -86,15 +86,14 @@ async fn ensure_event_owner(
 ) -> Result<String, HttpResponse> {
     let requester = claims_email(req, state).await?;
     let requester = fetch_user_by_email(&state.db, &requester).await?;
-    let owner = sqlx::query_scalar::<_, String>(
-        "SELECT fiestaaa_decrypt_text(u.email_ciphertext) AS owner_email
+    let owner = sqlx::query_as::<_, (String, i64)>(
+        "SELECT fiestaaa_decrypt_text(u.email_ciphertext) AS owner_email,
+                e.owner_user_id
          FROM events e
          JOIN users u ON u.id = e.owner_user_id
-         WHERE e.event_id = $1
-           AND e.owner_user_id = $2",
+         WHERE e.event_id = $1",
     )
     .bind(event_id)
-    .bind(requester.id)
     .fetch_optional(&state.db)
     .await
     .map_err(|_| {
@@ -103,13 +102,21 @@ async fn ensure_event_owner(
             details: None,
         })
     })?;
-    if let Some(owner) = owner {
-        Ok(owner)
-    } else {
+
+    let Some((owner_email, owner_user_id)) = owner else {
+        return Err(HttpResponse::NotFound().json(ErrorResponse {
+            error: "event_not_found".into(),
+            details: None,
+        }));
+    };
+
+    if owner_user_id != requester.id {
         Err(HttpResponse::Forbidden().json(ErrorResponse {
             error: "forbidden".into(),
             details: Some("only the creator can manage invitations".into()),
         }))
+    } else {
+        Ok(owner_email)
     }
 }
 
