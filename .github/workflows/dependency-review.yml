@@ -8,7 +8,17 @@ permissions:
   contents: read
 
 jobs:
+  dependency-review-unavailable:
+    if: ${{ github.event.repository.private }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Skip on private repositories
+        run: |
+          echo "Dependency Review is unavailable on private GitHub Free repositories."
+          echo "The workflow is kept in place and will become active once the repository is public or the GitHub plan changes."
+
   dependency-review:
+    if: ${{ github.event.repository.private == false }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6.0.2

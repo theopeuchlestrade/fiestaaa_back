@@ -232,7 +232,7 @@ Workflow : `fiestaaa_back/.github/workflows/deploy.yml`
 	5. Connexion SSH au VPS (appleboy/ssh-action) puis :
 		- Génère `.env` sur le serveur avec les secrets GitHub pour le runtime Docker Compose.
 		- `docker compose pull api && docker compose up -d --no-deps api` (le reste de la stack doit déjà être présent grâce au compose prod).
-- Workflow PR recommandé : `fiestaaa_back/.github/workflows/dependency-review.yml`.
+- Workflow PR recommandé : `fiestaaa_back/.github/workflows/dependency-review.yml`. Tant que le repo reste `privé + GitHub Free`, il doit skipper proprement ; l'action GitHub n'est réellement disponible qu'une fois le repo public ou le plan GitHub relevé.
 
 ### Secrets à ajouter dans GitHub (Settings > Secrets and variables > Actions)
 
@@ -277,6 +277,7 @@ Nom | Description
   - `Backend CI` sur `fiestaaa_back/.github/workflows/ci.yml`
   - `Frontend CI` sur `fiestaaa_front/.github/workflows/ci.yml`
   - `Dependency Review`
+- Tant que les repos restent `privés + GitHub Free`, `Dependency Review` doit rester présent mais se contenter d'un skip explicite ; l'action GitHub n'est pas disponible dans cette configuration.
 - Ajoutez au minimum :
   - une restriction aux branches de déploiement (`main` / `master` selon le repo) ;
   - un ou plusieurs `required reviewers` avant exécution ;
@@ -307,7 +308,7 @@ Nom | Description
 	- Partage de secrets avec le backend : `FIESTAAA_FCM_VAPID_KEY`, `FIESTAAA_GOOGLE_WEB_CLIENT_ID`, `FIREBASE_*`/`FCM_PROJECT_ID` doivent correspondre aux valeurs du backend pour que les notifications et OAuth fonctionnent.
 - Les valeurs ci-dessus sont injectées au build (visibles dans le bundle web, normal pour un front public).
 - Déploiement : le `docker-compose.yml` déjà en place contient le service `front`, aucune config supplémentaire côté VPS. Le conteneur `front` ne charge plus le `.env` de prod au runtime.
-- Workflow PR recommandé : `fiestaaa_front/.github/workflows/dependency-review.yml` pour bloquer l'introduction de dépendances vulnérables avant merge.
+- Workflow PR recommandé : `fiestaaa_front/.github/workflows/dependency-review.yml` pour bloquer l'introduction de dépendances vulnérables avant merge. Tant que le repo reste `privé + GitHub Free`, il doit skipper proprement ; l'action GitHub n'est réellement disponible qu'une fois le repo public ou le plan GitHub relevé.
 - Workflow CI PR : `fiestaaa_back/.github/workflows/ci.yml` pour le back (`cargo fmt`, `clippy`, tests unitaires/binaires + smoke tests `auth`) et `fiestaaa_front/.github/workflows/ci.yml` pour le front (`dart format`, `flutter analyze`, `flutter test`).
 
 ## 6) Vérifications runtime
@@ -384,7 +385,7 @@ Le script charge `.env`, construit l’URL Postgres (`DATABASE_URL` ou `POSTGRES
 - [ ] PAT GHCR avec `read:packages` uniquement pour le pull côté VPS
 - [ ] `secret scanning`, `push protection`, `Dependabot alerts` et `security updates` activés
 - [ ] Workflows `ci.yml` back/front actifs sur les PRs
-- [ ] Workflows `dependency-review.yml` actifs sur les PRs
+- [ ] Workflows `dependency-review.yml` présents ; en `privé + Free`, ils doivent skipper proprement, puis devenir actifs une fois les repos publics
 - [ ] Attestations de provenance activées sur les workflows de déploiement
 - [ ] Push sur `main` déclenche la pipeline et le déploiement
 - [ ] Vérification manuelle : `docker compose ps` sur le VPS + URLs publiques accessibles

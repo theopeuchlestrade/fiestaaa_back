@@ -14,7 +14,7 @@ Les workflows et la doc ont déjà été préparés pour l'état cible :
 
 - `fiestaaa_back/.github/workflows/deploy.yml` référence l'environnement GitHub `production`.
 - `fiestaaa_front/.github/workflows/deploy.yml` référence aussi `production`.
-- Les deux repos ont un workflow `Dependency Review`.
+- Les deux repos ont un workflow `Dependency Review`, actuellement configuré pour skipper proprement tant que les repos sont `privés + GitHub Free`.
 - Les workflows de déploiement sont prêts à publier des attestations de provenance.
 
 Tant que les repos sont `privés + Free`, une partie de ces protections n'est pas réellement disponible côté GitHub. Elles deviendront utiles quand les repos seront publics.
