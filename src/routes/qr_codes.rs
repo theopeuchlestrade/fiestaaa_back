@@ -41,11 +41,9 @@ async fn ensure_event_owner(
     let owner = sqlx::query_scalar::<_, i64>(
         "SELECT e.owner_user_id
          FROM events e
-         WHERE e.event_id = $1
-           AND e.owner_user_id = $2",
+         WHERE e.event_id = $1",
     )
     .bind(event_id)
-    .bind(requester_id)
     .fetch_optional(&state.db)
     .await
     .map_err(|_| {
@@ -54,13 +52,21 @@ async fn ensure_event_owner(
             details: None,
         })
     })?;
-    if let Some(owner_id) = owner {
-        Ok(owner_id)
-    } else {
+
+    let Some(owner_id) = owner else {
+        return Err(HttpResponse::NotFound().json(ErrorResponse {
+            error: "event_not_found".into(),
+            details: None,
+        }));
+    };
+
+    if owner_id != requester_id {
         Err(HttpResponse::Forbidden().json(ErrorResponse {
             error: "forbidden".into(),
             details: Some("only the event owner can scan QR codes".into()),
         }))
+    } else {
+        Ok(owner_id)
     }
 }
 

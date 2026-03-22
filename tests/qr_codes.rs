@@ -293,3 +293,55 @@ async fn scan_qr_code_rejects_expired_tokens() -> Result<(), Box<dyn Error>> {
 
     Ok(())
 }
+
+#[tokio::test]
+async fn qr_owner_routes_keep_not_found_for_missing_events() -> Result<(), Box<dyn Error>> {
+    let Some(pool) = obtain_pool().await else {
+        eprintln!("Skipping QR code tests: DATABASE_URL or TEST_DATABASE_URL not set");
+        return Ok(());
+    };
+    let _guard = DB_LOCK.lock().await;
+    reset_tables(&pool, &["event_checkins", "invitations", "events", "users"]).await?;
+
+    let secret = "secret";
+    seed_user(&pool, "owner@example.com", "owner_handle").await?;
+
+    let state = build_state(pool, secret, &[]);
+    let app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
+    let owner_token = make_token(secret, "owner@example.com", "owner_handle").expect("token");
+
+    let scan_resp = test::call_service(
+        &app,
+        test::TestRequest::post()
+            .uri("/events/999999/scan-qr")
+            .insert_header(("Authorization", format!("Bearer {}", owner_token.clone())))
+            .set_json(&QRCodeScanPayload {
+                token: "11111111-1111-1111-1111-111111111111".into(),
+            })
+            .to_request(),
+    )
+    .await;
+    assert_eq!(scan_resp.status(), StatusCode::NOT_FOUND);
+    let scan_error: serde_json::Value = test::read_body_json(scan_resp).await;
+    assert_eq!(
+        scan_error.get("error").and_then(|value| value.as_str()),
+        Some("event_not_found")
+    );
+
+    let stats_resp = test::call_service(
+        &app,
+        test::TestRequest::get()
+            .uri("/events/999999/qr-scan-stats")
+            .insert_header(("Authorization", format!("Bearer {}", owner_token)))
+            .to_request(),
+    )
+    .await;
+    assert_eq!(stats_resp.status(), StatusCode::NOT_FOUND);
+    let stats_error: serde_json::Value = test::read_body_json(stats_resp).await;
+    assert_eq!(
+        stats_error.get("error").and_then(|value| value.as_str()),
+        Some("event_not_found")
+    );
+
+    Ok(())
+}
