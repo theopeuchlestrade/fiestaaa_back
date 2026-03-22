@@ -155,8 +155,6 @@ Secrets frontend a verifier / regenerer si necessaire :
 
 Autres valeurs/fichiers sensibles ou a mettre a jour hors workflows :
 
-- `METRICS_TOKEN`
-- `GRAFANA_ADMIN_PASSWORD`
 - `service-account.json`
 - `google-services.json`
 - `GoogleService-Info.plist`
