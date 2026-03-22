@@ -6,6 +6,7 @@ Documentation opérationnelle pour déployer les projets `fiestaaa_back` (API Ru
 - Pipeline CI existante côté backend : `fiestaaa_back/.github/workflows/deploy.yml`.
 - Registre d'images : `ghcr.io/theopeuchlestrade/{fiestaaa_back,fiestaaa_front}` (tag `latest` + tag SHA).
 - En cas de compromission ou de doute sur le VPS / les secrets : suivre aussi `fiestaaa_back/docs/incident-securite.md`.
+- En cas de passage futur des repos vers `public + GitHub Free` : suivre `fiestaaa_back/docs/passage-public-open-source.md`.
 
 ## Principes de sécurité
 
@@ -15,6 +16,7 @@ Documentation opérationnelle pour déployer les projets `fiestaaa_back` (API Ru
 - Traefik n'accède plus directement à `/var/run/docker.sock` ; il passe par un proxy Docker en lecture limitée.
 - `FCM_SERVER_KEY` est optionnelle et ne sert qu'au fallback FCM legacy. Le chemin recommandé est FCM HTTP v1 avec `service-account.json`.
 - Les PRs doivent passer un `dependency review`, et les images poussées sur GHCR doivent être accompagnées d'une attestation de provenance.
+- Tant que les repos restent `privés + GitHub Free`, certaines protections préparées dans les workflows resteront inactives côté GitHub. Voir `fiestaaa_back/docs/passage-public-open-source.md` pour le basculement futur vers `public + Free`.
 
 ## Vue d'ensemble de l'architecture
 
