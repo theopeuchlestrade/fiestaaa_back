@@ -100,7 +100,7 @@ Actions :
 1. Creer un nouveau `GHCR_TOKEN` dedie au VPS avec le scope minimal `read:packages`.
 2. Supprimer ou revoquer l'ancien token.
 3. Generer une nouvelle cle privee SSH pour le deploiement GitHub Actions si vous souhaitez la separer de votre cle admin.
-4. Mettre a jour les secrets GitHub Actions.
+4. Mettre a jour les secrets GitHub Actions, idealement dans l'environnement GitHub `production` plutot qu'au niveau global du repo.
 
 Secrets backend a verifier / regenerer si necessaire :
 

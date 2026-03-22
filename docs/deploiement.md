@@ -10,9 +10,11 @@ Documentation opérationnelle pour déployer les projets `fiestaaa_back` (API Ru
 ## Principes de sécurité
 
 - Les secrets de prod sont stockés dans GitHub Actions et matérialisés sur le VPS dans `~/apps/fiestaaa/.env` et `~/apps/fiestaaa/data/service-account.json` avec des permissions strictes. Les `.env.prod` locaux ne sont pas la source de vérité de la prod.
+- Les workflows de déploiement doivent utiliser l'environnement GitHub `production`, avec secrets d'environnement, branches autorisées et approbation manuelle si possible.
 - Le front ne reçoit plus les secrets runtime du backend : sa configuration publique est injectée uniquement au build.
 - Traefik n'accède plus directement à `/var/run/docker.sock` ; il passe par un proxy Docker en lecture limitée.
 - `FCM_SERVER_KEY` est optionnelle et ne sert qu'au fallback FCM legacy. Le chemin recommandé est FCM HTTP v1 avec `service-account.json`.
+- Les PRs doivent passer un `dependency review`, et les images poussées sur GHCR doivent être accompagnées d'une attestation de provenance.
 
 ## Vue d'ensemble de l'architecture
 
@@ -219,14 +221,16 @@ docker compose logs -f api # debug si besoin
 
 Workflow : `fiestaaa_back/.github/workflows/deploy.yml`
 - Déclencheurs : push sur `main` ou `master`, ou `workflow_dispatch`.
+- Environnement GitHub recommandé : `production`
 - Jobs :
 	1. Vérifie la présence des secrets requis.
 	2. `docker login` sur GHCR (`ghcr.io`) avec `GITHUB_TOKEN` côté runner.
-	3. Build l'image `ghcr.io/theopeuchlestrade/fiestaaa_back:${{ github.sha }}` + `latest` (sauf si déjà présente).
-	4. Push de l'image sur GHCR.
+	3. Build et push l'image `ghcr.io/theopeuchlestrade/fiestaaa_back:${{ github.sha }}` + `latest` (sauf si déjà présente).
+	4. Génère une attestation de provenance GitHub liée à l'image GHCR publiée.
 	5. Connexion SSH au VPS (appleboy/ssh-action) puis :
 		- Génère `.env` sur le serveur avec les secrets GitHub pour le runtime Docker Compose.
 		- `docker compose pull api && docker compose up -d --no-deps api` (le reste de la stack doit déjà être présent grâce au compose prod).
+- Workflow PR recommandé : `fiestaaa_back/.github/workflows/dependency-review.yml`.
 
 ### Secrets à ajouter dans GitHub (Settings > Secrets and variables > Actions)
 
@@ -263,6 +267,16 @@ Nom | Description
 
 > Les valeurs front (VAPID, FCM project, client Google) sont partagées : renseignez les mêmes secrets dans le repo `fiestaaa_front` pour la build du bundle web.
 
+### Protection GitHub recommandée
+
+- Créez un environnement `production` dans GitHub sur les repos `fiestaaa_back` et `fiestaaa_front`.
+- Déplacez les secrets de prod vers les `environment secrets` de `production`.
+- Ajoutez au minimum :
+  - une restriction aux branches de déploiement (`main` / `master` selon le repo) ;
+  - un ou plusieurs `required reviewers` avant exécution ;
+  - si utile, un `wait timer` pour éviter un déploiement immédiat après merge.
+- Activez également `secret scanning`, `push protection`, `dependency graph`, `Dependabot alerts` et `Dependabot security updates`.
+
 ### Attendus côté VPS pour que la CI fonctionne
 - Le répertoire cible (`~/apps/fiestaaa`) contient `docker-compose.yml` (copie de `docker-compose.prod.yml`) et les dossiers `data/`, `traefik/`.
 - L'utilisateur défini dans `VPS_USER` peut lancer `docker compose` sans sudo et dispose de Compose V2 (plugin). Éviter `docker-compose` v1 (bug connu `KeyError: 'ContainerConfig'` avec Docker récents).
@@ -278,7 +292,8 @@ Nom | Description
 
 - L'image attendue par le compose prod est `ghcr.io/theopeuchlestrade/fiestaaa_front:latest` (bundle Flutter web servi par Nginx via `fiestaaa_front/Dockerfile`, port interne `8080`, utilisateur non-root).
 - Workflow GitHub : `fiestaaa_front/.github/workflows/deploy.yml`
-	- Étapes : vérifie les secrets ➜ login GHCR ➜ build + push image (tags `${{ github.sha }}` + `latest`) ➜ SSH VPS ➜ `docker compose pull front && docker compose up -d --no-deps front`.
+	- Environnement GitHub recommandé : `production`
+	- Étapes : vérifie les secrets ➜ login GHCR ➜ build + push image (tags `${{ github.sha }}` + `latest`) ➜ attestation de provenance GHCR ➜ SSH VPS ➜ `docker compose pull front && docker compose up -d --no-deps front`.
 	- `~/apps/fiestaaa/frontend` : dossier optionnel (pas de volume monté). Vous pouvez le créer pour héberger d'éventuels overrides Nginx ou archives, mais le conteneur front est autonome.
 - Secrets à créer sur le repo `fiestaaa_front` (Settings > Secrets and variables > Actions) :
 	- Accès VPS / registre : `VPS_HOST`, `VPS_PORT` (port SSH configuré sur le VPS), `VPS_USER`, `VPS_SSH_KEY`, `GHCR_TOKEN` (PAT minimal `read:packages` pour le pull sur le VPS).
@@ -286,6 +301,7 @@ Nom | Description
 	- Partage de secrets avec le backend : `FIESTAAA_FCM_VAPID_KEY`, `FIESTAAA_GOOGLE_WEB_CLIENT_ID`, `FIREBASE_*`/`FCM_PROJECT_ID` doivent correspondre aux valeurs du backend pour que les notifications et OAuth fonctionnent.
 - Les valeurs ci-dessus sont injectées au build (visibles dans le bundle web, normal pour un front public).
 - Déploiement : le `docker-compose.yml` déjà en place contient le service `front`, aucune config supplémentaire côté VPS. Le conteneur `front` ne charge plus le `.env` de prod au runtime.
+- Workflow PR recommandé : `fiestaaa_front/.github/workflows/dependency-review.yml` pour bloquer l'introduction de dépendances vulnérables avant merge.
 
 ## 6) Vérifications runtime
 
@@ -304,6 +320,29 @@ Nom | Description
 - Secrets : conservez une copie hors-VPS des valeurs GitHub Actions, du `service-account.json`, des keystores mobiles et des identifiants Apple/Google/Resend dans un coffre de secrets.
 - Reprise : testez périodiquement un redéploiement complet sur une machine vierge ou un nouveau VPS ; une sauvegarde non restaurée n’est pas une sauvegarde fiable.
 
+## 8) Plan de migration vers Docker secrets
+
+Objectif :
+- réduire l'exposition des secrets dans `~/apps/fiestaaa/.env` ;
+- isoler les secrets par service ;
+- préparer une rotation plus simple sur le VPS.
+
+Phase 1 :
+- garder en variables d'environnement les valeurs publiques ou peu sensibles : `APP_BASE_URL`, `AVATAR_BASE_URL`, `CORS_ALLOWED_ORIGINS`, `FCM_PROJECT_ID`, `FIESTAAA_GOOGLE_*`, `FIESTAAA_APPLE_*`, `FIESTAAA_FCM_VAPID_KEY`.
+- migrer en premier vers des fichiers secrets : `JWT_SECRET`, `DATABASE_URL`, `DATA_ENCRYPTION_KEY`, `DATA_LOOKUP_KEY`, `RESEND_API_KEY`, `POSTGRES_PASSWORD`, puis éventuellement `GHCR_TOKEN` côté VPS.
+
+Phase 2 :
+- déclarer ces secrets dans `docker-compose.yml` via `secrets:`.
+- pour Postgres, utiliser `POSTGRES_PASSWORD_FILE`.
+- pour l'API, ajouter progressivement la lecture `*_FILE` en fallback des variables d'environnement.
+
+Phase 3 :
+- remplacer la génération intégrale de `.env` par GitHub Actions par la génération ou la mise à jour de fichiers dans `~/apps/fiestaaa/secrets/`.
+- restreindre les montages à chaque service au strict nécessaire.
+
+État actuel :
+- cette migration n'est pas encore faite dans l'application ; le dépôt est prêt pour l'introduire sans changer l'architecture de déploiement.
+
 ### Stats rapides (sans Prometheus)
 
 Un script simple est disponible : `scripts/db_stats.sh`.
@@ -321,7 +360,7 @@ Le script charge `.env`, construit l’URL Postgres (`DATABASE_URL` ou `POSTGRES
 - Répartition des devices actifs par plateforme.
 - Nouveaux utilisateurs par jour (14 derniers jours).
 
-## 8) Checklists rapides
+## 9) Checklists rapides
 
 ### MEP VPS (infra)
 - [ ] IP/DNS validés (`fiestaaa.app`, `api.fiestaaa.app` ➜ VPS)
@@ -334,7 +373,11 @@ Le script charge `.env`, construit l’URL Postgres (`DATABASE_URL` ou `POSTGRES
 
 ### MEP GitHub Actions (CI)
 - [ ] Secrets `VPS_*`, `GHCR_TOKEN`, DB/Redis/JWT/URLs ajoutés
+- [ ] Environnement GitHub `production` créé sur les deux repos avec protection rules
 - [ ] PAT GHCR avec `read:packages` uniquement pour le pull côté VPS
+- [ ] `secret scanning`, `push protection`, `Dependabot alerts` et `security updates` activés
+- [ ] Workflows `dependency-review.yml` actifs sur les PRs
+- [ ] Attestations de provenance activées sur les workflows de déploiement
 - [ ] Push sur `main` déclenche la pipeline et le déploiement
 - [ ] Vérification manuelle : `docker compose ps` sur le VPS + URLs publiques accessibles
 - [ ] Workflow front actif (`fiestaaa_front/.github/workflows/deploy.yml`) + secrets front renseignés
