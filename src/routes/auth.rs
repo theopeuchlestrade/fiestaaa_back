@@ -4,20 +4,21 @@ use chrono::{DateTime, Duration as ChronoDuration, Utc};
 use log::{error, warn};
 use serde::Deserialize;
 use serde_json::json;
-use sqlx::{Error, PgPool};
+use sqlx::{Error, PgPool, Row};
 use uuid::Uuid;
 
 use crate::{
     auth::{
         build_cleared_session_cookie, build_session_cookie, encode_jwt, fetch_user_auth,
         hash_password, now_ts, random_password_token, revoke_auth_token_from_request,
-        validate_password_strength, verify_password,
+        should_secure_cookie, validate_password_strength, verify_password,
     },
     handles::{generate_unique_handle, handle_available, is_valid_handle, normalize_handle},
     models::{
         AppleClaims, Claims, CompleteRegistrationPayload, ErrorResponse, LoginPayload,
         OAuthPayload, RegisterPayload, StatusResponse, TokenResponse, VerifyEmailPayload,
     },
+    security::{normalize_email, sha256_hex},
     state::AppState,
 };
 
@@ -32,10 +33,6 @@ struct PendingRegistrationRow {
 #[derive(Deserialize)]
 pub struct OAuthPath {
     provider: String,
-}
-
-fn auth_cookie_is_secure(state: &AppState) -> bool {
-    state.app_base_url.starts_with("https://")
 }
 
 fn auth_rate_limit_remote(req: &HttpRequest, state: &AppState) -> String {
@@ -71,6 +68,7 @@ async fn enforce_auth_rate_limit(
 
 fn token_response(
     token: String,
+    public_id: String,
     email: String,
     handle: String,
     secure_cookie: bool,
@@ -87,6 +85,7 @@ fn token_response(
             } else {
                 String::new()
             },
+            public_id,
             email,
             handle,
         })
@@ -222,11 +221,11 @@ async fn send_verification_email(
     verification_link: &str,
 ) -> Result<bool, HttpResponse> {
     let Some(sender) = state.invitation_email_sender.as_ref() else {
-        warn!("Registration kept pending because INVITATION_EMAIL_SENDER is missing ({email})");
+        warn!("Registration kept pending because INVITATION_EMAIL_SENDER is missing");
         return Ok(false);
     };
     let Some(api_key) = state.invitation_email_api_key.as_ref() else {
-        warn!("Registration kept pending because RESEND_API_KEY is missing ({email})");
+        warn!("Registration kept pending because RESEND_API_KEY is missing");
         return Ok(false);
     };
 
@@ -279,15 +278,14 @@ async fn send_verification_email(
         Ok(resp) if resp.status().is_success() => Ok(true),
         Ok(resp) => {
             let status = resp.status();
-            let body = resp.text().await.unwrap_or_default();
-            warn!("verification email provider failure ({email}): status {status}, body: {body}");
+            warn!("verification email provider failure: status {status}");
             Err(HttpResponse::BadGateway().json(ErrorResponse {
                 error: "email_send_failed".into(),
                 details: Some(format!("provider status {status}")),
             }))
         }
         Err(err) => {
-            error!("verification email transport failure ({email}): {err}");
+            error!("verification email transport failure: {err}");
             Err(HttpResponse::BadGateway().json(ErrorResponse {
                 error: "email_send_failed".into(),
                 details: Some("transport_error".into()),
@@ -318,7 +316,7 @@ pub async fn register(
         return resp;
     }
 
-    let email = payload.email.trim().to_lowercase();
+    let email = normalize_email(&payload.email);
 
     if email.is_empty() {
         return HttpResponse::BadRequest().json(ErrorResponse {
@@ -345,6 +343,7 @@ pub async fn register(
     }
 
     let verification_token = Uuid::new_v4();
+    let verification_token_hash = sha256_hex(&verification_token.to_string());
     let verification_expires_at = Utc::now() + ChronoDuration::hours(EMAIL_VERIFICATION_TTL_HOURS);
     let verification_link = build_email_verification_link(&state.app_base_url, verification_token);
 
@@ -362,7 +361,7 @@ pub async fn register(
         "SELECT EXISTS(
             SELECT 1
             FROM pending_registrations
-            WHERE lower(email) = lower($1)
+            WHERE fiestaaa_email_matches(email_lookup_hash, $1)
         )",
     )
     .bind(&email)
@@ -408,17 +407,25 @@ pub async fn register(
 
     let res = sqlx::query(
         "INSERT INTO pending_registrations (
-            email,
+            email_ciphertext,
+            email_lookup_hash,
             password_hash,
             handle,
-            verification_token,
+            verification_token_hash,
             verification_expires_at
-         ) VALUES ($1, $2, $3, $4, $5)",
+         ) VALUES (
+            fiestaaa_encrypt_text($1),
+            fiestaaa_email_lookup($1),
+            $2,
+            $3,
+            $4,
+            $5
+         )",
     )
     .bind(&email)
     .bind(&hash)
     .bind(&handle)
-    .bind(verification_token)
+    .bind(&verification_token_hash)
     .bind(verification_expires_at)
     .execute(&mut *tx)
     .await;
@@ -501,6 +508,7 @@ pub async fn verify_email(
             });
         }
     };
+    let verification_token_hash = sha256_hex(&verification_token.to_string());
 
     let mut tx = match state.db.begin().await {
         Ok(value) => value,
@@ -513,12 +521,12 @@ pub async fn verify_email(
     };
 
     let pending = match sqlx::query_as::<_, PendingRegistrationRow>(
-        "SELECT email, verification_expires_at
+        "SELECT fiestaaa_decrypt_text(email_ciphertext) AS email, verification_expires_at
          FROM pending_registrations
-         WHERE verification_token = $1
+         WHERE verification_token_hash = $1
          FOR UPDATE",
     )
-    .bind(verification_token)
+    .bind(&verification_token_hash)
     .fetch_optional(&mut *tx)
     .await
     {
@@ -541,10 +549,12 @@ pub async fn verify_email(
     };
 
     if pending.verification_expires_at < Utc::now() {
-        let _ = sqlx::query("DELETE FROM pending_registrations WHERE email = $1")
-            .bind(&pending.email)
-            .execute(&mut *tx)
-            .await;
+        let _ = sqlx::query(
+            "DELETE FROM pending_registrations WHERE fiestaaa_email_matches(email_lookup_hash, $1)",
+        )
+        .bind(&pending.email)
+        .execute(&mut *tx)
+        .await;
         let _ = tx.commit().await;
         return HttpResponse::Gone().json(ErrorResponse {
             error: "expired_token".into(),
@@ -554,7 +564,9 @@ pub async fn verify_email(
 
     match fetch_user_by_email(&state.db, &pending.email).await {
         Ok(Some(_)) => {
-            let _ = sqlx::query("DELETE FROM pending_registrations WHERE email = $1")
+            let _ = sqlx::query(
+                "DELETE FROM pending_registrations WHERE fiestaaa_email_matches(email_lookup_hash, $1)",
+            )
                 .bind(&pending.email)
                 .execute(&mut *tx)
                 .await;
@@ -632,6 +644,7 @@ pub async fn complete_registration(
             });
         }
     };
+    let verification_token_hash = sha256_hex(&verification_token.to_string());
 
     let mut tx = match state.db.begin().await {
         Ok(value) => value,
@@ -644,12 +657,12 @@ pub async fn complete_registration(
     };
 
     let pending = match sqlx::query_as::<_, PendingRegistrationRow>(
-        "SELECT email, verification_expires_at
+        "SELECT fiestaaa_decrypt_text(email_ciphertext) AS email, verification_expires_at
          FROM pending_registrations
-         WHERE verification_token = $1
+         WHERE verification_token_hash = $1
          FOR UPDATE",
     )
-    .bind(verification_token)
+    .bind(&verification_token_hash)
     .fetch_optional(&mut *tx)
     .await
     {
@@ -672,10 +685,12 @@ pub async fn complete_registration(
     };
 
     if pending.verification_expires_at < Utc::now() {
-        let _ = sqlx::query("DELETE FROM pending_registrations WHERE email = $1")
-            .bind(&pending.email)
-            .execute(&mut *tx)
-            .await;
+        let _ = sqlx::query(
+            "DELETE FROM pending_registrations WHERE fiestaaa_email_matches(email_lookup_hash, $1)",
+        )
+        .bind(&pending.email)
+        .execute(&mut *tx)
+        .await;
         let _ = tx.commit().await;
         return HttpResponse::Gone().json(ErrorResponse {
             error: "expired_token".into(),
@@ -685,7 +700,9 @@ pub async fn complete_registration(
 
     match fetch_user_by_email(&state.db, &pending.email).await {
         Ok(Some(_)) => {
-            let _ = sqlx::query("DELETE FROM pending_registrations WHERE email = $1")
+            let _ = sqlx::query(
+                "DELETE FROM pending_registrations WHERE fiestaaa_email_matches(email_lookup_hash, $1)",
+            )
                 .bind(&pending.email)
                 .execute(&mut *tx)
                 .await;
@@ -731,40 +748,48 @@ pub async fn complete_registration(
         }
     };
 
-    let insert_user =
-        sqlx::query("INSERT INTO users (email, password_hash, handle) VALUES ($1, $2, $3)")
-            .bind(&pending.email)
-            .bind(&password_hash)
-            .bind(&final_handle)
-            .execute(&mut *tx)
-            .await;
+    let inserted_user = sqlx::query(
+        "INSERT INTO users (email_ciphertext, email_lookup_hash, password_hash, handle)
+         VALUES (fiestaaa_encrypt_text($1), fiestaaa_email_lookup($1), $2, $3)
+         RETURNING public_id::text AS public_id",
+    )
+    .bind(&pending.email)
+    .bind(&password_hash)
+    .bind(&final_handle)
+    .fetch_one(&mut *tx)
+    .await;
 
-    if let Err(err) = insert_user {
-        let _ = tx.rollback().await;
-        return match err {
-            Error::Database(db_err) if db_err.code().as_deref() == Some("23505") => {
-                let constraint = db_err.constraint().unwrap_or_default();
-                HttpResponse::Conflict().json(ErrorResponse {
-                    error: if constraint.contains("handle") {
-                        "handle_taken".into()
-                    } else {
-                        "email_taken".into()
-                    },
+    let inserted_user = match inserted_user {
+        Ok(row) => row,
+        Err(err) => {
+            let _ = tx.rollback().await;
+            return match err {
+                Error::Database(db_err) if db_err.code().as_deref() == Some("23505") => {
+                    let constraint = db_err.constraint().unwrap_or_default();
+                    HttpResponse::Conflict().json(ErrorResponse {
+                        error: if constraint.contains("handle") {
+                            "handle_taken".into()
+                        } else {
+                            "email_taken".into()
+                        },
+                        details: None,
+                    })
+                }
+                _ => HttpResponse::InternalServerError().json(ErrorResponse {
+                    error: "db_error".into(),
                     details: None,
-                })
-            }
-            _ => HttpResponse::InternalServerError().json(ErrorResponse {
-                error: "db_error".into(),
-                details: None,
-            }),
-        };
-    }
+                }),
+            };
+        }
+    };
 
-    if sqlx::query("DELETE FROM pending_registrations WHERE email = $1")
-        .bind(&pending.email)
-        .execute(&mut *tx)
-        .await
-        .is_err()
+    if sqlx::query(
+        "DELETE FROM pending_registrations WHERE fiestaaa_email_matches(email_lookup_hash, $1)",
+    )
+    .bind(&pending.email)
+    .execute(&mut *tx)
+    .await
+    .is_err()
     {
         let _ = tx.rollback().await;
         return HttpResponse::InternalServerError().json(ErrorResponse {
@@ -782,15 +807,16 @@ pub async fn complete_registration(
 
     let exp = (now_ts() + 24 * 3600) as usize;
     let claims = Claims {
-        sub: pending.email.clone(),
+        sub: inserted_user.get::<String, _>("public_id"),
         handle: final_handle.clone(),
         exp,
     };
-    let secure_cookie = auth_cookie_is_secure(state.get_ref());
+    let secure_cookie = should_secure_cookie(&req, &state.app_base_url, state.trust_proxy_headers);
 
     match encode_jwt(&claims, &state.jwt_secret) {
         Ok(token) => token_response(
             token,
+            claims.sub.clone(),
             pending.email,
             final_handle,
             secure_cookie,
@@ -844,6 +870,7 @@ pub async fn oauth_login(
 #[derive(Debug, Clone, sqlx::FromRow)]
 struct OAuthUserRow {
     id: i64,
+    public_id: Uuid,
     email: String,
     handle: String,
 }
@@ -895,10 +922,14 @@ async fn fetch_oauth_user_by_identity(
     provider_subject: &str,
 ) -> Result<Option<OAuthUserRow>, sqlx::Error> {
     sqlx::query_as::<_, OAuthUserRow>(
-        "SELECT u.id, u.email, u.handle
+        "SELECT u.id,
+                u.public_id,
+                fiestaaa_decrypt_text(u.email_ciphertext) AS email,
+                u.handle
          FROM oauth_identities oi
          JOIN users u ON u.id = oi.user_id
-         WHERE oi.provider = $1 AND oi.provider_subject = $2",
+         WHERE oi.provider = $1
+           AND fiestaaa_lookup_matches(oi.provider_subject_lookup_hash, $2)",
     )
     .bind(provider)
     .bind(provider_subject)
@@ -914,7 +945,8 @@ async fn touch_oauth_identity(
     sqlx::query(
         "UPDATE oauth_identities
          SET last_login_at = NOW()
-         WHERE provider = $1 AND provider_subject = $2",
+         WHERE provider = $1
+           AND fiestaaa_lookup_matches(provider_subject_lookup_hash, $2)",
     )
     .bind(provider)
     .bind(provider_subject)
@@ -928,7 +960,12 @@ async fn fetch_user_by_email(
     email: &str,
 ) -> Result<Option<OAuthUserRow>, sqlx::Error> {
     sqlx::query_as::<_, OAuthUserRow>(
-        "SELECT id, email, handle FROM users WHERE lower(email) = lower($1)",
+        "SELECT id,
+                public_id,
+                fiestaaa_decrypt_text(email_ciphertext) AS email,
+                handle
+         FROM users
+         WHERE fiestaaa_email_matches(email_lookup_hash, $1)",
     )
     .bind(email)
     .fetch_optional(db)
@@ -960,9 +997,12 @@ async fn create_oauth_user(
     };
 
     let inserted = sqlx::query_as::<_, OAuthUserRow>(
-        "INSERT INTO users (email, handle, password_hash)
-         VALUES ($1, $2, $3)
-         RETURNING id, email, handle",
+        "INSERT INTO users (email_ciphertext, email_lookup_hash, handle, password_hash)
+         VALUES (fiestaaa_encrypt_text($1), fiestaaa_email_lookup($1), $2, $3)
+         RETURNING id,
+                   public_id,
+                   fiestaaa_decrypt_text(email_ciphertext) AS email,
+                   handle",
     )
     .bind(email)
     .bind(&new_handle)
@@ -1027,9 +1067,14 @@ async fn resolve_oauth_user(
     };
 
     let insert_identity = sqlx::query(
-        "INSERT INTO oauth_identities (provider, provider_subject, user_id)
-         VALUES ($1, $2, $3)
-         ON CONFLICT (provider, provider_subject) DO NOTHING",
+        "INSERT INTO oauth_identities (
+            provider,
+            provider_subject_ciphertext,
+            provider_subject_lookup_hash,
+            user_id
+         )
+         VALUES ($1, fiestaaa_encrypt_text($2), fiestaaa_lookup_text($2), $3)
+         ON CONFLICT (provider, provider_subject_lookup_hash) DO NOTHING",
     )
     .bind(provider)
     .bind(provider_subject)
@@ -1042,10 +1087,12 @@ async fn resolve_oauth_user(
             details: None,
         }));
     }
-    let _ = sqlx::query("DELETE FROM pending_registrations WHERE lower(email) = lower($1)")
-        .bind(&email)
-        .execute(&state.db)
-        .await;
+    let _ = sqlx::query(
+        "DELETE FROM pending_registrations WHERE fiestaaa_email_matches(email_lookup_hash, $1)",
+    )
+    .bind(&email)
+    .execute(&state.db)
+    .await;
 
     match fetch_oauth_user_by_identity(&state.db, provider, provider_subject).await {
         Ok(Some(user)) => {
@@ -1192,15 +1239,16 @@ async fn oauth_google(
 
     let exp = (now_ts() + 24 * 3600) as usize;
     let claims = Claims {
-        sub: user.email.clone(),
+        sub: user.public_id.to_string(),
         handle: user.handle.clone(),
         exp,
     };
-    let secure_cookie = auth_cookie_is_secure(state.get_ref());
+    let secure_cookie = should_secure_cookie(&req, &state.app_base_url, state.trust_proxy_headers);
 
     match encode_jwt(&claims, &state.jwt_secret) {
         Ok(token) => token_response(
             token,
+            user.public_id.to_string(),
             user.email,
             user.handle,
             secure_cookie,
@@ -1302,15 +1350,16 @@ async fn oauth_apple(
 
     let exp = claims.exp;
     let claims = Claims {
-        sub: user.email.clone(),
+        sub: user.public_id.to_string(),
         handle: user.handle.clone(),
         exp,
     };
-    let secure_cookie = auth_cookie_is_secure(state.get_ref());
+    let secure_cookie = should_secure_cookie(&req, &state.app_base_url, state.trust_proxy_headers);
 
     match encode_jwt(&claims, &state.jwt_secret) {
         Ok(token) => token_response(
             token,
+            user.public_id.to_string(),
             user.email,
             user.handle,
             secure_cookie,
@@ -1363,10 +1412,9 @@ pub async fn logout(state: web::Data<AppState>, req: HttpRequest) -> impl Respon
     if let Err(resp) = revoke_auth_token_from_request(&req, &state.db, &state.jwt_secret).await {
         return resp;
     }
+    let secure_cookie = should_secure_cookie(&req, &state.app_base_url, state.trust_proxy_headers);
     HttpResponse::Ok()
-        .cookie(build_cleared_session_cookie(auth_cookie_is_secure(
-            state.get_ref(),
-        )))
+        .cookie(build_cleared_session_cookie(secure_cookie))
         .json(StatusResponse {
             status: "logged_out".into(),
         })
@@ -1417,15 +1465,16 @@ pub async fn login(
 
     let exp = (now_ts() + 24 * 3600) as usize;
     let claims = Claims {
-        sub: auth_row.email.clone(),
+        sub: auth_row.public_id.to_string(),
         handle: auth_row.handle.clone(),
         exp,
     };
-    let secure_cookie = auth_cookie_is_secure(state.get_ref());
+    let secure_cookie = should_secure_cookie(&req, &state.app_base_url, state.trust_proxy_headers);
 
     match encode_jwt(&claims, &state.jwt_secret) {
         Ok(token) => token_response(
             token,
+            auth_row.public_id.to_string(),
             auth_row.email,
             auth_row.handle,
             secure_cookie,

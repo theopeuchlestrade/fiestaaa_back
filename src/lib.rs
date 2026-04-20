@@ -9,8 +9,11 @@ pub mod notifications;
 pub mod rate_limit;
 pub mod realtime;
 pub mod routes;
+pub mod security;
 pub mod state;
 
+use dotenvy::from_path;
+use std::path::Path;
 use std::sync::OnceLock;
 use std::time::Duration;
 
@@ -35,13 +38,28 @@ pub fn build_http_client(user_agent: &str) -> reqwest::Client {
         .expect("http client")
 }
 
+pub fn load_dotenv_from_repo() {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join(".env");
+    if let Err(err) = from_path(&path)
+        && path.exists()
+    {
+        eprintln!("Warning: failed to load {}: {err}", path.display());
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::install_rustls_crypto_provider;
+    use super::{install_rustls_crypto_provider, load_dotenv_from_repo};
 
     #[test]
     fn rustls_provider_install_is_idempotent() {
         install_rustls_crypto_provider();
         install_rustls_crypto_provider();
+    }
+
+    #[test]
+    fn load_dotenv_from_repo_is_idempotent() {
+        load_dotenv_from_repo();
+        load_dotenv_from_repo();
     }
 }

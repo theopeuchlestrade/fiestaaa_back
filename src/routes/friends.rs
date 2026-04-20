@@ -12,6 +12,7 @@ use crate::{
     },
     notifications::{NotificationRequest, notify_users},
     realtime::{event_types, publish_global_type},
+    security::normalize_email,
     state::AppState,
 };
 
@@ -43,7 +44,7 @@ async fn find_user_by_email(
     db: &PgPool,
     email: &str,
 ) -> Result<Option<UserIdentity>, HttpResponse> {
-    let normalized = email.trim().to_lowercase();
+    let normalized = normalize_email(email);
     if normalized.is_empty() {
         return Err(HttpResponse::BadRequest().json(ErrorResponse {
             error: "invalid_email".into(),
@@ -52,7 +53,12 @@ async fn find_user_by_email(
     }
 
     sqlx::query_as::<_, UserIdentity>(
-        "SELECT id, email, handle, avatar_url FROM users WHERE lower(email) = lower($1)",
+        "SELECT id,
+                fiestaaa_decrypt_text(email_ciphertext) AS email,
+                handle,
+                avatar_url
+         FROM users
+         WHERE fiestaaa_email_matches(email_lookup_hash, $1)",
     )
     .bind(&normalized)
     .fetch_optional(db)
@@ -65,7 +71,12 @@ async fn find_user_by_handle(
     handle: &str,
 ) -> Result<Option<UserIdentity>, HttpResponse> {
     sqlx::query_as::<_, UserIdentity>(
-        "SELECT id, email, handle, avatar_url FROM users WHERE lower(handle) = lower($1)",
+        "SELECT id,
+                fiestaaa_decrypt_text(email_ciphertext) AS email,
+                handle,
+                avatar_url
+         FROM users
+         WHERE lower(handle) = lower($1)",
     )
     .bind(handle)
     .fetch_optional(db)
@@ -154,10 +165,10 @@ async fn pending_request_exists(db: &PgPool, a: i64, b: i64) -> Result<bool, Htt
 async fn fetch_request_view(db: &PgPool, id: i64) -> Result<FriendRequest, HttpResponse> {
     sqlx::query_as::<_, FriendRequest>(
         "SELECT fr.id,
-                sender.email AS sender_email,
+                fiestaaa_decrypt_text(sender.email_ciphertext) AS sender_email,
                 sender.handle AS sender_handle,
                 sender.avatar_url AS sender_avatar_url,
-                receiver.email AS receiver_email,
+                fiestaaa_decrypt_text(receiver.email_ciphertext) AS receiver_email,
                 receiver.handle AS receiver_handle,
                 receiver.avatar_url AS receiver_avatar_url,
                 fr.status,
@@ -198,7 +209,10 @@ pub async fn list_friends(state: web::Data<AppState>, req: HttpRequest) -> impl 
 
     match sqlx::query_as::<_, Friend>(
         "SELECT
-            CASE WHEN f.user_a = $1 THEN u2.email ELSE u1.email END AS email,
+            CASE
+                WHEN f.user_a = $1 THEN fiestaaa_decrypt_text(u2.email_ciphertext)
+                ELSE fiestaaa_decrypt_text(u1.email_ciphertext)
+            END AS email,
             CASE WHEN f.user_a = $1 THEN u2.handle ELSE u1.handle END AS handle,
             CASE WHEN f.user_a = $1 THEN u2.avatar_url ELSE u1.avatar_url END AS avatar_url,
             f.created_at AS since
@@ -414,10 +428,10 @@ pub async fn list_friend_requests(state: web::Data<AppState>, req: HttpRequest) 
 
     match sqlx::query_as::<_, FriendRequest>(
         "SELECT fr.id,
-                sender.email AS sender_email,
+                fiestaaa_decrypt_text(sender.email_ciphertext) AS sender_email,
                 sender.handle AS sender_handle,
                 sender.avatar_url AS sender_avatar_url,
-                receiver.email AS receiver_email,
+                fiestaaa_decrypt_text(receiver.email_ciphertext) AS receiver_email,
                 receiver.handle AS receiver_handle,
                 receiver.avatar_url AS receiver_avatar_url,
                 fr.status,

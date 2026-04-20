@@ -38,8 +38,8 @@ fn make_token(secret: &str, email: &str, handle: &str) -> Option<String> {
 async fn seed_user(pool: &PgPool, email: &str, handle: &str) -> sqlx::Result<i64> {
     let hash = hash_password("StrongPassw0rd!").expect("hash");
     sqlx::query_scalar::<_, i64>(
-        "INSERT INTO users (email, password_hash, handle)
-         VALUES ($1, $2, $3)
+        "INSERT INTO users (email_ciphertext, email_lookup_hash, password_hash, handle)
+         VALUES (fiestaaa_encrypt_text($1), fiestaaa_email_lookup($1), $2, $3)
          RETURNING id",
     )
     .bind(email)
@@ -81,11 +81,13 @@ async fn me_returns_authenticated_profile() -> Result<(), Box<dyn Error>> {
 
     let secret = "secret";
     seed_user(&pool, "owner@example.com", "owner_handle").await?;
-    sqlx::query("UPDATE users SET avatar_url = $1 WHERE lower(email) = lower($2)")
-        .bind("https://cdn.example.com/avatar.jpg")
-        .bind("owner@example.com")
-        .execute(&pool)
-        .await?;
+    sqlx::query(
+        "UPDATE users SET avatar_url = $1 WHERE fiestaaa_email_matches(email_lookup_hash, $2)",
+    )
+    .bind("https://cdn.example.com/avatar.jpg")
+    .bind("owner@example.com")
+    .execute(&pool)
+    .await?;
 
     let state = build_state(pool, secret, &[]);
     let app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
@@ -178,11 +180,12 @@ async fn handle_availability_and_update_cover_validation_and_conflicts()
     let updated: TestMeResponse = test::read_body_json(updated_resp).await;
     assert_eq!(updated.handle, "fresh_handle");
 
-    let stored: (String,) =
-        sqlx::query_as("SELECT handle FROM users WHERE lower(email) = lower($1)")
-            .bind("owner@example.com")
-            .fetch_one(&pool)
-            .await?;
+    let stored: (String,) = sqlx::query_as(
+        "SELECT handle FROM users WHERE fiestaaa_email_matches(email_lookup_hash, $1)",
+    )
+    .bind("owner@example.com")
+    .fetch_one(&pool)
+    .await?;
     assert_eq!(stored.0, "fresh_handle");
     Ok(())
 }

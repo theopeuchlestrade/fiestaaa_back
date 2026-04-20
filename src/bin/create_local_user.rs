@@ -1,10 +1,11 @@
 use std::error::Error;
 
-use dotenvy::dotenv;
 use fiestaaa_back::{
     auth::{hash_password, validate_password_strength},
     db,
     handles::{generate_unique_handle, is_valid_handle, normalize_handle},
+    load_dotenv_from_repo,
+    security::normalize_email,
 };
 use sqlx::PgPool;
 
@@ -17,6 +18,16 @@ struct CliArgs {
     email: String,
     password: String,
     handle: Option<String>,
+}
+
+fn required_secret_env(name: &str) -> String {
+    let value = std::env::var(name).unwrap_or_default();
+    let trimmed = value.trim();
+    if trimmed.len() < 32 {
+        eprintln!("{name} must be defined and contain at least 32 characters");
+        std::process::exit(2);
+    }
+    trimmed.to_string()
 }
 
 fn usage(binary: &str) -> String {
@@ -54,7 +65,7 @@ fn parse_args() -> Result<CliArgs, String> {
     }
 
     let email = email
-        .map(|value| value.trim().to_lowercase())
+        .map(|value| normalize_email(&value))
         .filter(|value| !value.is_empty())
         .ok_or_else(|| format!("--email is required\n\n{}", usage(&binary)))?;
     let password = password
@@ -72,10 +83,12 @@ async fn fetch_existing_user(
     pool: &PgPool,
     email: &str,
 ) -> Result<Option<ExistingUser>, sqlx::Error> {
-    sqlx::query_as::<_, ExistingUser>("SELECT handle FROM users WHERE lower(email) = lower($1)")
-        .bind(email)
-        .fetch_optional(pool)
-        .await
+    sqlx::query_as::<_, ExistingUser>(
+        "SELECT handle FROM users WHERE fiestaaa_email_matches(email_lookup_hash, $1)",
+    )
+    .bind(email)
+    .fetch_optional(pool)
+    .await
 }
 
 async fn resolve_handle(
@@ -111,16 +124,19 @@ async fn upsert_user(
 ) -> Result<(i64, bool), sqlx::Error> {
     let mut tx = pool.begin().await?;
 
-    sqlx::query("DELETE FROM pending_registrations WHERE lower(email) = lower($1)")
-        .bind(email)
-        .execute(&mut *tx)
-        .await?;
+    sqlx::query(
+        "DELETE FROM pending_registrations WHERE fiestaaa_email_matches(email_lookup_hash, $1)",
+    )
+    .bind(email)
+    .execute(&mut *tx)
+    .await?;
 
-    let existing_id =
-        sqlx::query_scalar::<_, i64>("SELECT id FROM users WHERE lower(email) = lower($1)")
-            .bind(email)
-            .fetch_optional(&mut *tx)
-            .await?;
+    let existing_id = sqlx::query_scalar::<_, i64>(
+        "SELECT id FROM users WHERE fiestaaa_email_matches(email_lookup_hash, $1)",
+    )
+    .bind(email)
+    .fetch_optional(&mut *tx)
+    .await?;
 
     let result = if let Some(id) = existing_id {
         sqlx::query("UPDATE users SET password_hash = $1, handle = $2 WHERE id = $3")
@@ -132,7 +148,9 @@ async fn upsert_user(
         (id, false)
     } else {
         let id = sqlx::query_scalar::<_, i64>(
-            "INSERT INTO users (email, password_hash, handle) VALUES ($1, $2, $3) RETURNING id",
+            "INSERT INTO users (email_ciphertext, email_lookup_hash, password_hash, handle)
+             VALUES (fiestaaa_encrypt_text($1), fiestaaa_email_lookup($1), $2, $3)
+             RETURNING id",
         )
         .bind(email)
         .bind(password_hash)
@@ -149,7 +167,7 @@ async fn upsert_user(
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     fiestaaa_back::install_rustls_crypto_provider();
-    let _ = dotenv();
+    load_dotenv_from_repo();
 
     let args = match parse_args() {
         Ok(value) => value,
@@ -165,7 +183,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let database_url = std::env::var("DATABASE_URL")
         .unwrap_or_else(|_| "postgres://postgres:postgres@localhost:5432/fiestaaa".to_string());
-    let pool = db::connect_and_migrate(&database_url).await;
+    let data_encryption_key = required_secret_env("DATA_ENCRYPTION_KEY");
+    let data_lookup_key = required_secret_env("DATA_LOOKUP_KEY");
+    let pool = db::connect_and_migrate(&database_url, &data_encryption_key, &data_lookup_key).await;
     let existing_user = match fetch_existing_user(&pool, &args.email).await {
         Ok(value) => value,
         Err(err) => {
