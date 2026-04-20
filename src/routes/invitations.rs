@@ -14,6 +14,7 @@ use crate::{
     notifications::{NotificationRequest, find_user_id_by_email, notify_users},
     realtime::{event_types, publish_event, publish_event_type, publish_global_type},
     routes::event_access::ensure_event_writable,
+    security::sha256_hex,
     state::AppState,
 };
 
@@ -54,17 +55,21 @@ async fn enforce_invitation_rate_limit(
 }
 
 async fn fetch_event_owner_email(db: &sqlx::PgPool, event_id: i64) -> Result<String, HttpResponse> {
-    let owner =
-        sqlx::query_scalar::<_, String>("SELECT owner_email FROM events WHERE event_id = $1")
-            .bind(event_id)
-            .fetch_optional(db)
-            .await
-            .map_err(|_| {
-                HttpResponse::InternalServerError().json(ErrorResponse {
-                    error: "db_error".into(),
-                    details: None,
-                })
-            })?;
+    let owner = sqlx::query_scalar::<_, String>(
+        "SELECT fiestaaa_decrypt_text(u.email_ciphertext) AS owner_email
+         FROM events e
+         JOIN users u ON u.id = e.owner_user_id
+         WHERE e.event_id = $1",
+    )
+    .bind(event_id)
+    .fetch_optional(db)
+    .await
+    .map_err(|_| {
+        HttpResponse::InternalServerError().json(ErrorResponse {
+            error: "db_error".into(),
+            details: None,
+        })
+    })?;
 
     owner.ok_or_else(|| {
         HttpResponse::NotFound().json(ErrorResponse {
@@ -80,14 +85,38 @@ async fn ensure_event_owner(
     event_id: i64,
 ) -> Result<String, HttpResponse> {
     let requester = claims_email(req, state).await?;
-    let owner = fetch_event_owner_email(&state.db, event_id).await?;
-    if owner == requester {
-        Ok(owner)
-    } else {
+    let requester = fetch_user_by_email(&state.db, &requester).await?;
+    let owner = sqlx::query_as::<_, (String, i64)>(
+        "SELECT fiestaaa_decrypt_text(u.email_ciphertext) AS owner_email,
+                e.owner_user_id
+         FROM events e
+         JOIN users u ON u.id = e.owner_user_id
+         WHERE e.event_id = $1",
+    )
+    .bind(event_id)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(|_| {
+        HttpResponse::InternalServerError().json(ErrorResponse {
+            error: "db_error".into(),
+            details: None,
+        })
+    })?;
+
+    let Some((owner_email, owner_user_id)) = owner else {
+        return Err(HttpResponse::NotFound().json(ErrorResponse {
+            error: "event_not_found".into(),
+            details: None,
+        }));
+    };
+
+    if owner_user_id != requester.id {
         Err(HttpResponse::Forbidden().json(ErrorResponse {
             error: "forbidden".into(),
             details: Some("only the creator can manage invitations".into()),
         }))
+    } else {
+        Ok(owner_email)
     }
 }
 
@@ -97,8 +126,25 @@ async fn ensure_event_participant(
     event_id: i64,
 ) -> Result<(), HttpResponse> {
     let requester = claims_email(req, state).await?;
-    let owner = fetch_event_owner_email(&state.db, event_id).await?;
-    if owner.eq_ignore_ascii_case(&requester) {
+    let requester = fetch_user_by_email(&state.db, &requester).await?;
+    let owner_id =
+        sqlx::query_scalar::<_, i64>("SELECT owner_user_id FROM events WHERE event_id = $1")
+            .bind(event_id)
+            .fetch_optional(&state.db)
+            .await
+            .map_err(|_| {
+                HttpResponse::InternalServerError().json(ErrorResponse {
+                    error: "db_error".into(),
+                    details: None,
+                })
+            })?
+            .ok_or_else(|| {
+                HttpResponse::NotFound().json(ErrorResponse {
+                    error: "event_not_found".into(),
+                    details: None,
+                })
+            })?;
+    if owner_id == requester.id {
         return Ok(());
     }
 
@@ -106,14 +152,13 @@ async fn ensure_event_participant(
         "SELECT EXISTS(
             SELECT 1
             FROM invitations i
-            JOIN users u ON u.id = i.user_id
             WHERE i.event_id = $1
-              AND lower(u.email) = lower($2)
+              AND i.user_id = $2
               AND i.status = 'Accepted'
         )",
     )
     .bind(event_id)
-    .bind(&requester)
+    .bind(requester.id)
     .fetch_one(&state.db)
     .await
     .map_err(|_| {
@@ -201,7 +246,12 @@ async fn fetch_user_by_email(db: &sqlx::PgPool, email: &str) -> Result<UserIdent
     }
 
     sqlx::query_as::<_, UserIdentity>(
-        "SELECT id, email, handle, avatar_url FROM users WHERE lower(email) = lower($1)",
+        "SELECT id,
+                fiestaaa_decrypt_text(email_ciphertext) AS email,
+                handle,
+                avatar_url
+         FROM users
+         WHERE fiestaaa_email_matches(email_lookup_hash, $1)",
     )
     .bind(&normalized)
     .fetch_optional(db)
@@ -225,7 +275,12 @@ async fn find_user_by_handle(
     handle: &str,
 ) -> Result<Option<UserIdentity>, HttpResponse> {
     sqlx::query_as::<_, UserIdentity>(
-        "SELECT id, email, handle, avatar_url FROM users WHERE lower(handle) = lower($1)",
+        "SELECT id,
+                fiestaaa_decrypt_text(email_ciphertext) AS email,
+                handle,
+                avatar_url
+         FROM users
+         WHERE lower(handle) = lower($1)",
     )
     .bind(handle)
     .fetch_optional(db)
@@ -307,10 +362,7 @@ async fn send_invitation_email(
     let sender = match &state.invitation_email_sender {
         Some(value) => value,
         None => {
-            warn!(
-                "Invitation email not sent: INVITATION_EMAIL_SENDER missing (target: {})",
-                to_email
-            );
+            warn!("Invitation email not sent: INVITATION_EMAIL_SENDER missing");
             return Err(HttpResponse::ServiceUnavailable().json(ErrorResponse {
                 error: "email_not_configured".into(),
                 details: Some("INVITATION_EMAIL_SENDER manquant".into()),
@@ -321,10 +373,7 @@ async fn send_invitation_email(
     let api_key = match &state.invitation_email_api_key {
         Some(value) => value,
         None => {
-            warn!(
-                "Invitation email not sent: RESEND_API_KEY missing (target: {})",
-                to_email
-            );
+            warn!("Invitation email not sent: RESEND_API_KEY missing");
             return Err(HttpResponse::ServiceUnavailable().json(ErrorResponse {
                 error: "email_not_configured".into(),
                 details: Some("RESEND_API_KEY manquant".into()),
@@ -421,21 +470,14 @@ async fn send_invitation_email(
         Ok(resp) if resp.status().is_success() => Ok(()),
         Ok(resp) => {
             let status = resp.status();
-            let body = resp.text().await.unwrap_or_else(|_| "".into());
-            warn!(
-                "Invitation email provider failure ({}): status {}, body: {}",
-                to_email, status, body
-            );
+            warn!("Invitation email provider failure: status {status}");
             Err(HttpResponse::BadGateway().json(ErrorResponse {
                 error: "email_send_failed".into(),
                 details: Some(format!("provider status {status}")),
             }))
         }
         Err(e) => {
-            error!(
-                "Invitation email send failed ({}): transport error: {}",
-                to_email, e
-            );
+            error!("Invitation email send failed: transport error: {e}");
             Err(HttpResponse::BadGateway().json(ErrorResponse {
                 error: "email_send_failed".into(),
                 details: Some("transport_error".into()),
@@ -475,7 +517,7 @@ async fn invite_email_target(
             FROM invitations i
             JOIN users u ON u.id = i.user_id
             WHERE i.event_id = $1
-              AND lower(u.email) = lower($2)
+              AND fiestaaa_email_matches(u.email_lookup_hash, $2)
               AND i.status <> 'Expired'
         )",
     )
@@ -498,8 +540,7 @@ async fn invite_email_target(
             SELECT 1
             FROM event_share_tokens
             WHERE event_id = $1
-              AND lower(target_email) = lower($2)
-              AND target_email IS NOT NULL
+              AND target_email_lookup_hash = fiestaaa_email_lookup($2)
               AND used_at IS NULL
               AND expires_at >= NOW()
         )",
@@ -526,15 +567,31 @@ async fn invite_email_target(
     })?;
 
     let token = Uuid::new_v4();
+    let token_hash = sha256_hex(&token.to_string());
     let expires_at = Utc::now() + Duration::days(7);
+    let owner_user_id = fetch_user_by_email(&state.db, owner_email).await?.id;
 
     if (sqlx::query(
-        "INSERT INTO event_share_tokens (token, event_id, created_by_email, target_email, expires_at)
-         VALUES ($1, $2, $3, $4, $5)",
+        "INSERT INTO event_share_tokens (
+            token_hash,
+            event_id,
+            created_by_user_id,
+            target_email_ciphertext,
+            target_email_lookup_hash,
+            expires_at
+         )
+         VALUES (
+            $1,
+            $2,
+            $3,
+            fiestaaa_encrypt_text($4),
+            fiestaaa_email_lookup($4),
+            $5
+         )",
     )
-    .bind(token)
+    .bind(&token_hash)
     .bind(event_id)
-    .bind(owner_email)
+    .bind(owner_user_id)
     .bind(&normalized_invitee)
     .bind(expires_at)
     .execute(&mut *tx)
@@ -559,8 +616,8 @@ async fn invite_email_target(
     if let Err(resp) =
         send_invitation_email(state, &normalized_invitee, owner_email, &share_link, &event).await
     {
-        let _ = sqlx::query("DELETE FROM event_share_tokens WHERE token = $1")
-            .bind(token)
+        let _ = sqlx::query("DELETE FROM event_share_tokens WHERE token_hash = $1")
+            .bind(&token_hash)
             .execute(&state.db)
             .await;
         return Err(resp);
@@ -637,19 +694,19 @@ pub async fn list_event_invitations(
     match sqlx::query_as::<_, Invitation>(
         "SELECT e.event_id,
                 u_owner.id AS user_id,
-                e.owner_email AS email,
+                fiestaaa_decrypt_text(u_owner.email_ciphertext) AS email,
                 u_owner.handle AS handle,
                 u_owner.avatar_url AS avatar_url,
                 'Accepted'::text AS status,
                 NOW() AS date_invi,
                 e.name_event AS event_name
          FROM events e
-         LEFT JOIN users u_owner ON lower(u_owner.email) = lower(e.owner_email)
+         LEFT JOIN users u_owner ON u_owner.id = e.owner_user_id
          WHERE e.event_id = $1
          UNION ALL
          SELECT i.event_id,
                 u.id AS user_id,
-                u.email,
+                fiestaaa_decrypt_text(u.email_ciphertext) AS email,
                 u.handle,
                 u.avatar_url,
                 i.status,
@@ -659,25 +716,28 @@ pub async fn list_event_invitations(
          JOIN users u ON u.id = i.user_id
          JOIN events e ON e.event_id = i.event_id
          WHERE i.event_id = $1
-           AND lower(u.email) <> lower(e.owner_email)
+           AND u.id <> e.owner_user_id
          UNION ALL
          SELECT pending.event_id,
                 NULL::BIGINT AS user_id,
-                pending.target_email AS email,
+                pending.email AS email,
                 NULL::TEXT AS handle,
                 NULL::TEXT AS avatar_url,
                 'Waiting'::text AS status,
                 pending.created_at AS date_invi,
                 e.name_event AS event_name
          FROM (
-             SELECT DISTINCT ON (lower(target_email))
-                    event_id, target_email, created_at
+             SELECT DISTINCT ON (target_email_lookup_hash)
+                    event_id,
+                    fiestaaa_decrypt_text(target_email_ciphertext) AS email,
+                    created_at,
+                    target_email_lookup_hash
              FROM event_share_tokens
              WHERE event_id = $1
-               AND target_email IS NOT NULL
+               AND target_email_lookup_hash IS NOT NULL
                AND used_at IS NULL
                AND expires_at >= NOW()
-             ORDER BY lower(target_email), created_at DESC
+             ORDER BY target_email_lookup_hash, created_at DESC
          ) pending
          JOIN events e ON e.event_id = pending.event_id
          ORDER BY date_invi DESC",
@@ -936,11 +996,18 @@ pub async fn list_my_invitations(state: web::Data<AppState>, req: HttpRequest) -
     }
 
     match sqlx::query_as::<_, Invitation>(
-        "SELECT i.event_id, u.id AS user_id, u.email, u.handle, u.avatar_url, i.status, i.date_invi, e.name_event AS event_name
+        "SELECT i.event_id,
+                u.id AS user_id,
+                fiestaaa_decrypt_text(u.email_ciphertext) AS email,
+                u.handle,
+                u.avatar_url,
+                i.status,
+                i.date_invi,
+                e.name_event AS event_name
          FROM invitations i
          JOIN users u ON u.id = i.user_id
          JOIN events e ON e.event_id = i.event_id
-         WHERE lower(u.email) = lower($1)
+         WHERE fiestaaa_email_matches(u.email_lookup_hash, $1)
          ORDER BY i.date_invi DESC",
     )
     .bind(&email)
@@ -1056,14 +1123,14 @@ pub async fn respond_invitation(
             WHERE event_id = $2 AND user_id = $3
             RETURNING event_id, user_id, status, date_invi
          )
-         SELECT 
-            ui.event_id, 
+         SELECT
+            ui.event_id,
             ui.user_id,
-            u.email, 
-            u.handle, 
-            u.avatar_url, 
-            ui.status, 
-            ui.date_invi, 
+            fiestaaa_decrypt_text(u.email_ciphertext) AS email,
+            u.handle,
+            u.avatar_url,
+            ui.status,
+            ui.date_invi,
             e.name_event AS event_name
          FROM updated_invitation ui
          JOIN users u ON u.id = ui.user_id

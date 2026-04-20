@@ -67,8 +67,8 @@ async fn ensure_friend_tables(pool: &PgPool) -> sqlx::Result<()> {
 async fn seed_user(pool: &PgPool, email: &str, handle: &str) -> sqlx::Result<i64> {
     let hash = hash_password("StrongPassw0rd!").expect("hash");
     sqlx::query_scalar::<_, i64>(
-        "INSERT INTO users (email, password_hash, handle)
-         VALUES ($1, $2, $3)
+        "INSERT INTO users (email_ciphertext, email_lookup_hash, password_hash, handle)
+         VALUES (fiestaaa_encrypt_text($1), fiestaaa_email_lookup($1), $2, $3)
          RETURNING id",
     )
     .bind(email)

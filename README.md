@@ -9,6 +9,7 @@ Quick dev workflow using Docker Compose for both Postgres and the Rust API.
 ## Environment
 - Copy `.env.example` to `.env` and adjust as needed. The compose file sets
   `DATABASE_URL=postgres://postgres:postgres@db:5432/fiestaaa` for the API container.
+- `DATA_ENCRYPTION_KEY` and `DATA_LOOKUP_KEY` are now required. Keep them outside the database and use secrets of at least 32 characters.
 - Optionally define `ADMIN_EMAILS` (comma-separated, lower/upper case ignored) to restrict admin endpoints like `/items` to specific accounts.
 - For invitation emails to unregistered guests, set `APP_BASE_URL` (used to build the share link) to your front URL
   (ex: `http://localhost:5001` in dev), plus `INVITATION_EMAIL_SENDER` and `RESEND_API_KEY`.
@@ -27,9 +28,14 @@ Quick dev workflow using Docker Compose for both Postgres and the Rust API.
 ### Clean database 
 - `docker compose down -v`
 - `docker compose up --build`
+- Or rebuild directly from the single initial migration with
+  `./scripts/rebuild_db_from_schema.sh`
+  using `migrations/001_initial_schema.sql`.
 
 ## Notes
 - Migrations run automatically on API startup (via `sqlx::migrate!`).
+- The project now assumes a clean-slate migration history: `migrations/001_initial_schema.sql`
+  is the full current schema.
 - The API container mounts the project directory; code changes rebuild on next run.
 - If you prefer local cargo run, start only DB: `docker compose up -d db`, and keep
   `DATABASE_URL=postgres://postgres:postgres@localhost:5432/fiestaaa` in `.env`.
@@ -67,3 +73,14 @@ Available users :
 - ubuntu (default/admin)
 - theo (admin)
 - deploy
+
+## Docs
+
+- Deployment and VPS ops: `docs/deploiement.md`
+- Security incident runbook: `docs/incident-securite.md`
+- Future switch from private repos to public open source: `docs/passage-public-open-source.md`
+- Security policy: `SECURITY.md`
+
+## License
+
+`fiestaaa_back` is licensed under `AGPL-3.0-only`. See `LICENSE`.

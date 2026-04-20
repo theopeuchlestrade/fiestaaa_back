@@ -73,9 +73,19 @@ pub async fn register_device(
     };
 
     let res = sqlx::query(
-        "INSERT INTO user_devices (user_id, fcm_token, platform, locale, app_version, created_at, last_seen, disabled_at)
-         VALUES ($1, $2, $3, $4, $5, NOW(), NOW(), NULL)
-         ON CONFLICT (fcm_token)
+        "INSERT INTO user_devices (
+            user_id,
+            fcm_token_ciphertext,
+            fcm_token_lookup_hash,
+            platform,
+            locale,
+            app_version,
+            created_at,
+            last_seen,
+            disabled_at
+         )
+         VALUES ($1, fiestaaa_encrypt_text($2), fiestaaa_lookup_text($2), $3, $4, $5, NOW(), NOW(), NULL)
+         ON CONFLICT (fcm_token_lookup_hash)
          DO UPDATE SET user_id = EXCLUDED.user_id,
                        platform = EXCLUDED.platform,
                        locale = EXCLUDED.locale,
@@ -147,7 +157,10 @@ pub async fn refresh_device(
 
     if !old_token.is_empty() {
         let _ = sqlx::query(
-            "UPDATE user_devices SET disabled_at = NOW() WHERE user_id = $1 AND fcm_token = $2",
+            "UPDATE user_devices
+             SET disabled_at = NOW()
+             WHERE user_id = $1
+               AND fiestaaa_lookup_matches(fcm_token_lookup_hash, $2)",
         )
         .bind(user_id)
         .bind(old_token)
@@ -173,7 +186,10 @@ pub async fn refresh_device(
         p
     } else {
         match sqlx::query_scalar::<_, String>(
-            "SELECT platform FROM user_devices WHERE user_id = $1 AND fcm_token = $2",
+            "SELECT platform
+             FROM user_devices
+             WHERE user_id = $1
+               AND fiestaaa_lookup_matches(fcm_token_lookup_hash, $2)",
         )
         .bind(user_id)
         .bind(old_token)
@@ -186,9 +202,19 @@ pub async fn refresh_device(
     };
 
     let res = sqlx::query(
-        "INSERT INTO user_devices (user_id, fcm_token, platform, locale, app_version, created_at, last_seen, disabled_at)
-         VALUES ($1, $2, $3, $4, $5, NOW(), NOW(), NULL)
-         ON CONFLICT (fcm_token)
+        "INSERT INTO user_devices (
+            user_id,
+            fcm_token_ciphertext,
+            fcm_token_lookup_hash,
+            platform,
+            locale,
+            app_version,
+            created_at,
+            last_seen,
+            disabled_at
+         )
+         VALUES ($1, fiestaaa_encrypt_text($2), fiestaaa_lookup_text($2), $3, $4, $5, NOW(), NOW(), NULL)
+         ON CONFLICT (fcm_token_lookup_hash)
          DO UPDATE SET user_id = EXCLUDED.user_id,
                        platform = EXCLUDED.platform,
                        locale = EXCLUDED.locale,
@@ -249,7 +275,10 @@ pub async fn delete_device(
     let token = payload.into_inner().token;
 
     let _ = sqlx::query(
-        "UPDATE user_devices SET disabled_at = NOW() WHERE user_id = $1 AND fcm_token = $2",
+        "UPDATE user_devices
+         SET disabled_at = NOW()
+         WHERE user_id = $1
+           AND fiestaaa_lookup_matches(fcm_token_lookup_hash, $2)",
     )
     .bind(user_id)
     .bind(token.trim())

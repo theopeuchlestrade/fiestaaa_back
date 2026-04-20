@@ -23,7 +23,12 @@ async fn main() -> std::io::Result<()> {
 
     // Config + DB
     let cfg = config::AppConfig::from_env();
-    let pool = db::connect_and_migrate(&cfg.database_url).await;
+    let pool = db::connect_and_migrate(
+        &cfg.database_url,
+        &cfg.data_encryption_key,
+        &cfg.data_lookup_key,
+    )
+    .await;
 
     cleanup::CleanupService::new(pool.clone())
         .with_cleanup_days(cfg.event_cleanup_days)
@@ -58,7 +63,7 @@ async fn main() -> std::io::Result<()> {
         cors_allowed_origins: cfg.cors_allowed_origins.iter().cloned().collect(),
         avatar_upload_dir: cfg.avatar_upload_dir.clone(),
         avatar_base_url: cfg.avatar_base_url.clone(),
-        redis_client,
+        redis_client: redis_client.clone(),
         notifications,
         fcm_project_id: cfg.fcm_project_id.clone(),
         google_client_id: cfg.google_client_id.clone(),
@@ -69,15 +74,18 @@ async fn main() -> std::io::Result<()> {
         auth_rate_limiter: rate_limit::AuthRateLimiter::new(
             cfg.auth_rate_limit_max_attempts,
             Duration::from_secs(cfg.auth_rate_limit_window_seconds),
+            redis_client.clone(),
         ),
         invitation_rate_limiter: rate_limit::AuthRateLimiter::new(
             cfg.invitation_rate_limit_max_attempts,
             Duration::from_secs(cfg.invitation_rate_limit_window_seconds),
+            redis_client.clone(),
         ),
     });
 
     // Server
     let enable_swagger_ui = cfg.enable_swagger_ui;
+    let enable_hsts = cfg.app_base_url.starts_with("https://");
     HttpServer::new(move || {
         let mut cors = Cors::default()
             .allowed_methods(vec!["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"])
@@ -88,19 +96,25 @@ async fn main() -> std::io::Result<()> {
             cors = cors.allowed_origin(origin);
         }
 
+        let mut default_headers = DefaultHeaders::new()
+            .add(("X-Content-Type-Options", "nosniff"))
+            .add(("X-Frame-Options", "DENY"))
+            .add(("Referrer-Policy", "no-referrer"))
+            .add((
+                "Permissions-Policy",
+                "camera=(), microphone=(), geolocation=(), payment=(), usb=()",
+            ));
+        if enable_hsts {
+            default_headers = default_headers.add((
+                "Strict-Transport-Security",
+                "max-age=31536000; includeSubDomains",
+            ));
+        }
+
         App::new()
             .app_data(state.clone())
             .wrap(Logger::new(r#"%a "%m %U" %s %b %T"#))
-            .wrap(
-                DefaultHeaders::new()
-                    .add(("X-Content-Type-Options", "nosniff"))
-                    .add(("X-Frame-Options", "DENY"))
-                    .add(("Referrer-Policy", "no-referrer"))
-                    .add((
-                        "Permissions-Policy",
-                        "camera=(), microphone=(), geolocation=(), payment=(), usb=()",
-                    )),
-            )
+            .wrap(default_headers)
             .wrap(cors)
             .configure(routes::configure)
             .service(Files::new("/media/avatars", &cfg.avatar_upload_dir).prefer_utf8(true))

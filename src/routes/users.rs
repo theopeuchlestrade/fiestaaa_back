@@ -2,13 +2,14 @@ use actix_multipart::Multipart;
 use actix_web::{HttpRequest, HttpResponse, Responder, delete, get, patch, post, web};
 use futures_util::StreamExt;
 use image::{ImageReader, Limits};
+use log::warn;
 use sqlx::Row;
 use uuid::Uuid;
 
 use crate::{
     auth::{
         build_cleared_session_cookie, extract_active_claims_from_auth,
-        extract_verified_claims_from_auth, revoke_auth_token_from_request,
+        extract_verified_claims_from_auth, revoke_auth_token_from_request, should_secure_cookie,
     },
     handles::{handle_available, is_valid_handle, normalize_handle},
     models::{
@@ -21,6 +22,41 @@ const MAX_AVATAR_BYTES: usize = 1_000_000; // ~1MB
 const MAX_AVATAR_DIM: u32 = 512;
 const MAX_SOURCE_AVATAR_DIM: u32 = 4096;
 const MAX_SOURCE_AVATAR_ALLOC_BYTES: u64 = 64 * 1024 * 1024;
+
+fn avatar_storage_path(
+    avatar_upload_dir: &str,
+    avatar_base_url: &str,
+    avatar_url: &str,
+) -> Option<std::path::PathBuf> {
+    let base = avatar_base_url.trim_end_matches('/');
+    let filename = avatar_url.strip_prefix(base)?.strip_prefix('/')?;
+    if filename.is_empty()
+        || filename.contains('/')
+        || filename.contains('\\')
+        || filename.contains("..")
+    {
+        return None;
+    }
+
+    Some(std::path::Path::new(avatar_upload_dir).join(filename))
+}
+
+async fn cleanup_avatar_file(state: &AppState, avatar_url: Option<&str>) {
+    let Some(avatar_url) = avatar_url else {
+        return;
+    };
+    let Some(path) =
+        avatar_storage_path(&state.avatar_upload_dir, &state.avatar_base_url, avatar_url)
+    else {
+        return;
+    };
+
+    match tokio::fs::remove_file(&path).await {
+        Ok(_) => {}
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+        Err(err) => warn!("failed to remove avatar file {}: {err}", path.display()),
+    }
+}
 
 #[derive(serde::Deserialize)]
 pub struct HandleAvailabilityQuery {
@@ -95,8 +131,11 @@ pub async fn update_handle(
     let res = sqlx::query(
         "UPDATE users
          SET handle = $1
-         WHERE lower(email) = lower($2)
-         RETURNING email, handle, avatar_url",
+         WHERE fiestaaa_email_matches(email_lookup_hash, $2)
+         RETURNING public_id::text AS public_id,
+                   fiestaaa_decrypt_text(email_ciphertext) AS email,
+                   handle,
+                   avatar_url",
     )
     .bind(&candidate)
     .bind(&claims.sub)
@@ -105,6 +144,7 @@ pub async fn update_handle(
 
     match res {
         Ok(row) => HttpResponse::Ok().json(MeResponse {
+            public_id: row.get("public_id"),
             email: row.get("email"),
             handle: row.get("handle"),
             avatar_url: row.get::<Option<String>, _>("avatar_url"),
@@ -147,6 +187,29 @@ pub async fn upload_avatar(
     let claims = match extract_active_claims_from_auth(&req, &state.db, &state.jwt_secret).await {
         Ok(c) => c,
         Err(resp) => return resp,
+    };
+    let previous_avatar_url = match sqlx::query_scalar::<_, Option<String>>(
+        "SELECT avatar_url
+         FROM users
+         WHERE fiestaaa_email_matches(email_lookup_hash, $1)",
+    )
+    .bind(&claims.sub)
+    .fetch_optional(&state.db)
+    .await
+    {
+        Ok(Some(value)) => value,
+        Ok(None) => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                error: "user_not_found".into(),
+                details: None,
+            });
+        }
+        Err(_) => {
+            return HttpResponse::InternalServerError().json(ErrorResponse {
+                error: "db_error".into(),
+                details: None,
+            });
+        }
     };
 
     let mut bytes: Vec<u8> = Vec::new();
@@ -255,8 +318,11 @@ pub async fn upload_avatar(
     let res = sqlx::query(
         "UPDATE users
          SET avatar_url = $1
-         WHERE lower(email) = lower($2)
-         RETURNING email, handle, avatar_url",
+         WHERE fiestaaa_email_matches(email_lookup_hash, $2)
+         RETURNING public_id::text AS public_id,
+                   fiestaaa_decrypt_text(email_ciphertext) AS email,
+                   handle,
+                   avatar_url",
     )
     .bind(&public_url)
     .bind(&claims.sub)
@@ -264,20 +330,36 @@ pub async fn upload_avatar(
     .await;
 
     match res {
-        Ok(row) => HttpResponse::Ok().json(MeResponse {
-            email: row.get("email"),
-            handle: row.get("handle"),
-            avatar_url: row.get::<Option<String>, _>("avatar_url"),
-            exp: claims.exp,
-        }),
-        Err(sqlx::Error::RowNotFound) => HttpResponse::Unauthorized().json(ErrorResponse {
-            error: "user_not_found".into(),
-            details: None,
-        }),
-        Err(_) => HttpResponse::InternalServerError().json(ErrorResponse {
-            error: "db_error".into(),
-            details: None,
-        }),
+        Ok(row) => {
+            cleanup_avatar_file(
+                state.get_ref(),
+                previous_avatar_url
+                    .as_deref()
+                    .filter(|url| *url != public_url),
+            )
+            .await;
+            HttpResponse::Ok().json(MeResponse {
+                public_id: row.get("public_id"),
+                email: row.get("email"),
+                handle: row.get("handle"),
+                avatar_url: row.get::<Option<String>, _>("avatar_url"),
+                exp: claims.exp,
+            })
+        }
+        Err(sqlx::Error::RowNotFound) => {
+            cleanup_avatar_file(state.get_ref(), Some(&public_url)).await;
+            HttpResponse::Unauthorized().json(ErrorResponse {
+                error: "user_not_found".into(),
+                details: None,
+            })
+        }
+        Err(_) => {
+            cleanup_avatar_file(state.get_ref(), Some(&public_url)).await;
+            HttpResponse::InternalServerError().json(ErrorResponse {
+                error: "db_error".into(),
+                details: None,
+            })
+        }
     }
 }
 
@@ -303,20 +385,29 @@ pub async fn delete_account(state: web::Data<AppState>, req: HttpRequest) -> imp
         return resp;
     }
 
-    // Supprimer l'utilisateur (les CASCADE s'occupent des données liées)
-    let res = sqlx::query("DELETE FROM users WHERE lower(email) = lower($1)")
-        .bind(&claims.sub)
-        .execute(&state.db)
-        .await;
+    let res = sqlx::query(
+        "DELETE FROM users
+         WHERE fiestaaa_email_matches(email_lookup_hash, $1)
+         RETURNING avatar_url",
+    )
+    .bind(&claims.sub)
+    .fetch_optional(&state.db)
+    .await;
 
     match res {
-        Ok(result) if result.rows_affected() > 0 => HttpResponse::Ok()
-            .cookie(build_cleared_session_cookie(
-                state.app_base_url.starts_with("https://"),
-            ))
-            .json(StatusResponse {
-                status: "account_deleted".into(),
-            }),
+        Ok(Some(row)) => {
+            let avatar_url: Option<String> = row.get("avatar_url");
+            cleanup_avatar_file(state.get_ref(), avatar_url.as_deref()).await;
+            HttpResponse::Ok()
+                .cookie(build_cleared_session_cookie(should_secure_cookie(
+                    &req,
+                    &state.app_base_url,
+                    state.trust_proxy_headers,
+                )))
+                .json(StatusResponse {
+                    status: "account_deleted".into(),
+                })
+        }
         Ok(_) => HttpResponse::NotFound().json(ErrorResponse {
             error: "user_not_found".into(),
             details: None,
@@ -325,5 +416,42 @@ pub async fn delete_account(state: web::Data<AppState>, req: HttpRequest) -> imp
             error: "db_error".into(),
             details: Some("Impossible de supprimer le compte".into()),
         }),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::avatar_storage_path;
+    use std::path::PathBuf;
+
+    #[test]
+    fn avatar_storage_path_accepts_expected_public_url() {
+        let path = avatar_storage_path(
+            "/tmp/uploads/avatars",
+            "https://api.fiestaaa.app/media/avatars",
+            "https://api.fiestaaa.app/media/avatars/avatar.jpg",
+        );
+
+        assert_eq!(path, Some(PathBuf::from("/tmp/uploads/avatars/avatar.jpg")));
+    }
+
+    #[test]
+    fn avatar_storage_path_rejects_nested_or_external_paths() {
+        assert!(
+            avatar_storage_path(
+                "/tmp/uploads/avatars",
+                "https://api.fiestaaa.app/media/avatars",
+                "https://api.fiestaaa.app/media/avatars/../secret.txt",
+            )
+            .is_none()
+        );
+        assert!(
+            avatar_storage_path(
+                "/tmp/uploads/avatars",
+                "https://api.fiestaaa.app/media/avatars",
+                "https://other.example/media/avatars/avatar.jpg",
+            )
+            .is_none()
+        );
     }
 }

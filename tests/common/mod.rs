@@ -2,31 +2,22 @@ use std::collections::HashSet;
 
 use actix_web::web;
 use fiestaaa_back::{
-    notifications::NotificationService, rate_limit::AuthRateLimiter, state::AppState,
+    db, notifications::NotificationService, rate_limit::AuthRateLimiter, state::AppState,
 };
 use once_cell::sync::Lazy;
-use sqlx::{PgPool, postgres::PgPoolOptions};
+use sqlx::PgPool;
 use tokio::sync::Mutex;
 
 pub static DB_LOCK: Lazy<Mutex<()>> = Lazy::new(|| Mutex::new(()));
+const TEST_DATA_ENCRYPTION_KEY: &str = "test-data-encryption-key-32-chars!!";
+const TEST_DATA_LOOKUP_KEY: &str = "test-data-lookup-key-32-chars!!!!!!";
 
 pub async fn obtain_pool() -> Option<PgPool> {
     let url = std::env::var("TEST_DATABASE_URL")
         .or_else(|_| std::env::var("DATABASE_URL"))
         .ok()?;
 
-    let pool = PgPoolOptions::new()
-        .max_connections(5)
-        .connect(&url)
-        .await
-        .ok()?;
-
-    if let Err(e) = sqlx::migrate!("./migrations").run(&pool).await {
-        eprintln!("Skipping tests: failed to run migrations: {e}");
-        return None;
-    }
-
-    Some(pool)
+    Some(db::connect_and_migrate(&url, TEST_DATA_ENCRYPTION_KEY, TEST_DATA_LOOKUP_KEY).await)
 }
 
 pub async fn reset_tables(pool: &PgPool, tables: &[&str]) -> sqlx::Result<()> {
@@ -71,7 +62,11 @@ pub fn build_state(pool: PgPool, secret: &str, admin_emails: &[&str]) -> web::Da
         apple_app_id: None,
         apple_service_id: None,
         google_ios_client_id: None,
-        auth_rate_limiter: AuthRateLimiter::new(1000, std::time::Duration::from_secs(60)),
-        invitation_rate_limiter: AuthRateLimiter::new(1000, std::time::Duration::from_secs(60)),
+        auth_rate_limiter: AuthRateLimiter::new(1000, std::time::Duration::from_secs(60), None),
+        invitation_rate_limiter: AuthRateLimiter::new(
+            1000,
+            std::time::Duration::from_secs(60),
+            None,
+        ),
     })
 }

@@ -39,6 +39,7 @@ pub struct Claims {
 #[derive(Serialize, ToSchema)]
 pub struct TokenResponse {
     pub token: String,
+    pub public_id: String,
     pub email: String,
     pub handle: String,
 }
@@ -76,6 +77,7 @@ pub struct ErrorResponse {
 
 #[derive(Serialize, ToSchema)]
 pub struct MeResponse {
+    pub public_id: String,
     pub email: String,
     pub exp: usize,
     pub handle: String,

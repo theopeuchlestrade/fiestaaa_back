@@ -252,10 +252,14 @@ impl NotificationService {
             || body_txt.contains("UNREGISTERED")
             || body_txt.contains("INVALID_ARGUMENT")
         {
-            let _ = sqlx::query("UPDATE user_devices SET disabled_at = NOW() WHERE fcm_token = $1")
-                .bind(token)
-                .execute(ctx.db)
-                .await;
+            let _ = sqlx::query(
+                "UPDATE user_devices
+                 SET disabled_at = NOW()
+                 WHERE fiestaaa_lookup_matches(fcm_token_lookup_hash, $1)",
+            )
+            .bind(token)
+            .execute(ctx.db)
+            .await;
         }
     }
 
@@ -339,10 +343,16 @@ async fn handle_invalid_tokens(
         }
 
         if !invalid.is_empty() {
-            sqlx::query("UPDATE user_devices SET disabled_at = NOW() WHERE fcm_token = ANY($1)")
-                .bind(&invalid)
-                .execute(db)
-                .await?;
+            sqlx::query(
+                "UPDATE user_devices
+                 SET disabled_at = NOW()
+                 WHERE fcm_token_lookup_hash = ANY(
+                    ARRAY(SELECT fiestaaa_lookup_text(value) FROM unnest($1::text[]) AS value)
+                 )",
+            )
+            .bind(&invalid)
+            .execute(db)
+            .await?;
         }
     }
     Ok(())
@@ -352,10 +362,12 @@ pub async fn find_user_id_by_email(
     db: &Pool<Postgres>,
     email: &str,
 ) -> Result<Option<i64>, sqlx::Error> {
-    sqlx::query_scalar::<_, i64>("SELECT id FROM users WHERE lower(email) = lower($1)")
-        .bind(email)
-        .fetch_optional(db)
-        .await
+    sqlx::query_scalar::<_, i64>(
+        "SELECT id FROM users WHERE fiestaaa_email_matches(email_lookup_hash, $1)",
+    )
+    .bind(email)
+    .fetch_optional(db)
+    .await
 }
 
 pub async fn tokens_by_user_ids(
@@ -367,7 +379,8 @@ pub async fn tokens_by_user_ids(
     }
 
     let rows = sqlx::query(
-        "SELECT user_id, fcm_token FROM user_devices
+        "SELECT user_id, fiestaaa_decrypt_text(fcm_token_ciphertext) AS fcm_token
+         FROM user_devices
          WHERE disabled_at IS NULL AND user_id = ANY($1)",
     )
     .bind(user_ids)
@@ -436,9 +449,9 @@ pub async fn event_member_user_ids(
     event_id: i64,
 ) -> Result<Vec<i64>, sqlx::Error> {
     let owner_id = sqlx::query_scalar::<_, i64>(
-        "SELECT id FROM users WHERE lower(email) = (
-            SELECT lower(owner_email) FROM events WHERE event_id = $1
-        )",
+        "SELECT owner_user_id
+         FROM events
+         WHERE event_id = $1",
     )
     .bind(event_id)
     .fetch_optional(db)

@@ -114,7 +114,9 @@ async fn seed_user(pool: &PgPool, email: &str) -> sqlx::Result<i64> {
         .unwrap_or("user")
         .replace(|c: char| !c.is_ascii_alphanumeric(), "_");
     sqlx::query_scalar::<_, i64>(
-        "INSERT INTO users (email, password_hash, handle) VALUES ($1, $2, $3) RETURNING id",
+        "INSERT INTO users (email_ciphertext, email_lookup_hash, password_hash, handle)
+         VALUES (fiestaaa_encrypt_text($1), fiestaaa_email_lookup($1), $2, $3)
+         RETURNING id",
     )
     .bind(email)
     .bind(hash)
