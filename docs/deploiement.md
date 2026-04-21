@@ -230,8 +230,10 @@ Workflow : `fiestaaa_back/.github/workflows/deploy.yml`
 	3. Build et push l'image `ghcr.io/theopeuchlestrade/fiestaaa_back:${{ github.sha }}` + `latest` (sauf si déjà présente).
 	4. Génère une attestation de provenance GitHub liée à l'image GHCR publiée.
 	5. Connexion SSH au VPS (appleboy/ssh-action) puis :
-		- Génère `.env` sur le serveur avec les secrets GitHub pour le runtime Docker Compose.
-		- `docker compose pull api && docker compose up -d --no-deps api` (le reste de la stack doit déjà être présent grâce au compose prod).
+		- Génère `.env` sur le serveur avec les secrets GitHub pour le runtime Docker Compose, `TRUST_PROXY_HEADERS=true` et `API_IMAGE_TAG=${{ github.sha }}`.
+		- Préserve le `FRONT_IMAGE_TAG` déjà déployé pour éviter un rollback implicite du front.
+		- `docker compose pull api && docker compose up -d --no-deps api && docker compose ps` (le reste de la stack doit déjà être présent grâce au compose prod).
+	6. Exécute un smoke check public bloquant sur `https://api.fiestaaa.app/health` et `https://fiestaaa.app`.
 - Workflow PR recommandé : `fiestaaa_back/.github/workflows/dependency-review.yml`. Tant que le repo reste `privé + GitHub Free`, il doit skipper proprement ; l'action GitHub n'est réellement disponible qu'une fois le repo public ou le plan GitHub relevé.
 
 ### Secrets à ajouter dans GitHub (Settings > Secrets and variables > Actions)
@@ -297,10 +299,13 @@ Nom | Description
 
 ## 5) Frontend (fiestaaa_front)
 
-- L'image attendue par le compose prod est `ghcr.io/theopeuchlestrade/fiestaaa_front:latest` (bundle Flutter web servi par Nginx via `fiestaaa_front/Dockerfile`, port interne `8080`, utilisateur non-root).
+- Le compose prod attend des images immuables :
+  - `ghcr.io/theopeuchlestrade/fiestaaa_back:${API_IMAGE_TAG}` pour l'API
+  - `ghcr.io/theopeuchlestrade/fiestaaa_front:${FRONT_IMAGE_TAG}` pour le front
+  Les workflows conservent un fallback `latest`, mais écrivent désormais les tags SHA dans `~/apps/fiestaaa/.env` pour rendre les déploiements et rollbacks auditables.
 - Workflow GitHub : `fiestaaa_front/.github/workflows/deploy.yml`
 	- Environnement GitHub recommandé : `production`
-	- Étapes : vérifie les secrets ➜ login GHCR ➜ build + push image (tags `${{ github.sha }}` + `latest`) ➜ attestation de provenance GHCR ➜ SSH VPS ➜ `docker compose pull front && docker compose up -d --no-deps front`.
+	- Étapes : vérifie les secrets ➜ login GHCR ➜ build + push image (tags `${{ github.sha }}` + `latest`) ➜ attestation de provenance GHCR ➜ SSH VPS ➜ mise à jour de `FRONT_IMAGE_TAG` dans `~/apps/fiestaaa/.env` en préservant `API_IMAGE_TAG` ➜ `docker compose pull front && docker compose up -d --no-deps front && docker compose ps` ➜ smoke checks publics.
 	- `~/apps/fiestaaa/frontend` : dossier optionnel (pas de volume monté). Vous pouvez le créer pour héberger d'éventuels overrides Nginx ou archives, mais le conteneur front est autonome.
 - Secrets à créer sur le repo `fiestaaa_front` (Settings > Secrets and variables > Actions) :
 	- Accès VPS / registre : `VPS_HOST`, `VPS_PORT` (port SSH configuré sur le VPS), `VPS_USER`, `VPS_SSH_KEY`, `GHCR_TOKEN` (PAT minimal `read:packages` pour le pull sur le VPS).
@@ -309,12 +314,13 @@ Nom | Description
 - Les valeurs ci-dessus sont injectées au build (visibles dans le bundle web, normal pour un front public).
 - Déploiement : le `docker-compose.yml` déjà en place contient le service `front`, aucune config supplémentaire côté VPS. Le conteneur `front` ne charge plus le `.env` de prod au runtime.
 - Workflow PR recommandé : `fiestaaa_front/.github/workflows/dependency-review.yml` pour bloquer l'introduction de dépendances vulnérables avant merge. Tant que le repo reste `privé + GitHub Free`, il doit skipper proprement ; l'action GitHub n'est réellement disponible qu'une fois le repo public ou le plan GitHub relevé.
-- Workflow CI PR : `fiestaaa_back/.github/workflows/ci.yml` pour le back (`cargo fmt`, `clippy`, tests unitaires/binaires + smoke tests `auth`) et `fiestaaa_front/.github/workflows/ci.yml` pour le front (`dart format`, `flutter analyze`, `flutter test`).
+- Workflow CI PR : `fiestaaa_back/.github/workflows/ci.yml` pour le back (`cargo fmt`, `clippy`, suite complète `cargo test --locked --all-targets --jobs 1 -- --test-threads=1`) et `fiestaaa_front/.github/workflows/ci.yml` pour le front (`flutter gen-l10n`, `dart format`, `flutter analyze`, `flutter test`).
 
 ## 6) Vérifications runtime
 
 - Santé API : `curl -vk https://api.fiestaaa.app/health` (passe par Traefik).
 - Healthcheck base : `docker compose exec db pg_isready -U ${POSTGRES_USER}`.
+- Healthchecks conteneurs : `api` vérifie `http://127.0.0.1:8080/health`, `front` vérifie `http://127.0.0.1:8080/`.
 - CORS : autorisations côté API via `CORS_ALLOWED_ORIGINS` (`https://fiestaaa.app,https://www.fiestaaa.app` en prod).
 - Front : `curl -I https://fiestaaa.app`.
 - Stack up : `docker compose ps` (`socket-proxy`, `traefik`, `api`, `front`, `redis` doivent être Up, `db` healthy).
@@ -327,6 +333,13 @@ Nom | Description
 - Certificats : sauvegardez `traefik/letsencrypt/acme.json`.
 - Secrets : conservez une copie hors-VPS des valeurs GitHub Actions, du `service-account.json`, des keystores mobiles et des identifiants Apple/Google/Resend dans un coffre de secrets.
 - Reprise : testez périodiquement un redéploiement complet sur une machine vierge ou un nouveau VPS ; une sauvegarde non restaurée n’est pas une sauvegarde fiable.
+
+### Monitoring minimum
+
+- Ajoutez au minimum deux checks externes avec alertes :
+  - `https://fiestaaa.app`
+  - `https://api.fiestaaa.app/health`
+- Vérifiez après chaque déploiement que ces checks passent depuis l’extérieur ; les workflows exécutent déjà un `curl` bloquant sur ces deux URLs.
 
 ## 8) Plan de migration vers Docker secrets
 

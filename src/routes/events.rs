@@ -429,6 +429,28 @@ fn resolve_enabled_features(
     Ok(features)
 }
 
+fn sync_optional_features(
+    mut features: Vec<String>,
+    payment_provider_id: Option<i32>,
+    payment_identifier: Option<&str>,
+    playlist_provider: Option<&str>,
+    playlist_url: Option<&str>,
+) -> Vec<String> {
+    if has_playlist_metadata(playlist_provider, playlist_url) {
+        append_feature(&mut features, FEATURE_PLAYLIST);
+    } else {
+        features.retain(|value| value != FEATURE_PLAYLIST);
+    }
+
+    if has_payment_metadata(payment_provider_id, payment_identifier) {
+        append_feature(&mut features, FEATURE_PAYMENT);
+    } else {
+        features.retain(|value| value != FEATURE_PAYMENT);
+    }
+
+    features
+}
+
 fn normalize_playlist_payload(
     provider: Option<String>,
     url: Option<String>,
@@ -1278,10 +1300,17 @@ pub async fn update_event(
             Err(resp) => return resp,
         }
     };
-    let enabled_features_input = payload
-        .enabled_features
-        .clone()
-        .unwrap_or(current_enabled_features);
+    let enabled_features_input = if let Some(requested) = payload.enabled_features.clone() {
+        requested
+    } else {
+        sync_optional_features(
+            current_enabled_features,
+            payment_provider_id,
+            payment_identifier.as_deref(),
+            playlist_provider.as_deref(),
+            playlist_url.as_deref(),
+        )
+    };
     let enabled_features = match resolve_enabled_features(
         Some(enabled_features_input),
         payment_provider_id,
@@ -3805,7 +3834,10 @@ fn ensure_safe_absolute_http_url(
         }));
     }
 
-    if let Ok(ip) = host.parse::<IpAddr>() {
+    let host_for_ip = host_normalized
+        .trim_start_matches('[')
+        .trim_end_matches(']');
+    if let Ok(ip) = host_for_ip.parse::<IpAddr>() {
         let is_private_or_local = match ip {
             IpAddr::V4(addr) => {
                 let octets = addr.octets();
@@ -3816,24 +3848,15 @@ fn ensure_safe_absolute_http_url(
                     || (octets[0] == 100 && (64..=127).contains(&octets[1]))
             }
             IpAddr::V6(addr) => {
-                let octets = addr.octets();
                 let segments = addr.segments();
-                let is_ipv4_mapped = octets[..10].iter().all(|byte| *byte == 0)
-                    && octets[10] == 0xff
-                    && octets[11] == 0xff;
-                let mapped_ipv4_is_private = if is_ipv4_mapped {
-                    let first = octets[12];
-                    let second = octets[13];
-                    first == 0
-                        || first == 10
-                        || first == 127
-                        || (first == 169 && second == 254)
-                        || (first == 172 && (16..=31).contains(&second))
-                        || (first == 192 && second == 168)
-                        || (first == 100 && (64..=127).contains(&second))
-                } else {
-                    false
-                };
+                let mapped_ipv4_is_private = addr.to_ipv4_mapped().is_some_and(|mapped| {
+                    let octets = mapped.octets();
+                    mapped.is_private()
+                        || mapped.is_loopback()
+                        || mapped.is_link_local()
+                        || mapped.is_unspecified()
+                        || (octets[0] == 100 && (64..=127).contains(&octets[1]))
+                });
                 addr.is_loopback()
                     || addr.is_unspecified()
                     || mapped_ipv4_is_private

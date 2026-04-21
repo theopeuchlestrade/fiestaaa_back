@@ -1,6 +1,30 @@
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use sqlx::FromRow;
 use utoipa::ToSchema;
+
+fn serialize_optional_patch_field<S, T>(
+    value: &Option<Option<T>>,
+    serializer: S,
+) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+    T: Serialize,
+{
+    match value {
+        Some(Some(inner)) => serializer.serialize_some(inner),
+        Some(None) | None => serializer.serialize_none(),
+    }
+}
+
+fn deserialize_optional_patch_field<'de, D, T>(
+    deserializer: D,
+) -> Result<Option<Option<T>>, D::Error>
+where
+    D: Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    Ok(Some(Option::<T>::deserialize(deserializer)?))
+}
 
 #[derive(Serialize, Deserialize, ToSchema)]
 pub struct LoginPayload {
@@ -177,8 +201,26 @@ pub struct EventPatchPayload {
     pub description: Option<String>,
     pub date_event: Option<chrono::NaiveDate>,
     pub start_time: Option<chrono::NaiveTime>,
+    #[serde(
+        default,
+        deserialize_with = "deserialize_optional_patch_field",
+        serialize_with = "serialize_optional_patch_field",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub end_date: Option<Option<chrono::NaiveDate>>,
+    #[serde(
+        default,
+        deserialize_with = "deserialize_optional_patch_field",
+        serialize_with = "serialize_optional_patch_field",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub end_time: Option<Option<chrono::NaiveTime>>,
+    #[serde(
+        default,
+        deserialize_with = "deserialize_optional_patch_field",
+        serialize_with = "serialize_optional_patch_field",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub invitation_deadline: Option<Option<chrono::NaiveDate>>,
     pub address: Option<String>,
     pub latitude: Option<f64>,
@@ -187,7 +229,19 @@ pub struct EventPatchPayload {
     pub payment_identifier: Option<String>,
     pub payment_requested_amount: Option<f64>,
     pub payment_per_person: Option<bool>,
+    #[serde(
+        default,
+        deserialize_with = "deserialize_optional_patch_field",
+        serialize_with = "serialize_optional_patch_field",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub playlist_url: Option<Option<String>>,
+    #[serde(
+        default,
+        deserialize_with = "deserialize_optional_patch_field",
+        serialize_with = "serialize_optional_patch_field",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub playlist_provider: Option<Option<String>>,
     pub enabled_features: Option<Vec<String>>,
 }
@@ -597,7 +651,7 @@ pub struct CarpoolLeaveResponse {
 
 #[cfg(test)]
 mod tests {
-    use super::{InvitationPayload, LoginPayload, OAuthPayload};
+    use super::{EventPatchPayload, InvitationPayload, LoginPayload, OAuthPayload};
 
     #[test]
     fn login_payload_accepts_email_and_handle_aliases() {
@@ -645,5 +699,54 @@ mod tests {
         assert_eq!(payload.access_token.as_deref(), Some("access-token"));
         assert_eq!(payload.email.as_deref(), Some("user@example.com"));
         assert_eq!(payload.name.as_deref(), Some("User"));
+    }
+
+    #[test]
+    fn event_patch_payload_preserves_missing_vs_null_optional_fields() {
+        let missing: EventPatchPayload = serde_json::from_value(serde_json::json!({
+            "name_event": "Party"
+        }))
+        .expect("missing payload");
+        assert!(missing.playlist_url.is_none());
+        assert!(missing.playlist_provider.is_none());
+
+        let clear: EventPatchPayload = serde_json::from_value(serde_json::json!({
+            "playlist_url": null,
+            "playlist_provider": null,
+            "end_date": null
+        }))
+        .expect("clear payload");
+        assert_eq!(clear.playlist_url, Some(None));
+        assert_eq!(clear.playlist_provider, Some(None));
+        assert_eq!(clear.end_date, Some(None));
+    }
+
+    #[test]
+    fn event_patch_payload_serialization_omits_missing_and_keeps_nulls() {
+        let payload = EventPatchPayload {
+            name_event: None,
+            description: None,
+            date_event: None,
+            start_time: None,
+            end_date: Some(None),
+            end_time: None,
+            invitation_deadline: None,
+            address: None,
+            latitude: None,
+            longitude: None,
+            payment_provider_id: None,
+            payment_identifier: None,
+            payment_requested_amount: None,
+            payment_per_person: None,
+            playlist_url: Some(None),
+            playlist_provider: None,
+            enabled_features: None,
+        };
+
+        let json = serde_json::to_value(&payload).expect("serialize payload");
+        assert!(json.get("playlist_url").is_some());
+        assert!(json.get("playlist_url").expect("playlist_url").is_null());
+        assert!(json.get("playlist_provider").is_none());
+        assert!(json.get("end_time").is_none());
     }
 }

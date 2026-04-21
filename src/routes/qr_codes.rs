@@ -332,7 +332,7 @@ pub async fn scan_qr_code(
          JOIN users u ON u.id = ec.user_id
          LEFT JOIN invitations i ON i.event_id = ec.event_id AND i.user_id = ec.user_id
          WHERE ec.qr_token_hash = $1
-         FOR UPDATE",
+         FOR UPDATE OF ec",
     )
     .bind(&qr_token_hash)
     .fetch_optional(&mut *tx)

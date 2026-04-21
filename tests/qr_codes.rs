@@ -38,10 +38,34 @@ async fn seed_user(pool: &PgPool, email: &str, handle: &str) -> sqlx::Result<i64
     .await
 }
 
+async fn ensure_user(pool: &PgPool, email: &str) -> sqlx::Result<i64> {
+    if let Some(user_id) = sqlx::query_scalar::<_, i64>(
+        "SELECT id FROM users WHERE email_lookup_hash = fiestaaa_email_lookup($1)",
+    )
+    .bind(email)
+    .fetch_optional(pool)
+    .await?
+    {
+        return Ok(user_id);
+    }
+
+    let handle = email.split('@').next().unwrap_or("user");
+    seed_user(pool, email, handle).await
+}
+
 async fn seed_event(pool: &PgPool, owner_email: &str) -> sqlx::Result<i64> {
+    let owner_user_id = ensure_user(pool, owner_email).await?;
+
     sqlx::query_scalar::<_, i64>(
-        "INSERT INTO events (name_event, description, date_event, start_time, address, owner_email)
-         VALUES ($1, $2, $3, $4, $5, $6)
+        "INSERT INTO events (
+            name_event,
+            description,
+            date_event,
+            start_time,
+            address_ciphertext,
+            owner_user_id
+         )
+         VALUES ($1, $2, $3, $4, fiestaaa_encrypt_text($5), $6)
          RETURNING event_id",
     )
     .bind("Test Event")
@@ -49,7 +73,7 @@ async fn seed_event(pool: &PgPool, owner_email: &str) -> sqlx::Result<i64> {
     .bind(NaiveDate::from_ymd_opt(2030, 1, 1).unwrap())
     .bind(NaiveTime::from_hms_opt(20, 0, 0).unwrap())
     .bind("123 Test Street")
-    .bind(owner_email)
+    .bind(owner_user_id)
     .fetch_one(pool)
     .await
 }

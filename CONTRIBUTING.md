@@ -31,6 +31,7 @@ Si besoin de bypass ponctuel : `SKIP_LINT=1 git commit ...`
 ## Tests
 - Docker : `docker compose run --rm api cargo test`
 - Local : `cargo test` (nécessite `TEST_DATABASE_URL` ou `DATABASE_URL`).
+- Suite CI complète : `cargo test --locked --all-targets --jobs 1 -- --test-threads=1`
 
 ## Migrations
 Les migrations SQL sont dans `migrations/` et appliquées au démarrage via `sqlx::migrate!`.

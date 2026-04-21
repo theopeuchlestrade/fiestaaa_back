@@ -39,6 +39,9 @@ Quick dev workflow using Docker Compose for both Postgres and the Rust API.
 - The API container mounts the project directory; code changes rebuild on next run.
 - If you prefer local cargo run, start only DB: `docker compose up -d db`, and keep
   `DATABASE_URL=postgres://postgres:postgres@localhost:5432/fiestaaa` in `.env`.
+- In production behind Traefik or another reverse proxy, set
+  `TRUST_PROXY_HEADERS=true` so rate limiting, logs and secure-cookie detection
+  use forwarded client metadata.
 - Owner share links created via `/events/{event_id}/share` intentionally use a bearer-capability model:
   any authenticated user who gets the token can claim the event until the link expires or is used.
   Use email invitations when you need recipient binding.
@@ -46,6 +49,8 @@ Quick dev workflow using Docker Compose for both Postgres and the Rust API.
 ## Tests
 - Run tests with Docker (recommended): `docker compose run --rm api cargo test`
 - Alternatively, provide a Postgres instance and set `TEST_DATABASE_URL` (or reuse `DATABASE_URL`), then run `cargo test`.
+- Full CI-equivalent suite:
+  `TEST_DATABASE_URL=postgres://postgres:postgres@127.0.0.1:5432/fiestaaa_test cargo test --locked --all-targets --jobs 1 -- --test-threads=1`
 - For local coverage, leverage LLVM instrumentation:
   ```bash
   rustup component add llvm-tools-preview

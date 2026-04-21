@@ -48,11 +48,5 @@ jobs:
       - name: Run clippy
         run: cargo clippy --all-targets --all-features -- -D warnings
 
-      - name: Run unit and binary tests
-        run: cargo test --locked --lib --bins
-
-      - name: Run auth integration smoke tests
-        # The broader integration suite still contains legacy fixtures tied to
-        # the pre-reset schema. Keep PR CI green with a deterministic DB-backed
-        # smoke suite until the remaining integration tests are migrated.
-        run: cargo test --locked --test auth --jobs 1 -- --test-threads=1
+      - name: Run full test suite
+        run: cargo test --locked --all-targets --jobs 1 -- --test-threads=1

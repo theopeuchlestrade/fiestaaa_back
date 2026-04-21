@@ -76,13 +76,14 @@ services:
     restart: unless-stopped
 
   api:
-    image: ghcr.io/theopeuchlestrade/fiestaaa_back:latest
+    image: ghcr.io/theopeuchlestrade/fiestaaa_back:${API_IMAGE_TAG:-latest}
     env_file: .env
     environment:
       HOST: 0.0.0.0
       PORT: 8080
       DATABASE_URL: ${DATABASE_URL}
       REDIS_URL: ${REDIS_URL}
+      TRUST_PROXY_HEADERS: ${TRUST_PROXY_HEADERS:-true}
       AVATAR_UPLOAD_DIR: /data/uploads/avatars
       AVATAR_BASE_URL: https://api.fiestaaa.app/media/avatars
       FCM_SERVICE_ACCOUNT_PATH: /app/service-account.json
@@ -97,6 +98,11 @@ services:
     read_only: true
     tmpfs:
       - /tmp
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8080/health >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
     security_opt:
       - no-new-privileges:true
     cap_drop:
@@ -110,7 +116,7 @@ services:
     restart: unless-stopped
 
   front:
-    image: ghcr.io/theopeuchlestrade/fiestaaa_front:latest
+    image: ghcr.io/theopeuchlestrade/fiestaaa_front:${FRONT_IMAGE_TAG:-latest}
     labels:
       - traefik.enable=true
       - traefik.http.routers.front.rule=Host(`fiestaaa.app`)
@@ -124,6 +130,11 @@ services:
       - /var/cache/nginx
       - /var/run
       - /tmp
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1:8080/ >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
     security_opt:
       - no-new-privileges:true
     cap_drop:
