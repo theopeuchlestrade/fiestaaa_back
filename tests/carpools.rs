@@ -60,15 +60,46 @@ async fn seed_user(pool: &PgPool, email: &str) -> sqlx::Result<i64> {
     .await
 }
 
+async fn ensure_user(pool: &PgPool, email: &str) -> sqlx::Result<i64> {
+    if let Some(user_id) = sqlx::query_scalar::<_, i64>(
+        "SELECT id FROM users WHERE email_lookup_hash = fiestaaa_email_lookup($1)",
+    )
+    .bind(email)
+    .fetch_optional(pool)
+    .await?
+    {
+        return Ok(user_id);
+    }
+
+    seed_user(pool, email).await
+}
+
 async fn seed_event(pool: &PgPool, owner_email: &str) -> sqlx::Result<i64> {
+    let owner_user_id = ensure_user(pool, owner_email).await?;
+
     sqlx::query_scalar::<_, i64>(
         r#"
-        INSERT INTO events (name_event, description, date_event, start_time, address, owner_email)
-        VALUES ('Test Event', 'A test event', '2030-01-01', '20:00:00', '123 Test St', $1)
+        INSERT INTO events (
+            name_event,
+            description,
+            date_event,
+            start_time,
+            address_ciphertext,
+            owner_user_id
+        )
+        VALUES (
+            'Test Event',
+            'A test event',
+            '2030-01-01',
+            '20:00:00',
+            fiestaaa_encrypt_text($1),
+            $2
+        )
         RETURNING event_id
         "#,
     )
-    .bind(owner_email)
+    .bind("123 Test St")
+    .bind(owner_user_id)
     .fetch_one(pool)
     .await
 }

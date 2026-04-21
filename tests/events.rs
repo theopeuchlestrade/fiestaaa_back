@@ -8,7 +8,8 @@ use common::{DB_LOCK, build_state, obtain_pool, reset_tables};
 use fiestaaa_back::{
     auth::{encode_jwt, hash_password, now_ts},
     models::{
-        Claims, Event, EventItemReservationPayload, EventItemView, EventPatchPayload, EventPayload,
+        Claims, Event, EventItemAttachPayload, EventItemReservationPayload, EventItemView,
+        EventPatchPayload, EventPayload,
     },
     routes,
 };
@@ -147,13 +148,23 @@ async fn list_events_initially_empty() -> Result<(), Box<dyn Error>> {
         return Ok(());
     };
     let _guard = DB_LOCK.lock().await;
-    reset_tables(&pool, &["events", "payment_providers"]).await?;
+    reset_tables(&pool, &["events", "payment_providers", "users"]).await?;
 
     let secret = "secret";
+    let user_email = "viewer@example.com";
     let state = build_state(pool.clone(), secret, &["admin@example.com"]);
     let app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
+    seed_user(&pool, user_email).await?;
+    let token = admin_token(secret, user_email).expect("token");
 
-    let resp = test::call_service(&app, test::TestRequest::get().uri("/events").to_request()).await;
+    let resp = test::call_service(
+        &app,
+        test::TestRequest::get()
+            .uri("/events")
+            .insert_header(("Authorization", format!("Bearer {}", token)))
+            .to_request(),
+    )
+    .await;
 
     assert_eq!(resp.status(), StatusCode::OK);
     let payload: Vec<Event> = test::read_body_json(resp).await;
@@ -212,13 +223,15 @@ async fn create_event_allows_authenticated_user() -> Result<(), Box<dyn Error>> 
         return Ok(());
     };
     let _guard = DB_LOCK.lock().await;
-    reset_tables(&pool, &["events", "payment_providers"]).await?;
+    reset_tables(&pool, &["events", "payment_providers", "users"]).await?;
 
     let secret = "secret";
     let state = build_state(pool.clone(), secret, &["admin@example.com"]);
     let app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
 
-    let token = admin_token(secret, "user@example.com").expect("token");
+    let user_email = "user@example.com";
+    seed_user(&pool, user_email).await?;
+    let token = admin_token(secret, user_email).expect("token");
 
     let resp = test::call_service(
         &app,
@@ -259,13 +272,15 @@ async fn create_event_accepts_ticketing_feature() -> Result<(), Box<dyn Error>> 
         return Ok(());
     };
     let _guard = DB_LOCK.lock().await;
-    reset_tables(&pool, &["events", "payment_providers"]).await?;
+    reset_tables(&pool, &["events", "payment_providers", "users"]).await?;
 
     let secret = "secret";
     let state = build_state(pool.clone(), secret, &["admin@example.com"]);
     let app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
 
-    let token = admin_token(secret, "user@example.com").expect("token");
+    let user_email = "user@example.com";
+    seed_user(&pool, user_email).await?;
+    let token = admin_token(secret, user_email).expect("token");
 
     let resp = test::call_service(
         &app,
@@ -308,11 +323,21 @@ async fn ticketing_migration_backfills_existing_events() -> Result<(), Box<dyn E
         return Ok(());
     };
     let _guard = DB_LOCK.lock().await;
-    reset_tables(&pool, &["events", "payment_providers"]).await?;
+    reset_tables(&pool, &["events", "payment_providers", "users"]).await?;
+
+    let legacy_owner_id = seed_user(&pool, "legacy@example.com").await?;
 
     let event_id = sqlx::query_scalar::<_, i64>(
-        "INSERT INTO events (name_event, description, date_event, start_time, address, owner_email, enabled_features)
-         VALUES ($1, $2, $3, $4, $5, $6, $7)
+        "INSERT INTO events (
+            name_event,
+            description,
+            date_event,
+            start_time,
+            address_ciphertext,
+            owner_user_id,
+            enabled_features
+         )
+         VALUES ($1, $2, $3, $4, fiestaaa_encrypt_text($5), $6, $7)
          RETURNING event_id",
     )
     .bind("Legacy party")
@@ -320,7 +345,7 @@ async fn ticketing_migration_backfills_existing_events() -> Result<(), Box<dyn E
     .bind(NaiveDate::from_ymd_opt(2026, 3, 20).unwrap())
     .bind(NaiveTime::from_hms_opt(21, 0, 0).unwrap())
     .bind("123 Legacy Street")
-    .bind("legacy@example.com")
+    .bind(legacy_owner_id)
     .bind(vec![
         "carpools".to_string(),
         "polls".to_string(),
@@ -363,13 +388,14 @@ async fn events_crud_flow() -> Result<(), Box<dyn Error>> {
         return Ok(());
     };
     let _guard = DB_LOCK.lock().await;
-    reset_tables(&pool, &["events", "payment_providers"]).await?;
+    reset_tables(&pool, &["events", "payment_providers", "users"]).await?;
 
     let secret = "secret";
     let admin_email = "admin@example.com";
     let state = build_state(pool.clone(), secret, &[admin_email]);
     let app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
 
+    seed_user(&pool, admin_email).await?;
     let provider_id = seed_payment_provider(&pool, "TestProvider").await?;
     let token = admin_token(secret, admin_email).expect("token");
 
@@ -383,7 +409,7 @@ async fn events_crud_flow() -> Result<(), Box<dyn Error>> {
                 enabled_features: None,
                 name_event: "Summer Party".to_string(),
                 description: "The best party of the summer".to_string(),
-                date_event: NaiveDate::from_ymd_opt(2024, 7, 1).unwrap(),
+                date_event: NaiveDate::from_ymd_opt(2099, 7, 1).unwrap(),
                 start_time: NaiveTime::from_hms_opt(20, 0, 0).unwrap(),
                 end_date: None,
                 end_time: None,
@@ -392,7 +418,7 @@ async fn events_crud_flow() -> Result<(), Box<dyn Error>> {
                 latitude: None,
                 longitude: None,
                 payment_provider_id: Some(provider_id),
-                payment_identifier: Some("PARTY2024".to_string()),
+                payment_identifier: Some("https://example.com/pay/PARTY2099".to_string()),
                 payment_requested_amount: None,
                 payment_per_person: None,
                 playlist_url: Some("https://open.spotify.com/playlist/test".to_string()),
@@ -409,7 +435,14 @@ async fn events_crud_flow() -> Result<(), Box<dyn Error>> {
     assert_eq!(created.owner_email, admin_email);
 
     // List events
-    let resp = test::call_service(&app, test::TestRequest::get().uri("/events").to_request()).await;
+    let resp = test::call_service(
+        &app,
+        test::TestRequest::get()
+            .uri("/events")
+            .insert_header(("Authorization", format!("Bearer {}", token.clone())))
+            .to_request(),
+    )
+    .await;
     assert_eq!(resp.status(), StatusCode::OK);
     let listed: Vec<Event> = test::read_body_json(resp).await;
     assert_eq!(listed.len(), 1);
@@ -425,7 +458,7 @@ async fn events_crud_flow() -> Result<(), Box<dyn Error>> {
                 enabled_features: None,
                 name_event: "Mega Summer Party".to_string(),
                 description: "The BIGGEST party of the summer".to_string(),
-                date_event: NaiveDate::from_ymd_opt(2024, 7, 2).unwrap(),
+                date_event: NaiveDate::from_ymd_opt(2099, 7, 2).unwrap(),
                 start_time: NaiveTime::from_hms_opt(21, 0, 0).unwrap(),
                 end_date: None,
                 end_time: None,
@@ -434,7 +467,7 @@ async fn events_crud_flow() -> Result<(), Box<dyn Error>> {
                 latitude: None,
                 longitude: None,
                 payment_provider_id: Some(provider_id),
-                payment_identifier: Some("MEGAPARTY2024".to_string()),
+                payment_identifier: Some("https://example.com/pay/MEGAPARTY2099".to_string()),
                 payment_requested_amount: None,
                 payment_per_person: None,
                 playlist_url: None,
@@ -533,7 +566,7 @@ async fn update_event_playlist_requires_creator_or_admin() -> Result<(), Box<dyn
                 enabled_features: None,
                 name_event: "Playlist Party".to_string(),
                 description: "Music matters".to_string(),
-                date_event: NaiveDate::from_ymd_opt(2024, 7, 10).unwrap(),
+                date_event: NaiveDate::from_ymd_opt(2099, 7, 10).unwrap(),
                 start_time: NaiveTime::from_hms_opt(20, 0, 0).unwrap(),
                 end_date: None,
                 end_time: None,
@@ -576,7 +609,7 @@ async fn update_event_playlist_requires_creator_or_admin() -> Result<(), Box<dyn
                 payment_requested_amount: None,
                 payment_per_person: None,
                 playlist_url: Some(Some("https://open.spotify.com/playlist/test".to_string())),
-                playlist_provider: Some(Some("spotify".to_string())),
+                playlist_provider: Some(Some("soundcloud".to_string())),
             })
             .to_request(),
     )
@@ -617,7 +650,7 @@ async fn update_event_playlist_rejects_non_owner_when_admins_are_unset()
                 enabled_features: None,
                 name_event: "Playlist Party".to_string(),
                 description: "Music matters".to_string(),
-                date_event: NaiveDate::from_ymd_opt(2024, 7, 10).unwrap(),
+                date_event: NaiveDate::from_ymd_opt(2099, 7, 10).unwrap(),
                 start_time: NaiveTime::from_hms_opt(20, 0, 0).unwrap(),
                 end_date: None,
                 end_time: None,
@@ -660,7 +693,7 @@ async fn update_event_playlist_rejects_non_owner_when_admins_are_unset()
                 payment_requested_amount: None,
                 payment_per_person: None,
                 playlist_url: Some(Some("https://open.spotify.com/playlist/test".to_string())),
-                playlist_provider: Some(Some("spotify".to_string())),
+                playlist_provider: Some(Some("soundcloud".to_string())),
             })
             .to_request(),
     )
@@ -677,13 +710,14 @@ async fn update_event_playlist_requires_valid_provider() -> Result<(), Box<dyn E
         return Ok(());
     };
     let _guard = DB_LOCK.lock().await;
-    reset_tables(&pool, &["events", "payment_providers"]).await?;
+    reset_tables(&pool, &["events", "payment_providers", "users"]).await?;
 
     let secret = "secret";
     let admin_email = "admin@example.com";
     let state = build_state(pool.clone(), secret, &[admin_email]);
     let app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
 
+    seed_user(&pool, admin_email).await?;
     let token = admin_token(secret, admin_email).expect("token");
 
     let resp = test::call_service(
@@ -695,7 +729,7 @@ async fn update_event_playlist_requires_valid_provider() -> Result<(), Box<dyn E
                 enabled_features: None,
                 name_event: "Playlist Party".to_string(),
                 description: "Music matters".to_string(),
-                date_event: NaiveDate::from_ymd_opt(2024, 7, 10).unwrap(),
+                date_event: NaiveDate::from_ymd_opt(2099, 7, 10).unwrap(),
                 start_time: NaiveTime::from_hms_opt(20, 0, 0).unwrap(),
                 end_date: None,
                 end_time: None,
@@ -738,7 +772,7 @@ async fn update_event_playlist_requires_valid_provider() -> Result<(), Box<dyn E
                 payment_requested_amount: None,
                 payment_per_person: None,
                 playlist_url: Some(Some("https://open.spotify.com/playlist/test".to_string())),
-                playlist_provider: Some(Some("spotify".to_string())),
+                playlist_provider: Some(Some("soundcloud".to_string())),
             })
             .to_request(),
     )
@@ -755,13 +789,14 @@ async fn update_event_playlist_requires_valid_url() -> Result<(), Box<dyn Error>
         return Ok(());
     };
     let _guard = DB_LOCK.lock().await;
-    reset_tables(&pool, &["events", "payment_providers"]).await?;
+    reset_tables(&pool, &["events", "payment_providers", "users"]).await?;
 
     let secret = "secret";
     let admin_email = "admin@example.com";
     let state = build_state(pool.clone(), secret, &[admin_email]);
     let app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
 
+    seed_user(&pool, admin_email).await?;
     let token = admin_token(secret, admin_email).expect("token");
 
     let resp = test::call_service(
@@ -773,7 +808,7 @@ async fn update_event_playlist_requires_valid_url() -> Result<(), Box<dyn Error>
                 enabled_features: None,
                 name_event: "Playlist Party".to_string(),
                 description: "Music matters".to_string(),
-                date_event: NaiveDate::from_ymd_opt(2024, 7, 10).unwrap(),
+                date_event: NaiveDate::from_ymd_opt(2099, 7, 10).unwrap(),
                 start_time: NaiveTime::from_hms_opt(20, 0, 0).unwrap(),
                 end_date: None,
                 end_time: None,
@@ -833,13 +868,14 @@ async fn update_event_playlist_can_clear_fields() -> Result<(), Box<dyn Error>> 
         return Ok(());
     };
     let _guard = DB_LOCK.lock().await;
-    reset_tables(&pool, &["events", "payment_providers"]).await?;
+    reset_tables(&pool, &["events", "payment_providers", "users"]).await?;
 
     let secret = "secret";
     let admin_email = "admin@example.com";
     let state = build_state(pool.clone(), secret, &[admin_email]);
     let app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
 
+    seed_user(&pool, admin_email).await?;
     let token = admin_token(secret, admin_email).expect("token");
 
     let resp = test::call_service(
@@ -851,7 +887,7 @@ async fn update_event_playlist_can_clear_fields() -> Result<(), Box<dyn Error>> 
                 enabled_features: None,
                 name_event: "Playlist Party".to_string(),
                 description: "Music matters".to_string(),
-                date_event: NaiveDate::from_ymd_opt(2024, 7, 10).unwrap(),
+                date_event: NaiveDate::from_ymd_opt(2099, 7, 10).unwrap(),
                 start_time: NaiveTime::from_hms_opt(20, 0, 0).unwrap(),
                 end_date: None,
                 end_time: None,
@@ -932,6 +968,7 @@ async fn event_items_reservation_flow() -> Result<(), Box<dyn Error>> {
     let admin_email = "admin@example.com";
     let state = build_state(pool.clone(), secret, &[admin_email]);
     let app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
+    seed_user(&pool, admin_email).await?;
     let admin_token_value = admin_token(secret, admin_email).expect("token");
 
     // Create event
@@ -947,7 +984,7 @@ async fn event_items_reservation_flow() -> Result<(), Box<dyn Error>> {
                 enabled_features: None,
                 name_event: "Tasting Night".to_string(),
                 description: "Bring your best drinks".to_string(),
-                date_event: NaiveDate::from_ymd_opt(2024, 8, 1).unwrap(),
+                date_event: NaiveDate::from_ymd_opt(2099, 8, 1).unwrap(),
                 start_time: NaiveTime::from_hms_opt(18, 30, 0).unwrap(),
                 end_date: None,
                 end_time: None,
@@ -971,7 +1008,23 @@ async fn event_items_reservation_flow() -> Result<(), Box<dyn Error>> {
     // Seed catalog item
     let item_id = seed_item(&pool, "Boisson", "Punch", 5).await?;
 
-    // Listing automatically seeds catalog items for the event
+    let attach_resp = test::call_service(
+        &app,
+        test::TestRequest::post()
+            .uri(&format!("/events/{}/items", event.event_id))
+            .insert_header((
+                "Authorization",
+                format!("Bearer {}", admin_token_value.clone()),
+            ))
+            .set_json(&EventItemAttachPayload {
+                item_id,
+                max_quantity: 5,
+            })
+            .to_request(),
+    )
+    .await;
+    assert_eq!(attach_resp.status(), StatusCode::OK);
+
     let resp = test::call_service(
         &app,
         test::TestRequest::get()
@@ -1121,6 +1174,7 @@ async fn event_items_scope_filters() -> Result<(), Box<dyn Error>> {
     let admin_email = "admin@example.com";
     let state = build_state(pool.clone(), secret, &[admin_email]);
     let app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
+    let owner_id = seed_user(&pool, admin_email).await?;
     let admin_token_value = admin_token(secret, admin_email).expect("token");
 
     let resp = test::call_service(
@@ -1135,7 +1189,7 @@ async fn event_items_scope_filters() -> Result<(), Box<dyn Error>> {
                 enabled_features: None,
                 name_event: "Scope Party".to_string(),
                 description: "Scope filters".to_string(),
-                date_event: NaiveDate::from_ymd_opt(2024, 8, 1).unwrap(),
+                date_event: NaiveDate::from_ymd_opt(2099, 8, 1).unwrap(),
                 start_time: NaiveTime::from_hms_opt(18, 30, 0).unwrap(),
                 end_date: None,
                 end_time: None,
@@ -1156,7 +1210,6 @@ async fn event_items_scope_filters() -> Result<(), Box<dyn Error>> {
     assert_eq!(resp.status(), StatusCode::CREATED);
     let event: Event = test::read_body_json(resp).await;
 
-    let owner_id = seed_user(&pool, admin_email).await?;
     let user_email = "alice@example.com";
     let user_id = seed_user(&pool, user_email).await?;
     let user_token = admin_token(secret, user_email).expect("token");
@@ -1342,6 +1395,7 @@ async fn reserve_event_item_requires_membership() -> Result<(), Box<dyn Error>> 
     let admin_email = "admin@example.com";
     let state = build_state(pool.clone(), secret, &[admin_email]);
     let app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
+    seed_user(&pool, admin_email).await?;
     let admin_token_value = admin_token(secret, admin_email).expect("token");
 
     let create_resp = test::call_service(
@@ -1415,13 +1469,14 @@ async fn create_event_rejects_unknown_payment_provider() -> Result<(), Box<dyn E
         return Ok(());
     };
     let _guard = DB_LOCK.lock().await;
-    reset_tables(&pool, &["events", "payment_providers"]).await?;
+    reset_tables(&pool, &["events", "payment_providers", "users"]).await?;
 
     let secret = "secret";
     let admin_email = "admin@example.com";
     let state = build_state(pool.clone(), secret, &[admin_email]);
     let app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
 
+    seed_user(&pool, admin_email).await?;
     let token = admin_token(secret, admin_email).expect("token");
 
     let resp = test::call_service(
@@ -1463,7 +1518,7 @@ async fn create_event_rejects_unsafe_absolute_payment_link() -> Result<(), Box<d
         return Ok(());
     };
     let _guard = DB_LOCK.lock().await;
-    reset_tables(&pool, &["events", "payment_providers"]).await?;
+    reset_tables(&pool, &["events", "payment_providers", "users"]).await?;
 
     let secret = "secret";
     let admin_email = "admin@example.com";
@@ -1471,6 +1526,7 @@ async fn create_event_rejects_unsafe_absolute_payment_link() -> Result<(), Box<d
     let app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
 
     let provider_id = seed_payment_provider_with_regex(&pool, "LooseProvider", ".*").await?;
+    seed_user(&pool, admin_email).await?;
     let token = admin_token(secret, admin_email).expect("token");
 
     for link in [
@@ -1525,13 +1581,14 @@ async fn event_validates_empty_fields() -> Result<(), Box<dyn Error>> {
         return Ok(());
     };
     let _guard = DB_LOCK.lock().await;
-    reset_tables(&pool, &["events", "payment_providers"]).await?;
+    reset_tables(&pool, &["events", "payment_providers", "users"]).await?;
 
     let secret = "secret";
     let admin_email = "admin@example.com";
     let state = build_state(pool.clone(), secret, &[admin_email]);
     let app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
 
+    seed_user(&pool, admin_email).await?;
     let token = admin_token(secret, admin_email).expect("token");
 
     // Test with empty name

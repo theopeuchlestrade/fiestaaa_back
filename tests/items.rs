@@ -5,7 +5,7 @@ use std::error::Error;
 use actix_web::{App, http::StatusCode, test};
 use common::{DB_LOCK, build_state, obtain_pool, reset_tables};
 use fiestaaa_back::{
-    auth::{encode_jwt, now_ts},
+    auth::{encode_jwt, hash_password, now_ts},
     models::{Claims, Item, ItemPatchPayload, ItemPayload},
     routes,
 };
@@ -31,6 +31,26 @@ async fn seed_item_type(pool: &PgPool, name: &str) -> sqlx::Result<i64> {
         .bind(name)
         .fetch_one(pool)
         .await
+}
+
+async fn seed_user(pool: &PgPool, email: &str) -> sqlx::Result<i64> {
+    let hash = hash_password("password").expect("hash");
+    let handle = email
+        .split('@')
+        .next()
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or("user")
+        .replace(|c: char| !c.is_ascii_alphanumeric(), "_");
+    sqlx::query_scalar::<_, i64>(
+        "INSERT INTO users (email_ciphertext, email_lookup_hash, password_hash, handle)
+         VALUES (fiestaaa_encrypt_text($1), fiestaaa_email_lookup($1), $2, $3)
+         RETURNING id",
+    )
+    .bind(email)
+    .bind(hash)
+    .bind(handle)
+    .fetch_one(pool)
+    .await
 }
 
 #[tokio::test]
@@ -94,14 +114,16 @@ async fn create_item_rejects_non_admin() -> Result<(), Box<dyn Error>> {
         return Ok(());
     };
     let _guard = DB_LOCK.lock().await;
-    reset_tables(&pool, &["items", "item_types"]).await?;
+    reset_tables(&pool, &["items", "item_types", "users"]).await?;
 
     let secret = "secret";
     let state = build_state(pool.clone(), secret, &["admin@example.com"]);
     let app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
 
     let type_id = seed_item_type(&pool, "Drink").await?;
-    let token = admin_token(secret, "user@example.com").expect("token");
+    let user_email = "user@example.com";
+    seed_user(&pool, user_email).await?;
+    let token = admin_token(secret, user_email).expect("token");
 
     let resp = test::call_service(
         &app,
@@ -130,14 +152,16 @@ async fn create_item_rejects_requests_when_admins_are_unset() -> Result<(), Box<
         return Ok(());
     };
     let _guard = DB_LOCK.lock().await;
-    reset_tables(&pool, &["items", "item_types"]).await?;
+    reset_tables(&pool, &["items", "item_types", "users"]).await?;
 
     let secret = "secret";
     let state = build_state(pool.clone(), secret, &[]);
     let app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
 
     let type_id = seed_item_type(&pool, "Drink").await?;
-    let token = admin_token(secret, "user@example.com").expect("token");
+    let user_email = "user@example.com";
+    seed_user(&pool, user_email).await?;
+    let token = admin_token(secret, user_email).expect("token");
 
     let resp = test::call_service(
         &app,
@@ -166,13 +190,14 @@ async fn items_crud_flow() -> Result<(), Box<dyn Error>> {
         return Ok(());
     };
     let _guard = DB_LOCK.lock().await;
-    reset_tables(&pool, &["items", "item_types"]).await?;
+    reset_tables(&pool, &["items", "item_types", "users"]).await?;
 
     let secret = "secret";
     let admin_email = "admin@example.com";
     let state = build_state(pool.clone(), secret, &[admin_email]);
     let app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
 
+    seed_user(&pool, admin_email).await?;
     let type_id = seed_item_type(&pool, "Drink").await?;
     let other_type_id = seed_item_type(&pool, "Food").await?;
     let token = admin_token(secret, admin_email).expect("token");
@@ -271,13 +296,14 @@ async fn create_item_rejects_unknown_type() -> Result<(), Box<dyn Error>> {
         return Ok(());
     };
     let _guard = DB_LOCK.lock().await;
-    reset_tables(&pool, &["items", "item_types"]).await?;
+    reset_tables(&pool, &["items", "item_types", "users"]).await?;
 
     let secret = "secret";
     let admin_email = "admin@example.com";
     let state = build_state(pool.clone(), secret, &[admin_email]);
     let app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
 
+    seed_user(&pool, admin_email).await?;
     let token = admin_token(secret, admin_email).expect("token");
 
     let resp = test::call_service(

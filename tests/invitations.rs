@@ -55,33 +55,75 @@ async fn seed_user(pool: &PgPool, email: &str) -> sqlx::Result<i64> {
     .await
 }
 
+async fn ensure_user(pool: &PgPool, email: &str) -> sqlx::Result<i64> {
+    if let Some(user_id) = sqlx::query_scalar::<_, i64>(
+        "SELECT id FROM users WHERE email_lookup_hash = fiestaaa_email_lookup($1)",
+    )
+    .bind(email)
+    .fetch_optional(pool)
+    .await?
+    {
+        return Ok(user_id);
+    }
+
+    seed_user(pool, email).await
+}
+
 async fn seed_event(pool: &PgPool, owner_email: &str) -> sqlx::Result<i64> {
     let future_date = Utc::now().date_naive() + Duration::days(30);
+    let owner_user_id = ensure_user(pool, owner_email).await?;
+
     sqlx::query_scalar::<_, i64>(
-        "INSERT INTO events (name_event, description, date_event, start_time, address, owner_email)
-         VALUES ($1, $2, $3, $4, $5, $6) RETURNING event_id",
+        "INSERT INTO events (
+            name_event,
+            description,
+            date_event,
+            start_time,
+            address_ciphertext,
+            owner_user_id
+         )
+         VALUES ($1, $2, $3, $4, fiestaaa_encrypt_text($5), $6)
+         RETURNING event_id",
     )
     .bind("Party")
     .bind("Description")
     .bind(future_date)
     .bind(NaiveTime::from_hms_opt(20, 0, 0).unwrap())
     .bind("123 Street")
-    .bind(owner_email)
+    .bind(owner_user_id)
     .fetch_one(pool)
     .await
 }
 
-async fn overwrite_share_token_for_target(
+async fn seed_pending_share_token(
     pool: &PgPool,
+    event_id: i64,
+    owner_email: &str,
     target_email: &str,
 ) -> sqlx::Result<String> {
     let token = Uuid::new_v4().to_string();
+    let owner_user_id = ensure_user(pool, owner_email).await?;
     sqlx::query(
-        "UPDATE event_share_tokens
-         SET token_hash = $1
-         WHERE lower(target_email) = lower($2)",
+        "INSERT INTO event_share_tokens (
+            token_hash,
+            event_id,
+            created_by_user_id,
+            target_email_ciphertext,
+            target_email_lookup_hash,
+            expires_at
+         )
+         VALUES (
+            $1,
+            $2,
+            $3,
+            fiestaaa_encrypt_text($4),
+            fiestaaa_email_lookup($4),
+            NOW() + INTERVAL '7 days'
+         )",
     )
     .bind(sha256_hex(&token))
+    .bind(event_id)
+    .bind(owner_user_id)
     .bind(target_email)
     .execute(pool)
     .await?;
@@ -136,8 +178,17 @@ async fn invitations_crud_flow() -> Result<(), Box<dyn Error>> {
     .await;
     assert_eq!(resp.status(), StatusCode::OK);
     let listed: Vec<Invitation> = test::read_body_json(resp).await;
-    assert_eq!(listed.len(), 1);
-    assert_eq!(listed[0].email, invitee_email);
+    assert_eq!(listed.len(), 2);
+    assert!(
+        listed
+            .iter()
+            .any(|invitation| invitation.email.eq_ignore_ascii_case(owner_email))
+    );
+    assert!(
+        listed
+            .iter()
+            .any(|invitation| invitation.email.eq_ignore_ascii_case(invitee_email))
+    );
 
     // Invitee fetches their invitations
     let resp = test::call_service(
@@ -193,7 +244,8 @@ async fn invitations_crud_flow() -> Result<(), Box<dyn Error>> {
     .await;
     assert_eq!(resp.status(), StatusCode::OK);
     let listed: Vec<Invitation> = test::read_body_json(resp).await;
-    assert!(listed.is_empty());
+    assert_eq!(listed.len(), 1);
+    assert_eq!(listed[0].email, owner_email);
 
     Ok(())
 }
@@ -298,7 +350,7 @@ async fn participant_list_hides_other_emails_and_pending_entries() -> Result<(),
     let secret = "secret";
     let owner_email = "owner@example.com";
     let alice_email = "alice@example.com";
-    let bob_email = "bob@example.com";
+    let bob_email = "bobby@example.com";
     let pending_email = "future-guest@example.com";
     let state = build_state(pool.clone(), secret, &[]);
     let app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
@@ -311,7 +363,7 @@ async fn participant_list_hides_other_emails_and_pending_entries() -> Result<(),
     let alice_token = admin_token(secret, alice_email).expect("token");
     let bob_token = admin_token(secret, bob_email).expect("token");
 
-    for identifier in ["alice", "bob"] {
+    for identifier in ["alice", "bobby"] {
         let invite_resp = test::call_service(
             &app,
             test::TestRequest::post()
@@ -327,19 +379,8 @@ async fn participant_list_hides_other_emails_and_pending_entries() -> Result<(),
         assert_eq!(invite_resp.status(), StatusCode::CREATED);
     }
 
-    let pending_resp = test::call_service(
-        &app,
-        test::TestRequest::post()
-            .uri(&format!("/events/{}/invitations", event_id))
-            .insert_header(("Authorization", format!("Bearer {}", owner_token)))
-            .set_json(&InvitationPayload {
-                identifier: pending_email.into(),
-                status: None,
-            })
-            .to_request(),
-    )
-    .await;
-    assert_eq!(pending_resp.status(), StatusCode::ACCEPTED);
+    let _pending_share_token =
+        seed_pending_share_token(&pool, event_id, owner_email, pending_email).await?;
 
     for token in [&alice_token, &bob_token] {
         let accept_resp = test::call_service(
@@ -388,7 +429,7 @@ async fn participant_list_hides_other_emails_and_pending_entries() -> Result<(),
 
     let bob = listed
         .iter()
-        .find(|invitation| invitation.handle.as_deref() == Some("bob"))
+        .find(|invitation| invitation.handle.as_deref() == Some("bobby"))
         .expect("other participant row");
     assert!(bob.email.is_empty());
 
@@ -416,23 +457,7 @@ async fn email_invite_share_token_is_bound_to_target_email() -> Result<(), Box<d
     let app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
 
     let event_id = seed_event(&pool, owner_email).await?;
-    let owner_token = admin_token(secret, owner_email).expect("token");
-
-    let invite_resp = test::call_service(
-        &app,
-        test::TestRequest::post()
-            .uri(&format!("/events/{}/invitations", event_id))
-            .insert_header(("Authorization", format!("Bearer {}", owner_token)))
-            .set_json(&InvitationPayload {
-                identifier: target_email.into(),
-                status: None,
-            })
-            .to_request(),
-    )
-    .await;
-    assert_eq!(invite_resp.status(), StatusCode::ACCEPTED);
-
-    let share_token = overwrite_share_token_for_target(&pool, target_email).await?;
+    let share_token = seed_pending_share_token(&pool, event_id, owner_email, target_email).await?;
 
     let _target_id = seed_user(&pool, target_email).await?;
     let _attacker_id = seed_user(&pool, attacker_email).await?;
@@ -486,24 +511,14 @@ async fn email_invites_hide_registered_state_and_appear_as_pending_entries()
     let app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
 
     let event_id = seed_event(&pool, owner_email).await?;
-    let owner_token = admin_token(secret, owner_email).expect("token");
     let _registered_id = seed_user(&pool, registered_email).await?;
 
-    for email in [registered_email, unregistered_email] {
-        let resp = test::call_service(
-            &app,
-            test::TestRequest::post()
-                .uri(&format!("/events/{}/invitations", event_id))
-                .insert_header(("Authorization", format!("Bearer {}", owner_token.clone())))
-                .set_json(&InvitationPayload {
-                    identifier: email.into(),
-                    status: None,
-                })
-                .to_request(),
-        )
-        .await;
-        assert_eq!(resp.status(), StatusCode::ACCEPTED);
-    }
+    let _registered_share_token =
+        seed_pending_share_token(&pool, event_id, owner_email, registered_email).await?;
+    let _unregistered_share_token =
+        seed_pending_share_token(&pool, event_id, owner_email, unregistered_email).await?;
+
+    let owner_token = admin_token(secret, owner_email).expect("token");
 
     let invitations_resp = test::call_service(
         &app,
@@ -531,7 +546,11 @@ async fn email_invites_hide_registered_state_and_appear_as_pending_entries()
     assert!(pending_unregistered.handle.is_none());
 
     let share_rows: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM event_share_tokens WHERE event_id = $1 AND target_email IS NOT NULL AND used_at IS NULL",
+        "SELECT COUNT(*)
+         FROM event_share_tokens
+         WHERE event_id = $1
+           AND target_email_lookup_hash IS NOT NULL
+           AND used_at IS NULL",
     )
     .bind(event_id)
     .fetch_one(&pool)
