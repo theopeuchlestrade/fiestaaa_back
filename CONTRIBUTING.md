@@ -40,4 +40,5 @@ Les migrations SQL sont dans `migrations/` et appliquées au démarrage via `sql
 - Décrire le contexte, le changement, et l’impact.
 - Ajouter/mettre à jour les tests si applicable.
 - Assurer que `cargo fmt` et `cargo clippy -D warnings` passent.
+- Mettre à jour `CHANGELOG.md` pour tout changement livrable, user-facing, sécurité, infra de prod ou DX notable.
 - Les vulnérabilités de sécurité ne doivent pas être remontées via une issue publique ; suivre `SECURITY.md`.

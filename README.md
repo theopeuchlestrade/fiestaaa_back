@@ -85,6 +85,7 @@ Available users :
 - Security incident runbook: `docs/incident-securite.md`
 - Future switch from private repos to public open source: `docs/passage-public-open-source.md`
 - Security policy: `SECURITY.md`
+- Release history: `CHANGELOG.md`
 
 ## License
 
