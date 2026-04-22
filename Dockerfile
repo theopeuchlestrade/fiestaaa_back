@@ -1,4 +1,5 @@
-FROM rust:1.90.0-bookworm AS builder
+# Pinned Rust builder image for deterministic production builds (1.90.0-bookworm)
+FROM rust:1.90.0-bookworm@sha256:3914072ca0c3b8aad871db9169a651ccfce30cf58303e5d6f2db16d1d8a7e58f AS builder
 
 LABEL org.opencontainers.image.source="https://github.com/theopeuchlestrade/fiestaaa_back"
 
@@ -21,7 +22,8 @@ COPY . .
 
 RUN cargo build --release --locked
 
-FROM debian:bookworm-slim AS runtime
+# Pinned Debian runtime image for deterministic production serving (bookworm-slim)
+FROM debian:bookworm-slim@sha256:f9c6a2fd2ddbc23e336b6257a5245e31f996953ef06cd13a59fa0a1df2d5c252 AS runtime
 
 LABEL org.opencontainers.image.source="https://github.com/theopeuchlestrade/fiestaaa_back"
 
