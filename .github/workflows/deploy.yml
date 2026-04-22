@@ -97,7 +97,6 @@ jobs:
           push: true
           tags: |
             ${{ env.IMAGE }}:${{ env.TAG }}
-            ${{ env.IMAGE }}:latest
 
       - name: Generate image attestation
         if: steps.push.outputs.digest != ''
@@ -124,7 +123,10 @@ jobs:
             cd ~/apps/fiestaaa
             umask 077
             current_front_image_tag="$(grep '^FRONT_IMAGE_TAG=' .env 2>/dev/null | cut -d= -f2- || true)"
-            current_front_image_tag="${current_front_image_tag:-latest}"
+            if [ -z "${current_front_image_tag}" ]; then
+              echo "FRONT_IMAGE_TAG missing in ~/apps/fiestaaa/.env. Seed both API_IMAGE_TAG and FRONT_IMAGE_TAG before the first deployment." >&2
+              exit 1
+            fi
             install -m 600 /dev/null .env
             # Génère un .env à partir des secrets GitHub pour le runtime docker compose
             # Pas de quotes sur EOF afin d'expanser les variables côté runner et éviter les valeurs littérales ${VAR}

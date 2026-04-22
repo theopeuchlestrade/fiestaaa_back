@@ -76,7 +76,7 @@ services:
     restart: unless-stopped
 
   api:
-    image: ghcr.io/theopeuchlestrade/fiestaaa_back:${API_IMAGE_TAG:-latest}
+    image: ghcr.io/theopeuchlestrade/fiestaaa_back:${API_IMAGE_TAG:?API_IMAGE_TAG is required}
     env_file: .env
     environment:
       HOST: 0.0.0.0
@@ -116,7 +116,7 @@ services:
     restart: unless-stopped
 
   front:
-    image: ghcr.io/theopeuchlestrade/fiestaaa_front:${FRONT_IMAGE_TAG:-latest}
+    image: ghcr.io/theopeuchlestrade/fiestaaa_front:${FRONT_IMAGE_TAG:?FRONT_IMAGE_TAG is required}
     labels:
       - traefik.enable=true
       - traefik.http.routers.front.rule=Host(`fiestaaa.app`)

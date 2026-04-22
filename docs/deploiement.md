@@ -4,7 +4,7 @@ Documentation opérationnelle pour déployer les projets `fiestaaa_back` (API Ru
 
 - Stack de prod décrite dans `fiestaaa_back/docker-compose.prod.yml` (Traefik + socket-proxy + Postgres + Redis + API + Front).
 - Pipeline CI existante côté backend : `fiestaaa_back/.github/workflows/deploy.yml`.
-- Registre d'images : `ghcr.io/theopeuchlestrade/{fiestaaa_back,fiestaaa_front}` (tag `latest` + tag SHA).
+- Registre d'images : `ghcr.io/theopeuchlestrade/{fiestaaa_back,fiestaaa_front}`. Le front et le backend sont déployés avec des tags SHA immuables.
 - En cas de compromission ou de doute sur le VPS / les secrets : suivre aussi `fiestaaa_back/docs/incident-securite.md`.
 - En cas de passage futur des repos vers `public + GitHub Free` : suivre `fiestaaa_back/docs/passage-public-open-source.md`.
 
@@ -170,6 +170,9 @@ touch ~/apps/fiestaaa/traefik/letsencrypt/acme.json && chmod 600 ~/apps/fiestaaa
 
 	```bash
 	cat > ~/apps/fiestaaa/.env <<'EOF'
+	# Tags d'images immuables requis par docker-compose.yml
+	API_IMAGE_TAG=<backend_image_sha_tag>
+	FRONT_IMAGE_TAG=<front_image_sha_tag>
 	# Base de données et cache
 	POSTGRES_USER=...
 	POSTGRES_PASSWORD=...
@@ -202,6 +205,7 @@ touch ~/apps/fiestaaa/traefik/letsencrypt/acme.json && chmod 600 ~/apps/fiestaaa
 	FCM_SERVICE_ACCOUNT_PATH=/app/service-account.json
 	EOF
 	```
+	Remplacez `<backend_image_sha_tag>` et `<front_image_sha_tag>` par des tags réellement publiés sur GHCR, en pratique les SHA Git des commits déjà buildés par les workflows GitHub Actions. Sans ces deux valeurs, le compose prod refuse désormais de démarrer pour éviter tout fallback implicite vers `latest`.
 
 - **Fichier de service Firebase** : placez le JSON dans `~/apps/fiestaaa/data/service-account.json` (non versionné, monté en read-only dans le conteneur API) et appliquez `chmod 600 ~/apps/fiestaaa/data/service-account.json`.
 - **Données persistantes** :
@@ -227,11 +231,11 @@ Workflow : `fiestaaa_back/.github/workflows/deploy.yml`
 - Jobs :
 	1. Vérifie la présence des secrets requis.
 	2. `docker login` sur GHCR (`ghcr.io`) avec `GITHUB_TOKEN` côté runner.
-	3. Build et push l'image `ghcr.io/theopeuchlestrade/fiestaaa_back:${{ github.sha }}` + `latest` (sauf si déjà présente).
+	3. Build et push l'image `ghcr.io/theopeuchlestrade/fiestaaa_back:${{ github.sha }}` (sauf si déjà présente).
 	4. Génère une attestation de provenance GitHub liée à l'image GHCR publiée.
 	5. Connexion SSH au VPS (appleboy/ssh-action) puis :
 		- Génère `.env` sur le serveur avec les secrets GitHub pour le runtime Docker Compose, `TRUST_PROXY_HEADERS=true` et `API_IMAGE_TAG=${{ github.sha }}`.
-		- Préserve le `FRONT_IMAGE_TAG` déjà déployé pour éviter un rollback implicite du front.
+		- Préserve le `FRONT_IMAGE_TAG` déjà déployé ; le workflow échoue explicitement si ce tag n'a jamais été semé sur le VPS.
 		- `docker compose pull api && docker compose up -d --no-deps api && docker compose ps` (le reste de la stack doit déjà être présent grâce au compose prod).
 	6. Exécute un smoke check public bloquant sur `https://api.fiestaaa.app/health` et `https://fiestaaa.app`.
 - Workflow PR recommandé : `fiestaaa_back/.github/workflows/dependency-review.yml`. Tant que le repo reste `privé + GitHub Free`, il doit skipper proprement ; l'action GitHub n'est réellement disponible qu'une fois le repo public ou le plan GitHub relevé.
@@ -302,10 +306,10 @@ Nom | Description
 - Le compose prod attend des images immuables :
   - `ghcr.io/theopeuchlestrade/fiestaaa_back:${API_IMAGE_TAG}` pour l'API
   - `ghcr.io/theopeuchlestrade/fiestaaa_front:${FRONT_IMAGE_TAG}` pour le front
-  Les workflows conservent un fallback `latest`, mais écrivent désormais les tags SHA dans `~/apps/fiestaaa/.env` pour rendre les déploiements et rollbacks auditables.
+  Les workflows front et back n'utilisent plus `latest` ni fallback implicite : `API_IMAGE_TAG` et `FRONT_IMAGE_TAG` doivent être présents dans `~/apps/fiestaaa/.env`. Chaque workflow met à jour son propre tag SHA tout en conservant celui de l'autre service pour rendre les déploiements et rollbacks auditables.
 - Workflow GitHub : `fiestaaa_front/.github/workflows/deploy.yml`
 	- Environnement GitHub recommandé : `production`
-	- Étapes : vérifie les secrets ➜ login GHCR ➜ build + push image (tags `${{ github.sha }}` + `latest`) ➜ attestation de provenance GHCR ➜ SSH VPS ➜ mise à jour de `FRONT_IMAGE_TAG` dans `~/apps/fiestaaa/.env` en préservant `API_IMAGE_TAG` ➜ `docker compose pull front && docker compose up -d --no-deps front && docker compose ps` ➜ smoke checks publics.
+	- Étapes : vérifie les secrets ➜ login GHCR ➜ build + push image (tag `${{ github.sha }}` uniquement) ➜ attestation de provenance GHCR ➜ SSH VPS ➜ mise à jour de `FRONT_IMAGE_TAG` dans `~/apps/fiestaaa/.env` en préservant `API_IMAGE_TAG` déjà semé ➜ `docker compose pull front && docker compose up -d --no-deps front && docker compose ps` ➜ smoke checks publics.
 	- `~/apps/fiestaaa/frontend` : dossier optionnel (pas de volume monté). Vous pouvez le créer pour héberger d'éventuels overrides Nginx ou archives, mais le conteneur front est autonome.
 - Secrets à créer sur le repo `fiestaaa_front` (Settings > Secrets and variables > Actions) :
 	- Accès VPS / registre : `VPS_HOST`, `VPS_PORT` (port SSH configuré sur le VPS), `VPS_USER`, `VPS_SSH_KEY`, `GHCR_TOKEN` (PAT minimal `read:packages` pour le pull sur le VPS).

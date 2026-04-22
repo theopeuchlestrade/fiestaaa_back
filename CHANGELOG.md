@@ -29,6 +29,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Changed production deployment to use immutable image tags instead of relying on `latest`.
 - Changed deployment workflows to run public smoke checks after rollout.
 - Changed production configuration to support `TRUST_PROXY_HEADERS=true` behind Traefik or another reverse proxy.
+- Pinned the Rust builder and Debian runtime base images used for production Docker builds.
+- Removed the `latest` image publication path from the backend deployment workflow in favor of commit-SHA tags only.
+- Made `API_IMAGE_TAG` and `FRONT_IMAGE_TAG` explicit deployment prerequisites for production compose/bootstrap flows.
 
 ### Security
 - Protected emails, addresses, coordinates, and sensitive event identifiers with database encryption.
