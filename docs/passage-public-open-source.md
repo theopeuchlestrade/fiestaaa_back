@@ -12,12 +12,37 @@ Quand les repos deviendront publics, l'objectif est de faire le basculement sans
 
 Les workflows et la doc ont déjà été préparés pour l'état cible :
 
+- Les deux repos utilisent maintenant `main` comme branche par défaut.
 - `fiestaaa_back/.github/workflows/deploy.yml` référence l'environnement GitHub `production`.
 - `fiestaaa_front/.github/workflows/deploy.yml` référence aussi `production`.
 - Les deux repos ont un workflow `Dependency Review`, actuellement configuré pour skipper proprement tant que les repos sont `privés + GitHub Free`.
 - Les workflows de déploiement sont prêts à publier des attestations de provenance.
+- Les deux repos ont un `CODEOWNERS`, un template de PR, un `SECURITY.md`, un `CONTRIBUTING.md`, un `LICENSE`, un `README.md` public-oriented et des templates d'issues.
+- Les fichiers locaux ou générés qui avaient été suivis par erreur ont été retirés du versioning :
+  - backend : `.idea/`, `.docker-config/` ;
+  - frontend : `.dart-tool/`.
+- `fiestaaa_front` a été réécrit avant publication pour retirer d'anciennes valeurs Firebase/GCP/VAPID de l'historique Git, puis force-pushé avec `--force-with-lease`.
+- `gitleaks detect --source . --redact=100` passe sur l'historique complet des deux repos.
+- Les dépendances Flutter ont été mises à jour vers les dernières versions résolubles avec Flutter `3.41.5` / Dart `3.11.3`.
 
 Tant que les repos sont `privés + Free`, une partie de ces protections n'est pas réellement disponible côté GitHub. Elles deviendront utiles quand les repos seront publics.
+
+## État actuel avant ouverture publique
+
+État au 2026-05-03 :
+
+- `fiestaaa_back`
+  - visibilité GitHub : privé ;
+  - branche par défaut : `main` ;
+  - historique `gitleaks` : propre ;
+  - note de préparation open source : environ `8.8/10`.
+- `fiestaaa_front`
+  - visibilité GitHub : privé ;
+  - branche par défaut : `main` ;
+  - historique `gitleaks` après réécriture : propre ;
+  - note de préparation open source : environ `8.5/10`.
+
+Ces notes ne signifient pas "public maintenant sans autre action" : elles indiquent que le code et l'historique Git sont proches de l'état cible. Les derniers points importants concernent surtout les réglages GitHub, la rotation/restriction des clés externes et les décisions d'exploitation.
 
 ## Limites actuelles en privé + Free
 
@@ -65,6 +90,13 @@ Vérifier aussi les fichiers d'exemple :
 
 Ils doivent rester des placeholders, jamais des vraies valeurs.
 
+État actuel :
+
+- audit `gitleaks` complet OK sur les deux repos ;
+- les `.env` locaux restent ignorés ;
+- les anciens secrets historiques du front ont été retirés par réécriture Git ;
+- les anciennes clés Firebase/GCP/VAPID vues dans l'ancien historique doivent quand même être considérées comme compromises et être rotées ou strictement restreintes côté Google/Firebase.
+
 ### 2. Refaire un audit de l'historique Git
 
 Le point critique avant un passage en public n'est pas seulement l'état courant du repo, mais aussi l'historique.
@@ -77,6 +109,12 @@ Si un secret a déjà été commité un jour, le simple fait de l'avoir supprim�
 - décider si l'historique doit être réécrit avant publication.
 
 Après l'incident de sécurité, il faut partir du principe que tout secret collé dans un commit, un gist, un ticket, un chat ou une capture est potentiellement exposé.
+
+État actuel :
+
+- backend : aucun leak détecté dans l'historique ;
+- frontend : ancien historique réécrit, clone frais depuis GitHub vérifié avec `gitleaks`, aucun leak détecté ;
+- une sauvegarde locale pré-réécriture du front existe dans `/private/tmp/fiestaaa_front_pre_rewrite_e13db82_20260503_231008.bundle`. Ne pas publier ni pousser cette sauvegarde.
 
 ### 3. Vérifier les fichiers et métadonnées open source
 
@@ -111,6 +149,40 @@ Option B, plus simple à long terme :
 - supprimer ensuite le besoin de `GHCR_TOKEN` côté VPS si aucun pull privé n'est nécessaire.
 
 Ne pas supposer qu'un package GHCR devient public automatiquement parce que le repo devient public.
+
+## Ce qui reste faisable en ligne de commande
+
+Avant le passage public, plusieurs actions peuvent encore être faites depuis ce poste :
+
+- relancer les scans de secrets :
+  - `cd fiestaaa_back && gitleaks detect --source . --redact=100`
+  - `cd fiestaaa_front && gitleaks detect --source . --redact=100`
+- vérifier les suites locales :
+  - backend : `cargo fmt --all --check`, `cargo clippy --all-targets --all-features -- -D warnings`, tests avec Postgres ;
+  - frontend : `flutter gen-l10n`, `dart format --output=none --set-exit-if-changed lib test tool`, `flutter analyze`, `flutter test --dart-define-from-file=.env.example`, `flutter build web --release --dart-define-from-file=.env.example`.
+- vérifier l'état GitHub via `gh` :
+  - branche par défaut ;
+  - branches existantes ;
+  - workflows présents ;
+  - secrets configurés, sans afficher leur valeur.
+- créer les environnements GitHub `production` et déplacer les secrets vers des environment secrets via `gh secret set --env production`, à condition d'avoir les vraies valeurs sous la main.
+- configurer une partie des métadonnées GitHub via `gh repo edit` : description, homepage, topics, wiki/discussions/projects selon le choix produit.
+- déclencher des builds ou checks GitHub Actions via `gh workflow run` ou `gh run`.
+
+Ce qui ne doit pas être fait en aveugle en CLI :
+
+- rendre les repos publics sans freeze et dernière vérification ;
+- activer des protections de branche sans vérifier les noms exacts des checks GitHub Actions disponibles ;
+- supprimer ou remplacer des secrets de production sans inventaire des workflows qui les consomment ;
+- rendre les packages GHCR publics sans décision explicite sur le mode de pull du VPS.
+
+Ce qui nécessite plutôt les consoles externes ou une décision manuelle :
+
+- rotation ou restriction des anciennes clés Firebase/GCP/VAPID ;
+- vérification des origines OAuth, bundle IDs, SHA fingerprints Android et domaines autorisés Google/Firebase ;
+- activation et validation de GitHub Private Vulnerability Reporting une fois les repos publics ;
+- décision finale sur la visibilité publique ou privée des packages GHCR ;
+- décision sur la politique marque/logo/assets.
 
 ## Séquence recommandée le jour du passage en public
 
@@ -230,9 +302,8 @@ Après passage en public, vérifier que les éléments déjà committés devienn
 
 Le passage en public rendra les protections GitHub disponibles, mais pour atteindre un niveau plus sérieux il restera utile de compléter :
 
-- éventuellement `CODEOWNERS` ;
 - l'activation de GitHub Private Vulnerability Reporting une fois le repo public ;
-- l'élargissement progressif de la CI backend au-delà du smoke test `auth`, une fois les suites d'intégration encore liées à l'ancien schéma remises à niveau ;
+- la vérification des checks exacts à rendre obligatoires dans la protection de branche ;
 - éventuellement une politique séparée pour les marques, logos et autres assets non destinés à être librement réutilisés ;
 - éventuellement une décision explicite sur la visibilité publique ou privée des packages GHCR.
 
