@@ -226,7 +226,7 @@ docker compose logs -f api # debug si besoin
 ## 4) CI/CD GitHub Actions (backend)
 
 Workflow : `fiestaaa_back/.github/workflows/deploy.yml`
-- Déclencheurs : push sur `main` ou `master`, ou `workflow_dispatch`.
+- Déclencheurs : push sur `main`, ou `workflow_dispatch`.
 - Environnement GitHub recommandé : `production`
 - Jobs :
 	1. Vérifie la présence des secrets requis.
@@ -285,7 +285,7 @@ Nom | Description
   - `Dependency Review`
 - Tant que les repos restent `privés + GitHub Free`, `Dependency Review` doit rester présent mais se contenter d'un skip explicite ; l'action GitHub n'est pas disponible dans cette configuration.
 - Ajoutez au minimum :
-  - une restriction aux branches de déploiement (`main` / `master` selon le repo) ;
+  - une restriction aux branches de déploiement (`main`) ;
   - un ou plusieurs `required reviewers` avant exécution ;
   - si utile, un `wait timer` pour éviter un déploiement immédiat après merge.
 - Activez également `secret scanning`, `push protection`, `dependency graph`, `Dependabot alerts` et `Dependabot security updates`.

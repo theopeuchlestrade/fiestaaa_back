@@ -158,22 +158,12 @@ Conserver séparément, au besoin, certains secrets purement build ou release qu
 - `google-services.json` Android encodé ;
 - autres secrets de build hors déploiement.
 
-### Étape 5. Activer la protection de branche sur la branche par défaut
+### Étape 5. Activer la protection de branche sur `main`
 
 Dans chaque repo :
 
 1. `Settings` -> `Branches`
-2. ajouter une règle sur la branche par défaut
-
-Aujourd'hui :
-
-- `fiestaaa_front` utilise `main` ;
-- `fiestaaa_back` utilise encore `master`.
-
-Avant ou pendant l'ouverture publique, décider explicitement :
-
-- soit renommer `fiestaaa_back` de `master` vers `main` ;
-- soit protéger `master` immédiatement, puis renommer plus tard dans une opération séparée.
+2. ajouter une règle sur `main`
 
 Réglages recommandés :
 
