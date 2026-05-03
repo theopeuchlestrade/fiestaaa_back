@@ -87,6 +87,7 @@ Avant publication, vérifier au minimum :
   - `fiestaaa_front` sous `MPL-2.0`
 - politique de sécurité `SECURITY.md` ou document équivalent ;
 - `CONTRIBUTING.md` cohérent avec la contribution externe ;
+- `CODEOWNERS` et template de PR présents ;
 - description de repo, topics, homepage, éventuellement templates d'issues ou PR ;
 - revue des assets non open source : logos, visuels, fontes, captures, textes marketing, données d'exemple.
 
@@ -157,12 +158,22 @@ Conserver séparément, au besoin, certains secrets purement build ou release qu
 - `google-services.json` Android encodé ;
 - autres secrets de build hors déploiement.
 
-### Étape 5. Activer la protection de branche sur `main`
+### Étape 5. Activer la protection de branche sur la branche par défaut
 
 Dans chaque repo :
 
 1. `Settings` -> `Branches`
-2. ajouter une règle sur `main`
+2. ajouter une règle sur la branche par défaut
+
+Aujourd'hui :
+
+- `fiestaaa_front` utilise `main` ;
+- `fiestaaa_back` utilise encore `master`.
+
+Avant ou pendant l'ouverture publique, décider explicitement :
+
+- soit renommer `fiestaaa_back` de `master` vers `main` ;
+- soit protéger `master` immédiatement, puis renommer plus tard dans une opération séparée.
 
 Réglages recommandés :
 

@@ -1,4 +1,6 @@
 /target
+.idea/
+.docker-config/
 .env
 .env.*
 !.env.example
