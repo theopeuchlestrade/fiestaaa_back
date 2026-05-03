@@ -1,92 +1,141 @@
-# Fiestaaa Back — Docker Dev
+# Fiestaaa Back
 
-Quick dev workflow using Docker Compose for both Postgres and the Rust API.
+Backend Rust de Fiestaaa, une application d'organisation d'événements privés.
 
-## Prerequisites
-- Docker CLI + Compose v2
-- Colima or Docker Desktop running (on macOS, `colima start` + `docker context use colima`)
+L'API gère l'authentification, les événements, invitations, listes d'items,
+covoiturages, frais partagés, QR codes d'accès, notifications et flux temps réel.
 
-## Environment
-- Copy `.env.example` to `.env` and adjust as needed. The compose file sets
-  `DATABASE_URL=postgres://postgres:postgres@db:5432/fiestaaa` for the API container.
-- `DATA_ENCRYPTION_KEY` and `DATA_LOOKUP_KEY` are now required. Keep them outside the database and use secrets of at least 32 characters.
-- Optionally define `ADMIN_EMAILS` (comma-separated, lower/upper case ignored) to restrict admin endpoints like `/items` to specific accounts.
-- For invitation emails to unregistered guests, set `APP_BASE_URL` (used to build the share link) to your front URL
-  (ex: `http://localhost:5001` in dev), plus `INVITATION_EMAIL_SENDER` and `RESEND_API_KEY`.
+## Stack
 
-## Run
-- `docker compose up --build`
-- API: http://127.0.0.1:8080
-- Ctrl+C to stop; `docker compose down` to clean up.
+- Rust 1.90
+- Actix Web
+- PostgreSQL via SQLx
+- Redis pour certains états éphémères
+- Docker Compose pour le développement local
 
-## Local test user
-- To create or update a local user directly in Postgres, use:
-  `cargo run --manifest-path Cargo.toml --bin create_local_user -- --email test@local.dev --password changeme --handle test_local`
-- The command hashes the password with Argon2 and removes any pending registration for the same email.
-- If `--handle` is omitted, a unique handle is generated automatically.
+## Prérequis
 
-### Clean database 
-- `docker compose down -v`
-- `docker compose up --build`
-- Or rebuild directly from the single initial migration with
-  `./scripts/rebuild_db_from_schema.sh`
-  using `migrations/001_initial_schema.sql`.
+- Docker CLI + Docker Compose v2
+- Rust, si vous lancez l'API hors Docker
+- Une copie locale de `.env.example` vers `.env`
 
-## Notes
-- Migrations run automatically on API startup (via `sqlx::migrate!`).
-- The project now assumes a clean-slate migration history: `migrations/001_initial_schema.sql`
-  is the full current schema.
-- The API container mounts the project directory; code changes rebuild on next run.
-- If you prefer local cargo run, start only DB: `docker compose up -d db`, and keep
-  `DATABASE_URL=postgres://postgres:postgres@localhost:5432/fiestaaa` in `.env`.
-- In production behind Traefik or another reverse proxy, set
-  `TRUST_PROXY_HEADERS=true` so rate limiting, logs and secure-cookie detection
-  use forwarded client metadata.
-- Owner share links created via `/events/{event_id}/share` intentionally use a bearer-capability model:
-  any authenticated user who gets the token can claim the event until the link expires or is used.
-  Use email invitations when you need recipient binding.
-
-## Tests
-- Run tests with Docker (recommended): `docker compose run --rm api cargo test`
-- Alternatively, provide a Postgres instance and set `TEST_DATABASE_URL` (or reuse `DATABASE_URL`), then run `cargo test`.
-- Full CI-equivalent suite:
-  `TEST_DATABASE_URL=postgres://postgres:postgres@127.0.0.1:5432/fiestaaa_test cargo test --locked --all-targets --jobs 1 -- --test-threads=1`
-- For local coverage, leverage LLVM instrumentation:
-  ```bash
-  rustup component add llvm-tools-preview
-  rm -rf coverage && mkdir -p coverage
-  export LLVM_PROFILE_FILE="coverage/fiestaaa-%p-%m.profraw"
-  export RUSTFLAGS="-Cinstrument-coverage -Clink-dead-code"
-  export RUSTDOCFLAGS="-Cinstrument-coverage -Clink-dead-code"
-  cargo test
-  llvm-profdata merge -sparse coverage/fiestaaa-*.profraw -o coverage/fiestaaa.profdata
-  llvm-cov report --use-color --ignore-filename-regex='/.cargo/registry' \
-    --instr-profile=coverage/fiestaaa.profdata \
-    $(find target/debug/deps -maxdepth 1 -type f \( -name 'fiestaaa_back-*' -o -name 'items-*' \))
-  ```
-  The `cargo test` run generates `.profraw` files; `llvm-profdata`/`llvm-cov` summarize coverage locally without impacting CI.
-
-## VPS
-
-Connect to the VPS with the following command :
+## Configuration
 
 ```bash
-ssh <username>@fiestaaa.app
+cp .env.example .env
 ```
 
-Available users :
-- ubuntu (default/admin)
-- theo (admin)
-- deploy
+Les valeurs de `.env.example` sont des placeholders ou des valeurs de
+développement local. Les secrets réels ne doivent jamais être commités.
 
-## Docs
+Variables importantes :
 
-- Deployment and VPS ops: `docs/deploiement.md`
-- Security incident runbook: `docs/incident-securite.md`
-- Future switch from private repos to public open source: `docs/passage-public-open-source.md`
-- Security policy: `SECURITY.md`
-- Release history: `CHANGELOG.md`
+- `DATABASE_URL` : connexion PostgreSQL
+- `JWT_SECRET` : secret de signature des sessions
+- `DATA_ENCRYPTION_KEY` et `DATA_LOOKUP_KEY` : clés applicatives, au moins 32 caractères
+- `CORS_ALLOWED_ORIGINS` : origines front autorisées
+- `APP_BASE_URL` : URL du front pour les liens d'invitation
+- `RESEND_API_KEY` et `INVITATION_EMAIL_SENDER` : envoi d'emails d'invitation
+- `FCM_*` et `FIESTAAA_FCM_VAPID_KEY` : notifications push
 
-## License
+## Développement local
 
-`fiestaaa_back` is licensed under `AGPL-3.0-only`. See `LICENSE`.
+Lancement complet avec Postgres :
+
+```bash
+docker compose up --build
+```
+
+API locale :
+
+```text
+http://127.0.0.1:8080
+```
+
+Pour lancer l'API avec `cargo`, démarrez seulement la base :
+
+```bash
+docker compose up -d db
+cargo run
+```
+
+Dans ce mode, gardez une URL locale de type :
+
+```bash
+DATABASE_URL=postgres://postgres:postgres@localhost:5432/fiestaaa
+```
+
+## Utilisateur local
+
+Pour créer ou mettre à jour un utilisateur local directement en base :
+
+```bash
+cargo run --bin create_local_user -- --email test@local.dev --password changeme --handle test_local
+```
+
+La commande hash le mot de passe avec Argon2 et supprime une éventuelle
+inscription en attente pour le même email.
+
+## Base de données
+
+Les migrations SQL sont dans `migrations/` et sont appliquées au démarrage via
+`sqlx::migrate!`.
+
+Réinitialisation locale :
+
+```bash
+docker compose down -v
+docker compose up --build
+```
+
+Ou reconstruction directe depuis le schéma courant :
+
+```bash
+./scripts/rebuild_db_from_schema.sh
+```
+
+## Qualité et tests
+
+Format :
+
+```bash
+cargo fmt --all --check
+```
+
+Lint :
+
+```bash
+cargo clippy --all-targets --all-features -- -D warnings
+```
+
+Tests avec Docker :
+
+```bash
+docker compose run --rm api cargo test
+```
+
+Suite CI équivalente, avec une base de test disponible :
+
+```bash
+TEST_DATABASE_URL=postgres://postgres:postgres@127.0.0.1:5432/fiestaaa_test cargo test --locked --all-targets --jobs 1 -- --test-threads=1
+```
+
+## Déploiement
+
+La documentation de déploiement et d'exploitation est dans
+`docs/deploiement.md`.
+
+Le passage des dépôts privés vers des dépôts publics est documenté dans
+`docs/passage-public-open-source.md`.
+
+## Sécurité
+
+Ne signalez pas de vulnérabilité via une issue publique. Consultez
+`SECURITY.md` pour le canal de signalement et les attentes de divulgation.
+
+Avant toute publication publique du dépôt, relancez un scan de secrets sur
+l'état courant et sur tout l'historique Git.
+
+## Licence
+
+`fiestaaa_back` est distribué sous licence `AGPL-3.0-only`. Voir `LICENSE`.

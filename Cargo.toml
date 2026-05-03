@@ -3,6 +3,10 @@ name = "fiestaaa_back"
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.90"
+description = "Backend API for Fiestaaa"
+license = "AGPL-3.0-only"
+repository = "https://github.com/theopeuchlestrade/fiestaaa_back"
+readme = "README.md"
 
 [dependencies]
 actix-web = "4"
