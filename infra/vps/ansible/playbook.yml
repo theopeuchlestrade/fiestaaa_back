@@ -221,21 +221,37 @@
         - fiestaaa_enable_fail2ban | bool
         - not ansible_check_mode
 
-    - name: Create application directories
+    - name: Create deploy-owned application directories
       ansible.builtin.file:
         path: "{{ item }}"
         state: directory
         owner: "{{ fiestaaa_deploy_user }}"
         group: "{{ fiestaaa_deploy_user }}"
-        mode: "0750"
+        mode: "{{ '0755' if item == fiestaaa_app_dir + '/data' else '0750' }}"
       loop:
         - "{{ fiestaaa_app_dir }}"
         - "{{ fiestaaa_app_dir }}/data"
-        - "{{ fiestaaa_app_dir }}/data/postgres"
         - "{{ fiestaaa_app_dir }}/data/uploads"
         - "{{ fiestaaa_app_dir }}/data/uploads/avatars"
         - "{{ fiestaaa_app_dir }}/traefik"
-        - "{{ fiestaaa_app_dir }}/traefik/letsencrypt"
+      when: not ansible_check_mode
+
+    - name: Create Postgres data directory for container uid
+      ansible.builtin.file:
+        path: "{{ fiestaaa_app_dir }}/data/postgres"
+        state: directory
+        owner: "999"
+        group: "999"
+        mode: "0700"
+      when: not ansible_check_mode
+
+    - name: Create Traefik ACME directory for container root without DAC capabilities
+      ansible.builtin.file:
+        path: "{{ fiestaaa_app_dir }}/traefik/letsencrypt"
+        state: directory
+        owner: root
+        group: root
+        mode: "0700"
       when: not ansible_check_mode
 
     - name: Copy production compose file
@@ -257,27 +273,57 @@
       register: fiestaaa_runtime_files
       when: not ansible_check_mode
 
-    - name: Create missing mutable secret/runtime files
+    - name: Create missing env file
       ansible.builtin.copy:
-        dest: "{{ item.item.path }}"
-        content: "{{ '{}\n' if (item.item.path | basename) == 'service-account.json' else '' }}"
+        dest: "{{ fiestaaa_app_dir }}/.env"
+        content: ""
         owner: "{{ fiestaaa_deploy_user }}"
         group: "{{ fiestaaa_deploy_user }}"
         mode: "0600"
         force: false
-      loop: "{{ fiestaaa_runtime_files.results }}"
       when:
         - not ansible_check_mode
-        - not item.stat.exists
+        - not fiestaaa_runtime_files.results[0].stat.exists
 
-    - name: Ensure mutable secret/runtime file permissions
+    - name: Create missing service account placeholder
+      ansible.builtin.copy:
+        dest: "{{ fiestaaa_app_dir }}/data/service-account.json"
+        content: "{}\n"
+        owner: root
+        group: root
+        mode: "0600"
+        force: false
+      when:
+        - not ansible_check_mode
+        - not fiestaaa_runtime_files.results[1].stat.exists
+
+    - name: Create missing Traefik ACME file
+      ansible.builtin.copy:
+        dest: "{{ fiestaaa_app_dir }}/traefik/letsencrypt/acme.json"
+        content: ""
+        owner: root
+        group: root
+        mode: "0600"
+        force: false
+      when:
+        - not ansible_check_mode
+        - not fiestaaa_runtime_files.results[2].stat.exists
+
+    - name: Ensure deploy env file permissions
       ansible.builtin.file:
-        path: "{{ item }}"
+        path: "{{ fiestaaa_app_dir }}/.env"
         owner: "{{ fiestaaa_deploy_user }}"
         group: "{{ fiestaaa_deploy_user }}"
         mode: "0600"
+      when: not ansible_check_mode
+
+    - name: Ensure root-owned runtime file permissions
+      ansible.builtin.file:
+        path: "{{ item }}"
+        owner: root
+        group: root
+        mode: "0600"
       loop:
-        - "{{ fiestaaa_app_dir }}/.env"
         - "{{ fiestaaa_app_dir }}/data/service-account.json"
         - "{{ fiestaaa_app_dir }}/traefik/letsencrypt/acme.json"
       when: not ansible_check_mode

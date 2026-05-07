@@ -159,8 +159,10 @@ jobs:
             fi
             if [ -n "${FCM_SERVICE_ACCOUNT_JSON_B64:-}" ]; then
               install -d -m 750 data
-              printf '%s' "${FCM_SERVICE_ACCOUNT_JSON_B64}" | base64 -d > data/service-account.json
-              chmod 600 data/service-account.json
+              tmp_service_account="$(mktemp)"
+              printf '%s' "${FCM_SERVICE_ACCOUNT_JSON_B64}" | base64 -d > "${tmp_service_account}"
+              sudo install -m 600 -o root -g root "${tmp_service_account}" data/service-account.json
+              rm -f "${tmp_service_account}"
             fi
             install -m 600 /dev/null .env
             # Génère un .env à partir des secrets GitHub pour le runtime docker compose

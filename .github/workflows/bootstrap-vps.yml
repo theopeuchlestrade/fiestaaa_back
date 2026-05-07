@@ -120,12 +120,21 @@ jobs:
             set -euo pipefail
             cd ~/apps/fiestaaa
             umask 077
-            install -d -m 750 data data/postgres data/uploads data/uploads/avatars traefik/letsencrypt
-            touch traefik/letsencrypt/acme.json
-            chmod 600 traefik/letsencrypt/acme.json
+            install -d -m 755 data
+            install -d -m 750 data/uploads data/uploads/avatars traefik
+            install -d data/postgres traefik/letsencrypt
+            sudo chown -R 999:999 data/postgres
+            sudo chmod 700 data/postgres
+            sudo chown root:root traefik/letsencrypt
+            sudo chmod 700 traefik/letsencrypt
+            sudo touch traefik/letsencrypt/acme.json
+            sudo chown root:root traefik/letsencrypt/acme.json
+            sudo chmod 600 traefik/letsencrypt/acme.json
             if [ -n "${FCM_SERVICE_ACCOUNT_JSON_B64:-}" ]; then
-              printf '%s' "${FCM_SERVICE_ACCOUNT_JSON_B64}" | base64 -d > data/service-account.json
-              chmod 600 data/service-account.json
+              tmp_service_account="$(mktemp)"
+              printf '%s' "${FCM_SERVICE_ACCOUNT_JSON_B64}" | base64 -d > "${tmp_service_account}"
+              sudo install -m 600 -o root -g root "${tmp_service_account}" data/service-account.json
+              rm -f "${tmp_service_account}"
             fi
             install -m 600 /dev/null .env
             cat > .env <<EOF
