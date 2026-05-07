@@ -15,3 +15,5 @@ service-account*.json
 *.p8
 *.der
 *.crt
+infra/vps/ansible/inventory.yml
+infra/vps/ansible/*.retry
