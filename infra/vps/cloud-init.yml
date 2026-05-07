@@ -1,0 +1,86 @@
+#cloud-config
+package_update: true
+package_upgrade: true
+
+users:
+  - default
+  - name: deploy
+    gecos: Fiestaaa deploy user
+    shell: /bin/bash
+    groups: sudo
+    sudo: ["ALL=(ALL) NOPASSWD:ALL"]
+    lock_passwd: true
+    ssh_authorized_keys:
+      - "ssh-ed25519 REPLACE_WITH_DEPLOY_PUBLIC_KEY github-actions"
+
+ssh_pwauth: false
+disable_root: false
+
+packages:
+  - ca-certificates
+  - curl
+  - fail2ban
+  - gnupg
+  - lsb-release
+  - python3
+  - python3-apt
+  - ufw
+
+write_files:
+  - path: /etc/ssh/sshd_config.d/60-fiestaaa-hardening.conf
+    owner: root:root
+    permissions: "0644"
+    content: |
+      PasswordAuthentication no
+      PubkeyAuthentication yes
+      PermitRootLogin prohibit-password
+  - path: /etc/fail2ban/jail.d/fiestaaa-sshd.local
+    owner: root:root
+    permissions: "0644"
+    content: |
+      [sshd]
+      enabled = true
+      port = 1969
+      backend = systemd
+      banaction = ufw
+      maxretry = 5
+      findtime = 10m
+      bantime = 1h
+  - path: /usr/local/sbin/fiestaaa-install-docker
+    owner: root:root
+    permissions: "0755"
+    content: |
+      #!/bin/sh
+      set -eu
+      . /etc/os-release
+      install -m 0755 -d /etc/apt/keyrings
+      curl -fsSL "https://download.docker.com/linux/${ID}/gpg" -o /etc/apt/keyrings/docker.asc
+      chmod a+r /etc/apt/keyrings/docker.asc
+      echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/${ID} ${VERSION_CODENAME} stable" > /etc/apt/sources.list.d/docker.list
+      apt-get update
+      apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+
+runcmd:
+  - /usr/local/sbin/fiestaaa-install-docker
+  - usermod -aG docker deploy
+  - install -d -o deploy -g deploy -m 0750 /home/deploy/apps/fiestaaa
+  - install -d -o deploy -g deploy -m 0750 /home/deploy/apps/fiestaaa/data/postgres
+  - install -d -o deploy -g deploy -m 0750 /home/deploy/apps/fiestaaa/data/uploads/avatars
+  - install -d -o deploy -g deploy -m 0750 /home/deploy/apps/fiestaaa/traefik/letsencrypt
+  - touch /home/deploy/apps/fiestaaa/traefik/letsencrypt/acme.json
+  - chown deploy:deploy /home/deploy/apps/fiestaaa/traefik/letsencrypt/acme.json
+  - chmod 600 /home/deploy/apps/fiestaaa/traefik/letsencrypt/acme.json
+  - test -f /home/deploy/apps/fiestaaa/.env || install -o deploy -g deploy -m 0600 /dev/null /home/deploy/apps/fiestaaa/.env
+  - test -f /home/deploy/apps/fiestaaa/data/service-account.json || sh -c 'printf "{}\n" > /home/deploy/apps/fiestaaa/data/service-account.json'
+  - chown deploy:deploy /home/deploy/apps/fiestaaa/.env /home/deploy/apps/fiestaaa/data/service-account.json
+  - chmod 600 /home/deploy/apps/fiestaaa/.env /home/deploy/apps/fiestaaa/data/service-account.json
+  - ufw default deny incoming
+  - ufw default allow outgoing
+  - ufw allow 1969/tcp
+  - ufw allow 80,443/tcp
+  - ufw --force enable
+  - systemctl enable --now docker
+  - systemctl restart ssh || systemctl restart sshd
+  - systemctl enable --now fail2ban
+
+final_message: "Fiestaaa VPS bootstrap finished. Copy docker-compose.yml and configure production secrets before deploying."

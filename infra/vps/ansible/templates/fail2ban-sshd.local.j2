@@ -1,0 +1,11 @@
+[DEFAULT]
+bantime = 1h
+findtime = 10m
+maxretry = 5
+ignoreip = 127.0.0.1/8 ::1{% for cidr in fiestaaa_admin_cidrs %} {{ cidr }}{% endfor %}
+
+[sshd]
+enabled = true
+port = {{ fiestaaa_ssh_port }}
+backend = systemd
+banaction = ufw

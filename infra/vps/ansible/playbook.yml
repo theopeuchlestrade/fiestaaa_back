@@ -1,0 +1,309 @@
+---
+- name: Provision Fiestaaa VPS
+  hosts: fiestaaa_vps
+  become: true
+  gather_facts: false
+
+  pre_tasks:
+    - name: Ensure Python is available for Ansible
+      ansible.builtin.raw: test -e /usr/bin/python3 || (apt-get update && apt-get install -y python3)
+      changed_when: false
+
+    - name: Gather facts
+      ansible.builtin.setup:
+
+    - name: Ensure the host is Debian-like
+      ansible.builtin.assert:
+        that:
+          - ansible_facts["os_family"] == "Debian"
+        fail_msg: "This playbook supports Debian/Ubuntu hosts."
+
+    - name: Ensure deploy SSH keys are configured
+      ansible.builtin.assert:
+        that:
+          - fiestaaa_ssh_public_keys | length > 0
+          - "'REPLACE_WITH_' not in (fiestaaa_ssh_public_keys | join(' '))"
+        fail_msg: "Set fiestaaa_ssh_public_keys in inventory.yml before running this playbook."
+
+    - name: Detect dpkg architecture
+      ansible.builtin.command: dpkg --print-architecture
+      register: fiestaaa_dpkg_arch
+      changed_when: false
+      check_mode: false
+
+    - name: Decide Docker package source
+      ansible.builtin.set_fact:
+        fiestaaa_use_docker_official_repo: >-
+          {{
+            ansible_facts["distribution"] == "Ubuntu"
+            and ansible_facts["distribution_release"] in ["jammy", "noble"]
+          }}
+
+  tasks:
+    - name: Install base packages
+      ansible.builtin.apt:
+        name:
+          - ca-certificates
+          - curl
+          - fail2ban
+          - gnupg
+          - python3-apt
+          - python3
+          - ufw
+        state: present
+        update_cache: true
+        cache_valid_time: 3600
+
+    - name: Create apt keyring directory
+      ansible.builtin.file:
+        path: /etc/apt/keyrings
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+      when: fiestaaa_use_docker_official_repo | bool
+
+    - name: Install Docker apt key
+      ansible.builtin.get_url:
+        url: "https://download.docker.com/linux/{{ ansible_facts['distribution'] | lower }}/gpg"
+        dest: /etc/apt/keyrings/docker.asc
+        owner: root
+        group: root
+        mode: "0644"
+      when: fiestaaa_use_docker_official_repo | bool
+
+    - name: Configure Docker apt repository
+      ansible.builtin.apt_repository:
+        repo: "deb [arch={{ fiestaaa_dpkg_arch.stdout }} signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/{{ ansible_facts['distribution'] | lower }} {{ ansible_facts['distribution_release'] }} stable"
+        filename: docker
+        state: present
+        update_cache: true
+      when: fiestaaa_use_docker_official_repo | bool
+
+    - name: Remove legacy docker-compose v1 package
+      ansible.builtin.apt:
+        name: docker-compose
+        state: absent
+
+    - name: Install Docker Engine and Compose V2 from Docker official repo
+      ansible.builtin.apt:
+        name:
+          - containerd.io
+          - docker-buildx-plugin
+          - docker-ce
+          - docker-ce-cli
+          - docker-compose-plugin
+        state: present
+        update_cache: true
+      when: fiestaaa_use_docker_official_repo | bool
+
+    - name: Install Docker Engine and Compose V2 from Ubuntu packages
+      ansible.builtin.apt:
+        name:
+          - docker.io
+          - docker-compose-v2
+        state: present
+        update_cache: true
+      when: not (fiestaaa_use_docker_official_repo | bool)
+
+    - name: Enable Docker
+      ansible.builtin.service:
+        name: docker
+        state: started
+        enabled: true
+      when: not ansible_check_mode
+
+    - name: Create deploy user
+      ansible.builtin.user:
+        name: "{{ fiestaaa_deploy_user }}"
+        shell: /bin/bash
+        create_home: true
+        groups:
+          - docker
+          - sudo
+        append: true
+
+    - name: Allow deploy user to run sudo without password
+      ansible.builtin.copy:
+        dest: "/etc/sudoers.d/90-{{ fiestaaa_deploy_user }}"
+        content: "{{ fiestaaa_deploy_user }} ALL=(ALL) NOPASSWD:ALL\n"
+        owner: root
+        group: root
+        mode: "0440"
+        validate: "visudo -cf %s"
+
+    - name: Install deploy authorized keys
+      ansible.builtin.authorized_key:
+        user: "{{ fiestaaa_deploy_user }}"
+        key: "{{ item }}"
+        state: present
+      loop: "{{ fiestaaa_ssh_public_keys }}"
+      when: not ansible_check_mode
+
+    - name: Harden sshd and optionally set port
+      ansible.builtin.template:
+        src: sshd-fiestaaa.conf.j2
+        dest: /etc/ssh/sshd_config.d/60-fiestaaa.conf
+        owner: root
+        group: root
+        mode: "0644"
+      notify: Restart sshd safely
+
+    - name: Disable ssh socket activation when Ansible manages the SSH port
+      ansible.builtin.systemd_service:
+        name: ssh.socket
+        state: stopped
+        enabled: false
+      when:
+        - fiestaaa_manage_ssh_port | bool
+        - not ansible_check_mode
+      notify: Restart sshd safely
+
+    - name: Enable ssh service when Ansible manages the SSH port
+      ansible.builtin.systemd_service:
+        name: ssh.service
+        state: started
+        enabled: true
+      when:
+        - fiestaaa_manage_ssh_port | bool
+        - not ansible_check_mode
+      notify: Restart sshd safely
+
+    - name: Configure UFW defaults
+      ansible.builtin.command: "{{ item }}"
+      loop:
+        - ufw default deny incoming
+        - ufw default allow outgoing
+      changed_when: false
+      when: fiestaaa_enable_ufw | bool
+
+    - name: Allow required UFW ports
+      ansible.builtin.command: "ufw allow {{ item }}"
+      loop:
+        - "{{ fiestaaa_ssh_port }}/tcp"
+        - "80,443/tcp"
+      changed_when: false
+      when: fiestaaa_enable_ufw | bool
+
+    - name: Remove default SSH UFW rule when using a custom SSH port
+      ansible.builtin.command: ufw delete allow 22/tcp
+      register: fiestaaa_delete_ssh_22
+      changed_when: "'Rule deleted' in fiestaaa_delete_ssh_22.stdout"
+      failed_when:
+        - fiestaaa_delete_ssh_22.rc != 0
+        - "'Could not delete non-existent rule' not in fiestaaa_delete_ssh_22.stderr"
+      when:
+        - fiestaaa_enable_ufw | bool
+        - fiestaaa_manage_ssh_port | bool
+        - fiestaaa_ssh_port | int != 22
+
+    - name: Enable UFW
+      ansible.builtin.command: ufw --force enable
+      changed_when: false
+      when: fiestaaa_enable_ufw | bool
+
+    - name: Configure Fail2ban sshd jail
+      ansible.builtin.template:
+        src: fail2ban-sshd.local.j2
+        dest: /etc/fail2ban/jail.d/fiestaaa-sshd.local
+        owner: root
+        group: root
+        mode: "0644"
+      notify: Restart fail2ban
+      when: fiestaaa_enable_fail2ban | bool
+
+    - name: Enable Fail2ban
+      ansible.builtin.service:
+        name: fail2ban
+        state: started
+        enabled: true
+      when:
+        - fiestaaa_enable_fail2ban | bool
+        - not ansible_check_mode
+
+    - name: Create application directories
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        owner: "{{ fiestaaa_deploy_user }}"
+        group: "{{ fiestaaa_deploy_user }}"
+        mode: "0750"
+      loop:
+        - "{{ fiestaaa_app_dir }}"
+        - "{{ fiestaaa_app_dir }}/data"
+        - "{{ fiestaaa_app_dir }}/data/postgres"
+        - "{{ fiestaaa_app_dir }}/data/uploads"
+        - "{{ fiestaaa_app_dir }}/data/uploads/avatars"
+        - "{{ fiestaaa_app_dir }}/traefik"
+        - "{{ fiestaaa_app_dir }}/traefik/letsencrypt"
+      when: not ansible_check_mode
+
+    - name: Copy production compose file
+      ansible.builtin.copy:
+        src: "{{ fiestaaa_compose_source }}"
+        dest: "{{ fiestaaa_compose_dest }}"
+        owner: "{{ fiestaaa_deploy_user }}"
+        group: "{{ fiestaaa_deploy_user }}"
+        mode: "0644"
+      when: not ansible_check_mode
+
+    - name: Check mutable secret/runtime files
+      ansible.builtin.stat:
+        path: "{{ item.path }}"
+      loop:
+        - path: "{{ fiestaaa_app_dir }}/.env"
+        - path: "{{ fiestaaa_app_dir }}/data/service-account.json"
+        - path: "{{ fiestaaa_app_dir }}/traefik/letsencrypt/acme.json"
+      register: fiestaaa_runtime_files
+      when: not ansible_check_mode
+
+    - name: Create missing mutable secret/runtime files
+      ansible.builtin.copy:
+        dest: "{{ item.item.path }}"
+        content: "{{ '{}\n' if (item.item.path | basename) == 'service-account.json' else '' }}"
+        owner: "{{ fiestaaa_deploy_user }}"
+        group: "{{ fiestaaa_deploy_user }}"
+        mode: "0600"
+        force: false
+      loop: "{{ fiestaaa_runtime_files.results }}"
+      when:
+        - not ansible_check_mode
+        - not item.stat.exists
+
+    - name: Ensure mutable secret/runtime file permissions
+      ansible.builtin.file:
+        path: "{{ item }}"
+        owner: "{{ fiestaaa_deploy_user }}"
+        group: "{{ fiestaaa_deploy_user }}"
+        mode: "0600"
+      loop:
+        - "{{ fiestaaa_app_dir }}/.env"
+        - "{{ fiestaaa_app_dir }}/data/service-account.json"
+        - "{{ fiestaaa_app_dir }}/traefik/letsencrypt/acme.json"
+      when: not ansible_check_mode
+
+    - name: Show next steps
+      ansible.builtin.debug:
+        msg:
+          - "VPS base is ready at {{ fiestaaa_app_dir }}."
+          - "Fill GitHub production secrets, replace data/service-account.json, then deploy from GitHub Actions."
+
+  handlers:
+    - name: Validate sshd config
+      ansible.builtin.command: /usr/sbin/sshd -t
+      changed_when: false
+      listen: Restart sshd safely
+      when: not ansible_check_mode
+
+    - name: Restart sshd
+      ansible.builtin.service:
+        name: ssh
+        state: restarted
+      listen: Restart sshd safely
+      when: not ansible_check_mode
+
+    - name: Restart fail2ban
+      ansible.builtin.service:
+        name: fail2ban
+        state: restarted
+      when: not ansible_check_mode

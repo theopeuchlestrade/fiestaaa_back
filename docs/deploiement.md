@@ -62,7 +62,37 @@ graph TD
 - CI/CD : workflows GitHub Actions (back/front) buildent et poussent les images sur GHCR puis déploient via SSH (`docker compose pull/up`). Le push d’image utilise `GITHUB_TOKEN`; le VPS n’a besoin que d’un `GHCR_TOKEN` en lecture.
 - Arborescence VPS : `~/apps/fiestaaa` avec `docker-compose.yml`, `data/`, `traefik/`, `data/service-account.json`, et optionnel `frontend/` pour éventuels overrides.
 
+## Option automatisée : cloud-init + Ansible
+
+Pour éviter de refaire la préparation VPS à la main, le dépôt fournit maintenant un socle déclaratif dans `infra/vps/`.
+
+- `infra/vps/cloud-init.yml` : bootstrap d'un VPS neuf (utilisateur `deploy`, Docker, UFW, Fail2ban, arborescence).
+- `infra/vps/ansible/playbook.yml` : configuration idempotente d'un VPS existant ou fraîchement créé.
+- `infra/vps/ansible/inventory.example.yml` : modèle d'inventaire à copier en `inventory.yml` local non versionné.
+- `.github/workflows/provision-vps.yml` : exécution manuelle du playbook depuis GitHub Actions avec les secrets `production`.
+- `.github/workflows/bootstrap-vps.yml` : premier lancement complet de la stack Compose une fois le tag d'image front connu.
+
+Le chemin recommandé pour un nouveau VPS est :
+
+```bash
+cp infra/vps/ansible/inventory.example.yml infra/vps/ansible/inventory.yml
+ansible-playbook -i infra/vps/ansible/inventory.yml infra/vps/ansible/playbook.yml
+```
+
+Le playbook copie `docker-compose.prod.yml` vers `~/apps/fiestaaa/docker-compose.yml`, prépare les dossiers persistants et garde les secrets hors Git. Les workflows GitHub Actions restent responsables de générer `~/apps/fiestaaa/.env` depuis les secrets d'environnement `production`.
+
+Pour une machine vierge sans Ansible local :
+
+1. Lancer le workflow manuel `Provision VPS`.
+2. Lancer le workflow `Build and Deploy Front` dans `fiestaaa_front` avec `skip_deploy=true` pour publier l'image front sans tenter le SSH.
+3. Lancer `Bootstrap VPS Stack` dans `fiestaaa_back` avec le SHA du commit front comme `front_image_tag`.
+4. Utiliser ensuite les workflows de déploiement normaux.
+
+Voir `infra/vps/README.md` pour le mode d'emploi court.
+
 ## 1) Préparer le VPS
+
+> Les étapes manuelles ci-dessous restent utiles pour comprendre/debugger le serveur. Pour une machine neuve ou à remettre en conformité, privilégiez `infra/vps/`.
 
 1. **Accès**
 	- Confirmer l'IP du serveur et les DNS (`fiestaaa.app`, `api.fiestaaa.app` pointent sur le VPS pour que Traefik puisse générer les certificats).
@@ -98,7 +128,7 @@ graph TD
 		`cat /home/<user>/.ssh/deploy_key.pub >> /home/<user>/.ssh/authorized_keys && chmod 600 /home/<user>/.ssh/authorized_keys`
 5. **Port SSH non standard (recommandé)**
 	```bash
-	SSH_PORT=2222  # adaptez la valeur
+	SSH_PORT=1969  # adaptez la valeur
 	echo "Port ${SSH_PORT}" | sudo tee /etc/ssh/sshd_config.d/60-fiestaaa-port.conf >/dev/null
 	# Ubuntu 24.04+ peut utiliser ssh.socket par défaut ; repassez sur ssh.service
 	# pour que la directive Port soit appliquée de façon prévisible.
@@ -246,7 +276,7 @@ Nom | Description
 --- | ---
 `JWT_SECRET` | Secret JWT (32+ chars)
 `VPS_HOST` | IP ou hostname du VPS
-`VPS_PORT` | Port SSH du VPS (renseignez la valeur configurée dans `sshd`, ex. `2222`)
+`VPS_PORT` | Port SSH du VPS (renseignez la valeur configurée dans `sshd`, ex. `1969`)
 `VPS_USER` | Utilisateur de déploiement (ex. `deploy`)
 `VPS_SSH_KEY` | Contenu de la clé privée `deploy_key` (sans passphrase)
 `GHCR_TOKEN` | PAT GitHub minimal avec `read:packages` pour le `docker login` côté VPS
@@ -262,6 +292,7 @@ Nom | Description
 `INVITATION_EMAIL_SENDER` | Expéditeur des emails d'invitations
 `RESEND_API_KEY` | Clé d'email Resend
 `FCM_SERVER_KEY` | (optionnel) Clé serveur FCM legacy ; laissez vide si vous utilisez FCM HTTP v1 avec `service-account.json`
+`FCM_SERVICE_ACCOUNT_JSON_B64` | (optionnel mais recommandé) Contenu base64 monoligne de `service-account.json`, matérialisé en `~/apps/fiestaaa/data/service-account.json`
 `FIESTAAA_FCM_VAPID_KEY` | VAPID public key (web push) — réutilisée par le front
 `FCM_SERVICE_ACCOUNT_PATH` | Chemin vers la clé de service (ex. `/app/service-account.json`)
 `FCM_PROJECT_ID` | ID du projet Firebase
@@ -296,6 +327,19 @@ Nom | Description
 - La clé publique associée à `VPS_SSH_KEY` est dans `~/.ssh/authorized_keys`.
 - Si SSH écoute sur un port non standard, `VPS_PORT` côté GitHub Actions correspond à ce port et celui-ci est autorisé par UFW.
 - `~/apps/fiestaaa/.env`, `~/apps/fiestaaa/data/service-account.json` et `~/apps/fiestaaa/traefik/letsencrypt/acme.json` sont en `chmod 600`.
+
+### Premier déploiement sur une machine vierge
+
+Les workflows normaux préservent le tag de l'autre service et échouent volontairement si `API_IMAGE_TAG` ou `FRONT_IMAGE_TAG` n'existe pas encore. Le premier lancement complet passe donc par le workflow manuel `Bootstrap VPS Stack`.
+
+1. Provisionner le VPS avec `Provision VPS` ou Ansible local.
+2. Publier une image front sans déployer :
+   - repo `fiestaaa_front` ;
+   - workflow `Build and Deploy Front` ;
+   - `skip_deploy=true`.
+3. Noter le SHA du commit front publié.
+4. Repo `fiestaaa_back` ➜ workflow `Bootstrap VPS Stack` ➜ `front_image_tag=<sha_front>`.
+5. Vérifier `docker compose ps`, `https://api.fiestaaa.app/health` et `https://fiestaaa.app`.
 
 ### Validation
 - Push sur `main` ➜ vérifier que le job "Build and Deploy" passe au vert.
@@ -389,6 +433,7 @@ Le script charge `.env`, construit l’URL Postgres (`DATABASE_URL` ou `POSTGRES
 
 ### MEP VPS (infra)
 - [ ] IP/DNS validés (`fiestaaa.app`, `api.fiestaaa.app` ➜ VPS)
+- [ ] `infra/vps/cloud-init.yml` appliqué sur VPS neuf ou playbook Ansible exécuté
 - [ ] SSH OK, utilisateur de déploiement ajouté au groupe docker
 - [ ] Port SSH non standard configuré et testé depuis une seconde session
 - [ ] Docker + Docker Compose installés

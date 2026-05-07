@@ -1,16 +1,22 @@
-name: Build and Deploy
+name: Bootstrap VPS Stack
+
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
     inputs:
+      front_image_tag:
+        description: "Existing ghcr.io/theopeuchlestrade/fiestaaa_front image tag to deploy."
+        required: true
       force_build:
-        description: "Ignore existing image and rebuild"
+        description: "Ignore existing backend image and rebuild"
         type: boolean
         default: false
 
+env:
+  IMAGE: ghcr.io/theopeuchlestrade/fiestaaa_back
+  TAG: ${{ github.sha }}
+
 jobs:
-  build-and-deploy:
+  bootstrap:
     runs-on: ubuntu-latest
     environment:
       name: production
@@ -21,9 +27,6 @@ jobs:
       artifact-metadata: write
       id-token: write
       packages: write
-    env:
-      IMAGE: ghcr.io/theopeuchlestrade/fiestaaa_back
-      TAG: ${{ github.sha }}
     steps:
       - uses: actions/checkout@v6.0.2
 
@@ -39,16 +42,12 @@ jobs:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           FCM_PROJECT_ID: ${{ secrets.FCM_PROJECT_ID }}
           FCM_SERVICE_ACCOUNT_PATH: ${{ secrets.FCM_SERVICE_ACCOUNT_PATH }}
-          FCM_SERVER_KEY: ${{ secrets.FCM_SERVER_KEY }}
-          FIESTAAA_APPLE_APP_ID: ${{ secrets.FIESTAAA_APPLE_APP_ID }}
           FIESTAAA_APPLE_REDIRECT_URI: ${{ secrets.FIESTAAA_APPLE_REDIRECT_URI }}
           FIESTAAA_APPLE_SERVICE_ID: ${{ secrets.FIESTAAA_APPLE_SERVICE_ID }}
           FIESTAAA_FCM_VAPID_KEY: ${{ secrets.FIESTAAA_FCM_VAPID_KEY }}
-          FIESTAAA_GOOGLE_ANDROID_CLIENT_ID: ${{ secrets.FIESTAAA_GOOGLE_ANDROID_CLIENT_ID }}
-          FIESTAAA_GOOGLE_WEB_CLIENT_ID: ${{ secrets.FIESTAAA_GOOGLE_WEB_CLIENT_ID }}
           FIESTAAA_GOOGLE_IOS_CLIENT_ID: ${{ secrets.FIESTAAA_GOOGLE_IOS_CLIENT_ID }}
+          FIESTAAA_GOOGLE_WEB_CLIENT_ID: ${{ secrets.FIESTAAA_GOOGLE_WEB_CLIENT_ID }}
           GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
-          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
           INVITATION_EMAIL_SENDER: ${{ secrets.INVITATION_EMAIL_SENDER }}
           JWT_SECRET: ${{ secrets.JWT_SECRET }}
           NOTIFICATION_DEDUP_TTL_SECONDS: ${{ secrets.NOTIFICATION_DEDUP_TTL_SECONDS }}
@@ -56,6 +55,7 @@ jobs:
           POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
           POSTGRES_USER: ${{ secrets.POSTGRES_USER }}
           REDIS_URL: ${{ secrets.REDIS_URL }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
           VPS_HOST: ${{ secrets.VPS_HOST }}
           VPS_PORT: ${{ secrets.VPS_PORT }}
           VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
@@ -68,6 +68,7 @@ jobs:
           for var in APP_BASE_URL AVATAR_BASE_URL AVATAR_UPLOAD_DIR CORS_ALLOWED_ORIGINS DATA_ENCRYPTION_KEY DATA_LOOKUP_KEY DATABASE_URL FCM_PROJECT_ID FCM_SERVICE_ACCOUNT_PATH FIESTAAA_APPLE_REDIRECT_URI FIESTAAA_APPLE_SERVICE_ID FIESTAAA_FCM_VAPID_KEY FIESTAAA_GOOGLE_WEB_CLIENT_ID FIESTAAA_GOOGLE_IOS_CLIENT_ID RESEND_API_KEY INVITATION_EMAIL_SENDER JWT_SECRET NOTIFICATION_DEDUP_TTL_SECONDS POSTGRES_DB POSTGRES_PASSWORD POSTGRES_USER REDIS_URL; do
             if [ -z "${!var}" ]; then echo "::error::$var manquant pour .env"; missing=1; fi
           done
+          if [ -z "${{ inputs.front_image_tag }}" ]; then echo "::error::front_image_tag manquant"; missing=1; fi
           if [ "$missing" -ne 0 ]; then exit 1; fi
 
       - name: Login to GHCR for push
@@ -80,7 +81,7 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3.11.1
 
-      - name: Check if image exists
+      - name: Check if backend image exists
         id: image_exists
         run: |
           if docker manifest inspect "$IMAGE:$TAG" >/dev/null 2>&1; then
@@ -89,9 +90,9 @@ jobs:
             echo "exists=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Build and push image
+      - name: Build and push backend image
         id: push
-        if: steps.image_exists.outputs.exists == 'false' || (github.event_name == 'workflow_dispatch' && github.event.inputs.force_build == 'true')
+        if: steps.image_exists.outputs.exists == 'false' || inputs.force_build
         uses: docker/build-push-action@v6.18.0
         with:
           context: .
@@ -107,67 +108,29 @@ jobs:
           subject-digest: ${{ steps.push.outputs.digest }}
           push-to-registry: true
 
-      - name: Check VPS bootstrap state
-        id: bootstrap
-        env:
-          VPS_HOST: ${{ secrets.VPS_HOST }}
-          VPS_PORT: ${{ secrets.VPS_PORT }}
-          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
-          VPS_USER: ${{ secrets.VPS_USER }}
-        run: |
-          set -euo pipefail
-          key_path="${RUNNER_TEMP}/fiestaaa_deploy"
-          printf '%s\n' "${VPS_SSH_KEY}" > "${key_path}"
-          chmod 600 "${key_path}"
-          front_image_tag="$(
-            ssh -i "${key_path}" \
-              -p "${VPS_PORT}" \
-              -o BatchMode=yes \
-              -o StrictHostKeyChecking=accept-new \
-              "${VPS_USER}@${VPS_HOST}" \
-              "grep '^FRONT_IMAGE_TAG=' ~/apps/fiestaaa/.env 2>/dev/null | cut -d= -f2- || true"
-          )"
-          rm -f "${key_path}"
-          if [ -z "${front_image_tag}" ]; then
-            echo "ready=false" >> "${GITHUB_OUTPUT}"
-            echo "::notice::Bootstrap initial non detecte: le deploy API est ignore jusqu'au workflow Bootstrap VPS Stack."
-          else
-            echo "ready=true" >> "${GITHUB_OUTPUT}"
-          fi
-
-      - name: Deploy to VPS
-        if: steps.bootstrap.outputs.ready == 'true'
+      - name: Bootstrap stack on VPS
         uses: appleboy/ssh-action@v1.2.2
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
           port: ${{ secrets.VPS_PORT || 22 }}
-          envs: ADMIN_EMAILS,APP_BASE_URL,AVATAR_BASE_URL,AVATAR_UPLOAD_DIR,CORS_ALLOWED_ORIGINS,DATA_ENCRYPTION_KEY,DATA_LOOKUP_KEY,DATABASE_URL,FCM_PROJECT_ID,FCM_SERVICE_ACCOUNT_JSON_B64,FCM_SERVICE_ACCOUNT_PATH,FCM_SERVER_KEY,FIESTAAA_APPLE_APP_ID,FIESTAAA_APPLE_REDIRECT_URI,FIESTAAA_APPLE_SERVICE_ID,FIESTAAA_FCM_VAPID_KEY,FIESTAAA_GOOGLE_ANDROID_CLIENT_ID,FIESTAAA_GOOGLE_WEB_CLIENT_ID,FIESTAAA_GOOGLE_IOS_CLIENT_ID,RESEND_API_KEY,INVITATION_EMAIL_SENDER,JWT_SECRET,NOTIFICATION_DEDUP_TTL_SECONDS,POSTGRES_DB,POSTGRES_PASSWORD,POSTGRES_USER,REDIS_URL,GHCR_USERNAME,GHCR_TOKEN,VPS_HOST,VPS_USER,TAG
+          envs: ADMIN_EMAILS,APP_BASE_URL,AVATAR_BASE_URL,AVATAR_UPLOAD_DIR,CORS_ALLOWED_ORIGINS,DATA_ENCRYPTION_KEY,DATA_LOOKUP_KEY,DATABASE_URL,FCM_PROJECT_ID,FCM_SERVICE_ACCOUNT_JSON_B64,FCM_SERVICE_ACCOUNT_PATH,FCM_SERVER_KEY,FIESTAAA_APPLE_APP_ID,FIESTAAA_APPLE_REDIRECT_URI,FIESTAAA_APPLE_SERVICE_ID,FIESTAAA_FCM_VAPID_KEY,FIESTAAA_GOOGLE_ANDROID_CLIENT_ID,FIESTAAA_GOOGLE_WEB_CLIENT_ID,FIESTAAA_GOOGLE_IOS_CLIENT_ID,RESEND_API_KEY,INVITATION_EMAIL_SENDER,JWT_SECRET,NOTIFICATION_DEDUP_TTL_SECONDS,POSTGRES_DB,POSTGRES_PASSWORD,POSTGRES_USER,REDIS_URL,GHCR_USERNAME,GHCR_TOKEN,TAG,FRONT_IMAGE_TAG
           script: |
             set -euo pipefail
-            if [ -z "${VPS_USER:-}" ] || [ -z "${VPS_HOST:-}" ]; then
-              echo "VPS_USER ou VPS_HOST manquant" >&2
-              exit 1
-            fi
             cd ~/apps/fiestaaa
             umask 077
-            current_front_image_tag="$(grep '^FRONT_IMAGE_TAG=' .env 2>/dev/null | cut -d= -f2- || true)"
-            if [ -z "${current_front_image_tag}" ]; then
-              echo "FRONT_IMAGE_TAG missing in ~/apps/fiestaaa/.env. Seed both API_IMAGE_TAG and FRONT_IMAGE_TAG before the first deployment." >&2
-              exit 1
-            fi
+            install -d -m 750 data data/postgres data/uploads data/uploads/avatars traefik/letsencrypt
+            touch traefik/letsencrypt/acme.json
+            chmod 600 traefik/letsencrypt/acme.json
             if [ -n "${FCM_SERVICE_ACCOUNT_JSON_B64:-}" ]; then
-              install -d -m 750 data
               printf '%s' "${FCM_SERVICE_ACCOUNT_JSON_B64}" | base64 -d > data/service-account.json
               chmod 600 data/service-account.json
             fi
             install -m 600 /dev/null .env
-            # Génère un .env à partir des secrets GitHub pour le runtime docker compose
-            # Pas de quotes sur EOF afin d'expanser les variables côté runner et éviter les valeurs littérales ${VAR}
             cat > .env <<EOF
             API_IMAGE_TAG=${TAG}
-            FRONT_IMAGE_TAG=${current_front_image_tag}
+            FRONT_IMAGE_TAG=${FRONT_IMAGE_TAG}
             APP_BASE_URL=${APP_BASE_URL}
             AVATAR_BASE_URL=${AVATAR_BASE_URL}
             AVATAR_UPLOAD_DIR=${AVATAR_UPLOAD_DIR}
@@ -198,26 +161,11 @@ jobs:
             EOF
             chmod 600 .env
             echo "${GHCR_TOKEN}" | docker login ghcr.io -u "${GHCR_USERNAME}" --password-stdin
-            compose_cmd="docker compose"
-            if ! docker compose version >/dev/null 2>&1; then
-              if command -v docker-compose >/dev/null 2>&1; then
-                compose_cmd="docker-compose"
-              else
-                echo "docker compose/docker-compose introuvable sur le VPS" >&2
-                exit 1
-              fi
-            fi
-            docker container prune -f >/dev/null 2>&1 || true
-            docker image prune -af >/dev/null 2>&1 || true
-            ${compose_cmd} pull api
-            # Ne touche pas aux dépendances (db/redis) pour éviter les recréations inutiles et bugs docker-compose v1
-            ${compose_cmd} up -d --no-deps api
-            ${compose_cmd} ps
+            docker compose pull
+            docker compose up -d
+            docker compose ps
         env:
           ADMIN_EMAILS: ${{ secrets.ADMIN_EMAILS }}
-          GHCR_USERNAME: ${{ secrets.GHCR_USERNAME || github.repository_owner }}
-          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}  # PAT read:packages pour le pull
-          TAG: ${{ github.sha }}
           APP_BASE_URL: ${{ secrets.APP_BASE_URL }}
           AVATAR_BASE_URL: ${{ secrets.AVATAR_BASE_URL }}
           AVATAR_UPLOAD_DIR: ${{ secrets.AVATAR_UPLOAD_DIR }}
@@ -236,7 +184,9 @@ jobs:
           FIESTAAA_GOOGLE_ANDROID_CLIENT_ID: ${{ secrets.FIESTAAA_GOOGLE_ANDROID_CLIENT_ID }}
           FIESTAAA_GOOGLE_WEB_CLIENT_ID: ${{ secrets.FIESTAAA_GOOGLE_WEB_CLIENT_ID }}
           FIESTAAA_GOOGLE_IOS_CLIENT_ID: ${{ secrets.FIESTAAA_GOOGLE_IOS_CLIENT_ID }}
-          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          FRONT_IMAGE_TAG: ${{ inputs.front_image_tag }}
+          GHCR_USERNAME: ${{ secrets.GHCR_USERNAME || github.repository_owner }}
+          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
           INVITATION_EMAIL_SENDER: ${{ secrets.INVITATION_EMAIL_SENDER }}
           JWT_SECRET: ${{ secrets.JWT_SECRET }}
           NOTIFICATION_DEDUP_TTL_SECONDS: ${{ secrets.NOTIFICATION_DEDUP_TTL_SECONDS }}
@@ -244,11 +194,10 @@ jobs:
           POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
           POSTGRES_USER: ${{ secrets.POSTGRES_USER }}
           REDIS_URL: ${{ secrets.REDIS_URL }}
-          VPS_HOST: ${{ secrets.VPS_HOST }}
-          VPS_USER: ${{ secrets.VPS_USER }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          TAG: ${{ github.sha }}
 
       - name: Verify public health checks
-        if: steps.bootstrap.outputs.ready == 'true'
         run: |
           curl --fail --silent --show-error https://api.fiestaaa.app/health
           curl --fail --silent --show-error --head https://fiestaaa.app

@@ -1,0 +1,100 @@
+name: Provision VPS
+
+on:
+  workflow_dispatch:
+    inputs:
+      connection_user:
+        description: "SSH user used by Ansible. Leave empty to use VPS_USER, or set root for a fresh VPS."
+        required: false
+        default: ""
+      connection_port:
+        description: "Current SSH port. Leave empty to use VPS_PORT or 22."
+        required: false
+        default: ""
+      manage_ssh_port:
+        description: "Also manage the SSH port through Ansible."
+        type: boolean
+        default: false
+      target_ssh_port:
+        description: "SSH port to configure when manage_ssh_port is true."
+        required: false
+        default: ""
+
+jobs:
+  provision:
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+    permissions:
+      contents: read
+    env:
+      VPS_HOST: ${{ secrets.VPS_HOST }}
+      VPS_PORT: ${{ secrets.VPS_PORT }}
+      VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+      VPS_USER: ${{ secrets.VPS_USER }}
+    steps:
+      - uses: actions/checkout@v6.0.2
+
+      - name: Check required secrets
+        run: |
+          missing=0
+          for var in VPS_HOST VPS_SSH_KEY; do
+            if [ -z "${!var}" ]; then
+              echo "::error::$var manquant"
+              missing=1
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then exit 1; fi
+
+      - name: Install Ansible
+        run: |
+          python3 -m pip install --user ansible
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Prepare SSH and inventory
+        run: |
+          set -euo pipefail
+          install -d -m 700 ~/.ssh
+          key_file="${RUNNER_TEMP}/fiestaaa_vps_key"
+          printf '%s\n' "${VPS_SSH_KEY}" > "${key_file}"
+          chmod 600 "${key_file}"
+          deploy_public_key="$(ssh-keygen -y -f "${key_file}")"
+
+          connection_user="${{ inputs.connection_user }}"
+          if [ -z "${connection_user}" ]; then
+            connection_user="${VPS_USER:-root}"
+          fi
+
+          connection_port="${{ inputs.connection_port }}"
+          if [ -z "${connection_port}" ]; then
+            connection_port="${VPS_PORT:-22}"
+          fi
+
+          target_ssh_port="${{ inputs.target_ssh_port }}"
+          if [ -z "${target_ssh_port}" ]; then
+            target_ssh_port="${connection_port}"
+          fi
+
+          ssh-keyscan -p "${connection_port}" "${VPS_HOST}" >> ~/.ssh/known_hosts
+
+          cat > "${RUNNER_TEMP}/inventory.yml" <<EOF
+          fiestaaa_vps:
+            hosts:
+              production:
+                ansible_host: ${VPS_HOST}
+                ansible_user: ${connection_user}
+                ansible_port: ${connection_port}
+                ansible_ssh_private_key_file: ${key_file}
+                ansible_python_interpreter: /usr/bin/python3
+                fiestaaa_manage_ssh_port: ${{ inputs.manage_ssh_port }}
+                fiestaaa_ssh_port: ${target_ssh_port}
+                fiestaaa_ssh_public_keys:
+                  - >-
+                    ${deploy_public_key}
+          EOF
+
+      - name: Check Ansible syntax
+        run: ansible-playbook --syntax-check -i "${RUNNER_TEMP}/inventory.yml" infra/vps/ansible/playbook.yml
+
+      - name: Provision VPS
+        run: ansible-playbook -i "${RUNNER_TEMP}/inventory.yml" infra/vps/ansible/playbook.yml

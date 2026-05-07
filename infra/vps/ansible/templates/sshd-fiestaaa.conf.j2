@@ -1,0 +1,6 @@
+{% if fiestaaa_manage_ssh_port | bool %}
+Port {{ fiestaaa_ssh_port }}
+{% endif %}
+PasswordAuthentication no
+PubkeyAuthentication yes
+PermitRootLogin prohibit-password

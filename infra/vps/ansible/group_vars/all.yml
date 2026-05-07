@@ -1,0 +1,19 @@
+---
+fiestaaa_deploy_user: deploy
+fiestaaa_app_dir: "/home/{{ fiestaaa_deploy_user }}/apps/fiestaaa"
+
+# Production SSH port managed by Ansible after the first bootstrap.
+fiestaaa_ssh_port: 1969
+fiestaaa_manage_ssh_port: false
+
+fiestaaa_enable_ufw: true
+fiestaaa_enable_fail2ban: true
+
+# Add your fixed admin/VPN IPs here to avoid Fail2ban lockouts.
+fiestaaa_admin_cidrs: []
+
+# Public SSH keys allowed for the deploy user. Override this in inventory.yml.
+fiestaaa_ssh_public_keys: []
+
+fiestaaa_compose_source: "{{ playbook_dir }}/../../../docker-compose.prod.yml"
+fiestaaa_compose_dest: "{{ fiestaaa_app_dir }}/docker-compose.yml"

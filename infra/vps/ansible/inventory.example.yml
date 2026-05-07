@@ -1,0 +1,16 @@
+---
+fiestaaa_vps:
+  hosts:
+    production:
+      ansible_host: 51.75.20.71
+      ansible_user: root
+      ansible_python_interpreter: /usr/bin/python3
+      fiestaaa_ssh_public_keys:
+        - "ssh-ed25519 REPLACE_WITH_DEPLOY_PUBLIC_KEY github-actions"
+      # After the initial bootstrap, you can switch to:
+      # ansible_user: deploy
+      # ansible_become: true
+      # fiestaaa_manage_ssh_port: true
+      # fiestaaa_ssh_port: 1969
+      # fiestaaa_admin_cidrs:
+      #   - "203.0.113.10/32"
