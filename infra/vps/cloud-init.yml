@@ -66,7 +66,7 @@ runcmd:
   - install -d -o deploy -g deploy -m 0750 /home/deploy/apps/fiestaaa
   - install -d -o deploy -g deploy -m 0755 /home/deploy/apps/fiestaaa/data
   - install -d -o 999 -g 999 -m 0700 /home/deploy/apps/fiestaaa/data/postgres
-  - install -d -o deploy -g deploy -m 0750 /home/deploy/apps/fiestaaa/data/uploads/avatars
+  - install -d -o 10001 -g 10001 -m 0750 /home/deploy/apps/fiestaaa/data/uploads /home/deploy/apps/fiestaaa/data/uploads/avatars
   - install -d -o root -g root -m 0700 /home/deploy/apps/fiestaaa/traefik/letsencrypt
   - touch /home/deploy/apps/fiestaaa/traefik/letsencrypt/acme.json
   - chown root:root /home/deploy/apps/fiestaaa/traefik/letsencrypt/acme.json
@@ -74,8 +74,9 @@ runcmd:
   - test -f /home/deploy/apps/fiestaaa/.env || install -o deploy -g deploy -m 0600 /dev/null /home/deploy/apps/fiestaaa/.env
   - test -f /home/deploy/apps/fiestaaa/data/service-account.json || sh -c 'printf "{}\n" > /home/deploy/apps/fiestaaa/data/service-account.json'
   - chown deploy:deploy /home/deploy/apps/fiestaaa/.env
-  - chown root:root /home/deploy/apps/fiestaaa/data/service-account.json
-  - chmod 600 /home/deploy/apps/fiestaaa/.env /home/deploy/apps/fiestaaa/data/service-account.json
+  - chown 10001:10001 /home/deploy/apps/fiestaaa/data/service-account.json
+  - chmod 600 /home/deploy/apps/fiestaaa/.env
+  - chmod 400 /home/deploy/apps/fiestaaa/data/service-account.json
   - ufw default deny incoming
   - ufw default allow outgoing
   - ufw allow 1969/tcp

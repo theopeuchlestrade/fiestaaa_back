@@ -161,9 +161,16 @@ jobs:
               install -d -m 750 data
               tmp_service_account="$(mktemp)"
               printf '%s' "${FCM_SERVICE_ACCOUNT_JSON_B64}" | base64 -d > "${tmp_service_account}"
-              sudo install -m 600 -o root -g root "${tmp_service_account}" data/service-account.json
+              sudo install -m 400 -o 10001 -g 10001 "${tmp_service_account}" data/service-account.json
               rm -f "${tmp_service_account}"
             fi
+            if [ -f data/service-account.json ]; then
+              sudo chown 10001:10001 data/service-account.json
+              sudo chmod 400 data/service-account.json
+            fi
+            install -d -m 750 data/uploads data/uploads/avatars
+            sudo chown -R 10001:10001 data/uploads
+            sudo chmod 750 data/uploads data/uploads/avatars
             install -m 600 /dev/null .env
             # Génère un .env à partir des secrets GitHub pour le runtime docker compose
             # Pas de quotes sur EOF afin d'expanser les variables côté runner et éviter les valeurs littérales ${VAR}

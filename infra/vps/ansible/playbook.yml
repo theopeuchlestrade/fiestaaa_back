@@ -231,9 +231,19 @@
       loop:
         - "{{ fiestaaa_app_dir }}"
         - "{{ fiestaaa_app_dir }}/data"
+        - "{{ fiestaaa_app_dir }}/traefik"
+      when: not ansible_check_mode
+
+    - name: Create upload directories for backend container uid
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        owner: "10001"
+        group: "10001"
+        mode: "0750"
+      loop:
         - "{{ fiestaaa_app_dir }}/data/uploads"
         - "{{ fiestaaa_app_dir }}/data/uploads/avatars"
-        - "{{ fiestaaa_app_dir }}/traefik"
       when: not ansible_check_mode
 
     - name: Create Postgres data directory for container uid
@@ -289,9 +299,9 @@
       ansible.builtin.copy:
         dest: "{{ fiestaaa_app_dir }}/data/service-account.json"
         content: "{}\n"
-        owner: root
-        group: root
-        mode: "0600"
+        owner: "10001"
+        group: "10001"
+        mode: "0400"
         force: false
       when:
         - not ansible_check_mode
@@ -317,15 +327,20 @@
         mode: "0600"
       when: not ansible_check_mode
 
-    - name: Ensure root-owned runtime file permissions
+    - name: Ensure backend runtime file permissions
       ansible.builtin.file:
-        path: "{{ item }}"
+        path: "{{ fiestaaa_app_dir }}/data/service-account.json"
+        owner: "10001"
+        group: "10001"
+        mode: "0400"
+      when: not ansible_check_mode
+
+    - name: Ensure root-owned Traefik runtime file permissions
+      ansible.builtin.file:
+        path: "{{ fiestaaa_app_dir }}/traefik/letsencrypt/acme.json"
         owner: root
         group: root
         mode: "0600"
-      loop:
-        - "{{ fiestaaa_app_dir }}/data/service-account.json"
-        - "{{ fiestaaa_app_dir }}/traefik/letsencrypt/acme.json"
       when: not ansible_check_mode
 
     - name: Show next steps

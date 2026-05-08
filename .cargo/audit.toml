@@ -1,0 +1,14 @@
+[advisories]
+ignore = [
+  # RUSTSEC-2023-0071 concerns RSA private-key operations. The backend pulls
+  # `rsa` through `jsonwebtoken` to verify Apple RS256 ID tokens with public
+  # keys, and SQLx MySQL appears only as an unused optional dependency in
+  # Cargo.lock. Revisit when `jsonwebtoken` or `rsa` ships a fixed release.
+  "RUSTSEC-2023-0071",
+
+  # RUSTSEC-2026-0097 applies to applications using a custom logger together
+  # with `rand::rng()`. This backend does not call `rand::rng()`; the crates
+  # are transitive dependencies of SQLx/Actix/Reqwest. Revisit when upstream
+  # releases fixed versions.
+  "RUSTSEC-2026-0097",
+]
