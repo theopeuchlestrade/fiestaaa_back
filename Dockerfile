@@ -29,7 +29,9 @@ LABEL org.opencontainers.image.source="https://github.com/theopeuchlestrade/fies
 
 RUN apt-get update \
  && apt-get install -y --no-install-recommends ca-certificates curl libssl3 \
- && rm -rf /var/lib/apt/lists/*
+ && rm -rf /var/lib/apt/lists/* \
+ && groupadd --system --gid 10001 fiestaaa \
+ && useradd --system --uid 10001 --gid fiestaaa --home-dir /app --shell /usr/sbin/nologin fiestaaa
 
 WORKDIR /app
 
@@ -39,5 +41,7 @@ ENV HOST=0.0.0.0 \
     PORT=8080
 
 EXPOSE 8080
+
+USER 10001:10001
 
 CMD ["fiestaaa_back"]
