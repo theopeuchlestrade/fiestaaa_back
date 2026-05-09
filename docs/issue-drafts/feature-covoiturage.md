@@ -1,52 +1,52 @@
-# [BACK] Covoiturage par evenement
+# [BACK] Carpools by event
 
-## Objectif
-Ajouter un module de covoiturage par evenement (voitures, places, inscriptions).
+## Objective
+Add a carpool module by event (rides, seats, registrations).
 
-## Contexte
-Organisation des trajets pour les participants (pratique pour les BDE).
+## Context
+Trip organization for participants (useful for student associations).
 
-## Perimetre
-- Inclus : model carpool, creation/modification/suppression, inscription et desinscription.
-- Exclu : chat, paiement, navigation.
+## Scope
+- Included: carpool model, creation/update/deletion, join and leave.
+- Excluded: chat, payment, navigation.
 
 ## API / Endpoints
-- Routes impactees (methodes, paths) :
+- Impacted routes (methods, paths):
   - POST /events/{id}/carpools
   - GET /events/{id}/carpools
   - PATCH /carpools/{id}
   - DELETE /carpools/{id}
   - POST /carpools/{id}/join
   - DELETE /carpools/{id}/join
-- Payloads (inputs/outputs) : seats_total, seats_taken, driver_id, origin, depart_at, notes.
-- Versioning / compatibilite : nouveaux endpoints.
+- Payloads (inputs/outputs): seats_total, seats_taken, driver_id, origin, depart_at, notes.
+- Versioning / compatibility: new endpoints.
 
-## Donnees / Migrations
-- Tables/collections impactees : carpools, carpool_passengers.
-- Migrations necessaires (oui/non) : oui.
-- Donnees retro-compatibles (oui/non) : oui (nouvelles tables).
+## Data / Migrations
+- Impacted tables/collections: carpools, carpool_passengers.
+- Required migrations (yes/no): yes.
+- Backward-compatible data (yes/no): yes (new tables).
 
-## Regles metier / Validations
-- Regles principales : seats_taken <= seats_total; un user ne peut pas s'inscrire deux fois; driver ne peut pas prendre plus de places.
-- Cas limites : suppression d'une voiture avec passagers, annulation par le driver.
+## Business Rules / Validations
+- Main rules: seats_taken <= seats_total; a user cannot join twice; the driver cannot take extra seats.
+- Edge cases: deleting a ride with passengers, cancellation by the driver.
 
-## Securite / Permissions
-- Roles / droits : driver peut editer/supprimer; participants peuvent rejoindre/quitter.
-- Donnees sensibles : contact optionnel a proteger (si ajoute plus tard).
+## Security / Permissions
+- Roles / rights: driver can edit/delete; participants can join/leave.
+- Sensitive data: optional contact details to protect if added later.
 
-## Observabilite
-- Logs / metrics / alerting : log creation/suppression; compteur d'inscriptions.
+## Observability
+- Logs / metrics / alerting: log creation/deletion; join counter.
 
 ## Tests
-- Unitaires : validation des places.
-- Integration : join/leave.
-- E2E (si applicable) : parcours complet covoiturage.
+- Unit tests: seat validation.
+- Integration: join/leave.
+- E2E (if applicable): complete carpool flow.
 
 ## Definition of Done
-- [ ] API conforme aux specs
-- [ ] Migrations appliquees et documentees
-- [ ] Tests passes
-- [ ] Docs mises a jour (si besoin)
+- [ ] API matches the specs
+- [ ] Migrations applied and documented
+- [ ] Tests pass
+- [ ] Docs updated (if needed)
 
-## Notes / Risques
-Besoin d'un mecanisme anti-race pour les places restantes.
+## Notes / Risks
+Need a race-condition guard for remaining seats.

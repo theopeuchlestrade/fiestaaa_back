@@ -1,23 +1,23 @@
 # Fiestaaa Back
 
-Backend Rust de Fiestaaa, une application d'organisation d'événements privés.
+Fiestaaa's Rust backend, an app for organizing private events.
 
-L'API gère l'authentification, les événements, invitations, listes d'items,
-covoiturages, frais partagés, QR codes d'accès, notifications et flux temps réel.
+The API handles authentication, events, invitations, item lists, carpools,
+shared expenses, access QR codes, notifications, and realtime streams.
 
 ## Stack
 
 - Rust 1.90
 - Actix Web
 - PostgreSQL via SQLx
-- Redis pour certains états éphémères
-- Docker Compose pour le développement local
+- Redis for some ephemeral state
+- Docker Compose for local development
 
-## Prérequis
+## Prerequisites
 
 - Docker CLI + Docker Compose v2
-- Rust, si vous lancez l'API hors Docker
-- Une copie locale de `.env.example` vers `.env`
+- Rust, if you run the API outside Docker
+- A local copy of `.env.example` as `.env`
 
 ## Configuration
 
@@ -25,117 +25,117 @@ covoiturages, frais partagés, QR codes d'accès, notifications et flux temps r�
 cp .env.example .env
 ```
 
-Les valeurs de `.env.example` sont des placeholders ou des valeurs de
-développement local. Les secrets réels ne doivent jamais être commités.
+The values in `.env.example` are placeholders or local development values. Real
+secrets must never be committed.
 
-Variables importantes :
+Important variables:
 
-- `DATABASE_URL` : connexion PostgreSQL
-- `JWT_SECRET` : secret de signature des sessions
-- `DATA_ENCRYPTION_KEY` et `DATA_LOOKUP_KEY` : clés applicatives, au moins 32 caractères
-- `CORS_ALLOWED_ORIGINS` : origines front autorisées
-- `APP_BASE_URL` : URL du front pour les liens d'invitation
-- `RESEND_API_KEY` et `INVITATION_EMAIL_SENDER` : envoi d'emails d'invitation
-- `FCM_*` et `FIESTAAA_FCM_VAPID_KEY` : notifications push
+- `DATABASE_URL`: PostgreSQL connection
+- `JWT_SECRET`: session signing secret
+- `DATA_ENCRYPTION_KEY` and `DATA_LOOKUP_KEY`: application keys, at least 32 characters
+- `CORS_ALLOWED_ORIGINS`: allowed frontend origins
+- `APP_BASE_URL`: frontend URL for invitation links
+- `RESEND_API_KEY` and `INVITATION_EMAIL_SENDER`: invitation email sending
+- `FCM_*` and `FIESTAAA_FCM_VAPID_KEY`: push notifications
 
-## Développement local
+## Local Development
 
-Lancement complet avec Postgres :
+Full startup with Postgres:
 
 ```bash
 docker compose up --build
 ```
 
-API locale :
+Local API:
 
 ```text
 http://127.0.0.1:8080
 ```
 
-Pour lancer l'API avec `cargo`, démarrez seulement la base :
+To run the API with `cargo`, start only the database:
 
 ```bash
 docker compose up -d db
 cargo run
 ```
 
-Dans ce mode, gardez une URL locale de type :
+In this mode, keep a local URL like:
 
 ```bash
 DATABASE_URL=postgres://postgres:postgres@localhost:5432/fiestaaa
 ```
 
-## Utilisateur local
+## Local User
 
-Pour créer ou mettre à jour un utilisateur local directement en base :
+To create or update a local user directly in the database:
 
 ```bash
 cargo run --bin create_local_user -- --email test@local.dev --password changeme --handle test_local
 ```
 
-La commande hash le mot de passe avec Argon2 et supprime une éventuelle
-inscription en attente pour le même email.
+The command hashes the password with Argon2 and removes any pending registration
+for the same email.
 
-## Base de données
+## Database
 
-Les migrations SQL sont dans `migrations/` et sont appliquées au démarrage via
+SQL migrations live in `migrations/` and are applied on startup through
 `sqlx::migrate!`.
 
-Réinitialisation locale :
+Local reset:
 
 ```bash
 docker compose down -v
 docker compose up --build
 ```
 
-Ou reconstruction directe depuis le schéma courant :
+Or rebuild directly from the current schema:
 
 ```bash
 ./scripts/rebuild_db_from_schema.sh
 ```
 
-## Qualité et tests
+## Quality and Tests
 
-Format :
+Format:
 
 ```bash
 cargo fmt --all --check
 ```
 
-Lint :
+Lint:
 
 ```bash
 cargo clippy --all-targets --all-features -- -D warnings
 ```
 
-Tests avec Docker :
+Tests with Docker:
 
 ```bash
 docker compose run --rm api cargo test
 ```
 
-Suite CI équivalente, avec une base de test disponible :
+Equivalent CI suite, with an available test database:
 
 ```bash
 TEST_DATABASE_URL=postgres://postgres:postgres@127.0.0.1:5432/fiestaaa_test cargo test --locked --all-targets --jobs 1 -- --test-threads=1
 ```
 
-## Déploiement
+## Deployment
 
-La documentation de déploiement et d'exploitation est dans
+Deployment and operations documentation is in
 `docs/deploiement.md`.
 
-Le passage des dépôts privés vers des dépôts publics est documenté dans
+The transition from private to public repositories is documented in
 `docs/passage-public-open-source.md`.
 
-## Sécurité
+## Security
 
-Ne signalez pas de vulnérabilité via une issue publique. Consultez
-`SECURITY.md` pour le canal de signalement et les attentes de divulgation.
+Do not report vulnerabilities through a public issue. See `SECURITY.md` for the
+reporting channel and disclosure expectations.
 
-Avant toute publication publique du dépôt, relancez un scan de secrets sur
-l'état courant et sur tout l'historique Git.
+Before any public release of the repository, rerun a secret scan on the current
+state and the full Git history.
 
-## Licence
+## License
 
-`fiestaaa_back` est distribué sous licence `AGPL-3.0-only`. Voir `LICENSE`.
+`fiestaaa_back` is distributed under the `AGPL-3.0-only` license. See `LICENSE`.

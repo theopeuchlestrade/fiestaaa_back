@@ -196,8 +196,8 @@ fn db_error() -> HttpResponse {
     path = "/me/friends",
     tag = "friends",
     responses(
-        (status = 200, description = "Liste des amis", body = [Friend]),
-        (status = 401, description = "Authentification requise", body = ErrorResponse)
+        (status = 200, description = "Friend list", body = [Friend]),
+        (status = 401, description = "Authentication required", body = ErrorResponse)
     )
 )]
 #[get("/me/friends")]
@@ -242,12 +242,12 @@ pub struct FriendSearchQuery {
     path = "/friends/search",
     tag = "friends",
     params(
-        ("q" = String, Query, description = "Recherche par identifiant"),
-        ("limit" = i64, Query, description = "Nombre de résultats (max 15)")
+        ("q" = String, Query, description = "Search by identifier"),
+        ("limit" = i64, Query, description = "Number of results (max 15)")
     ),
     responses(
-        (status = 200, description = "Résultats de recherche", body = [FriendSearchResult]),
-        (status = 401, description = "Authentification requise", body = ErrorResponse)
+        (status = 200, description = "Search results", body = [FriendSearchResult]),
+        (status = 401, description = "Authentication required", body = ErrorResponse)
     )
 )]
 #[get("/friends/search")]
@@ -305,11 +305,11 @@ pub async fn search_friends(
     tag = "friends",
     request_body = FriendRequestPayload,
     responses(
-        (status = 201, description = "Demande envoyée", body = FriendRequest),
-        (status = 400, description = "Payload invalide", body = ErrorResponse),
-        (status = 401, description = "Authentification requise", body = ErrorResponse),
-        (status = 404, description = "Utilisateur introuvable", body = ErrorResponse),
-        (status = 409, description = "Déjà amis ou demande existante", body = ErrorResponse)
+        (status = 201, description = "Request sent", body = FriendRequest),
+        (status = 400, description = "Invalid payload", body = ErrorResponse),
+        (status = 401, description = "Authentication required", body = ErrorResponse),
+        (status = 404, description = "User not found", body = ErrorResponse),
+        (status = 409, description = "Already friends or existing request", body = ErrorResponse)
     )
 )]
 #[post("/friends/requests")]
@@ -415,8 +415,8 @@ pub async fn create_friend_request(
     path = "/friends/requests",
     tag = "friends",
     responses(
-        (status = 200, description = "Demandes d'amis", body = [FriendRequest]),
-        (status = 401, description = "Authentification requise", body = ErrorResponse)
+        (status = 200, description = "Friend requests", body = [FriendRequest]),
+        (status = 401, description = "Authentication required", body = ErrorResponse)
     )
 )]
 #[get("/friends/requests")]
@@ -457,12 +457,12 @@ pub async fn list_friend_requests(state: web::Data<AppState>, req: HttpRequest) 
     tag = "friends",
     request_body = FriendRequestActionPayload,
     responses(
-        (status = 200, description = "Demande mise à jour", body = FriendRequest),
-        (status = 400, description = "Payload invalide", body = ErrorResponse),
-        (status = 401, description = "Authentification requise", body = ErrorResponse),
-        (status = 403, description = "Non autorisé", body = ErrorResponse),
-        (status = 404, description = "Demande introuvable", body = ErrorResponse),
-        (status = 409, description = "Déjà traitée", body = ErrorResponse)
+        (status = 200, description = "Request updated", body = FriendRequest),
+        (status = 400, description = "Invalid payload", body = ErrorResponse),
+        (status = 401, description = "Authentication required", body = ErrorResponse),
+        (status = 403, description = "Unauthorized", body = ErrorResponse),
+        (status = 404, description = "Request not found", body = ErrorResponse),
+        (status = 409, description = "Already handled", body = ErrorResponse)
     )
 )]
 #[patch("/friends/requests/{id}")]
@@ -620,9 +620,9 @@ pub async fn respond_friend_request(
     path = "/friends/{identifier}",
     tag = "friends",
     responses(
-        (status = 200, description = "Ami supprimé", body = StatusResponse),
-        (status = 401, description = "Authentification requise", body = ErrorResponse),
-        (status = 404, description = "Ami introuvable", body = ErrorResponse)
+        (status = 200, description = "Friend removed", body = StatusResponse),
+        (status = 401, description = "Authentication required", body = ErrorResponse),
+        (status = 404, description = "Friend not found", body = ErrorResponse)
     )
 )]
 #[delete("/friends/{identifier}")]

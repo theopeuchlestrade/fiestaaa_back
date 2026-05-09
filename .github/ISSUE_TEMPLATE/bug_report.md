@@ -1,36 +1,36 @@
 ---
 name: "Bug - Back"
-about: "Signaler un bug backend"
+about: "Report a backend bug"
 title: "[BACK][BUG] "
 labels: ["bug", "backend"]
 ---
 
-## Resume
-Decrire le probleme en 1-2 phrases.
+## Summary
+Describe the problem in 1-2 sentences.
 
-## Etapes pour reproduire
+## Steps to Reproduce
 1.
 2.
 3.
 
-## Comportement actuel
-Ce qui se passe actuellement.
+## Current Behavior
+What currently happens.
 
-## Comportement attendu
-Ce qui devrait se passer.
+## Expected Behavior
+What should happen.
 
 ## Impact
-- Frequence :
-- Severite :
-- Utilisateurs touches :
+- Frequency:
+- Severity:
+- Affected users:
 
-## Logs / Erreurs
-Copier les logs ou stack traces utiles.
+## Logs / Errors
+Paste useful logs or stack traces.
 
-## Environnement
-- Env (dev/staging/prod) :
-- Branche/commit :
-- DB / services :
+## Environment
+- Env (dev/staging/prod):
+- Branch/commit:
+- DB / services:
 
 ## Notes
-Tout contexte utile (hypotheses, pistes, liens).
+Any useful context (assumptions, leads, links).

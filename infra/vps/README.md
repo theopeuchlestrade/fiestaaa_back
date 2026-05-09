@@ -1,19 +1,21 @@
 # VPS provisioning
 
-Ce dossier rend le VPS reproductible sans stocker de secrets dans Git.
+This directory makes the VPS reproducible without storing secrets in Git.
 
-- `cloud-init.yml` : bootstrap d'un VPS neuf au moment de sa creation.
-- `ansible/playbook.yml` : remise en conformite idempotente d'un VPS existant.
-- `ansible/inventory.example.yml` : inventaire a copier localement en `inventory.yml`.
+- `cloud-init.yml`: bootstraps a fresh VPS at creation time.
+- `ansible/playbook.yml`: idempotently brings an existing VPS back into compliance.
+- `ansible/inventory.example.yml`: inventory to copy locally as `inventory.yml`.
 
-La stack applicative reste decrite par `../../docker-compose.prod.yml`. Les secrets de production restent dans GitHub Actions `production` et sont materialises sur le VPS par les workflows de deploy.
+The application stack remains described by `../../docker-compose.prod.yml`.
+Production secrets stay in the GitHub Actions `production` environment and are
+materialized on the VPS by deployment workflows.
 
-## Option 1: VPS neuf avec cloud-init
+## Option 1: Fresh VPS with cloud-init
 
-1. Copier `cloud-init.yml`.
-2. Remplacer les placeholders, surtout la cle publique SSH.
-3. Coller le contenu dans le champ cloud-init/user-data du fournisseur VPS.
-4. Attendre la fin du bootstrap, puis verifier:
+1. Copy `cloud-init.yml`.
+2. Replace placeholders, especially the SSH public key.
+3. Paste the content into the VPS provider cloud-init/user-data field.
+4. Wait for bootstrap to complete, then verify:
 
 ```bash
 ssh deploy@51.75.20.71
@@ -22,91 +24,99 @@ cd ~/apps/fiestaaa
 ls -la
 ```
 
-Le `cloud-init` prepare le port SSH de production `1969`. Gardez toujours la session initiale ouverte tant qu'une nouvelle connexion sur `1969` n'a pas ete validee.
+`cloud-init` prepares the production SSH port `1969`. Always keep the initial
+session open until a new connection on `1969` has been validated.
 
-## Option 2: VPS existant avec Ansible
+## Option 2: Existing VPS with Ansible
 
-Installer Ansible localement:
+Install Ansible locally:
 
 ```bash
 brew install ansible
 ```
 
-Copier puis adapter l'inventaire:
+Copy and adapt the inventory:
 
 ```bash
 cp infra/vps/ansible/inventory.example.yml infra/vps/ansible/inventory.yml
 ```
 
-Appliquer:
+Apply:
 
 ```bash
 ansible-playbook -i infra/vps/ansible/inventory.yml infra/vps/ansible/playbook.yml
 ```
 
-Faire un dry-run partiel quand le serveur est deja configure:
+Run a partial dry run when the server is already configured:
 
 ```bash
 ansible-playbook -i infra/vps/ansible/inventory.yml infra/vps/ansible/playbook.yml --check
 ```
 
-`inventory.yml` est ignore par Git et peut contenir l'IP, l'utilisateur SSH initial ou des chemins locaux. Les secrets applicatifs ne doivent pas y etre stockes.
+`inventory.yml` is ignored by Git and may contain the IP, initial SSH user, or
+local paths. Application secrets must not be stored there.
 
-## Option 3: provisionnement depuis GitHub Actions
+## Option 3: Provision from GitHub Actions
 
-Le workflow manuel `Provision VPS` execute le meme playbook depuis GitHub Actions, avec les secrets de l'environnement `production`.
+The manual `Provision VPS` workflow runs the same playbook from GitHub Actions,
+using secrets from the `production` environment.
 
-Secrets requis:
+Required secrets:
 
 - `VPS_HOST`
 - `VPS_SSH_KEY`
-- `VPS_USER` si vous ne renseignez pas `connection_user`
-- `VPS_PORT` optionnel, sinon `22` pour un VPS fraichement reinstalle ; la cible de production est `1969`
+- `VPS_USER` if you do not set `connection_user`
+- optional `VPS_PORT`; otherwise `22` for a freshly reinstalled VPS; the production target is `1969`
 
-Pour un VPS neuf, lancez le workflow avec `connection_user=root` si l'acces root par cle SSH est actif. Pour un VPS deja configure, laissez `connection_user` vide pour reutiliser `VPS_USER`.
+For a fresh VPS, run the workflow with `connection_user=root` if root SSH key
+access is active. For an already configured VPS, leave `connection_user` empty
+to reuse `VPS_USER`.
 
-Le workflow derive la cle publique depuis `VPS_SSH_KEY` et l'ajoute au compte `deploy`.
+The workflow derives the public key from `VPS_SSH_KEY` and adds it to the
+`deploy` account.
 
-## Premier deploiement complet
+## First Full Deployment
 
-Les workflows normaux mettent a jour un seul service a la fois et attendent que les deux tags d'images existent deja dans `~/apps/fiestaaa/.env`. Pour initialiser une machine vierge:
+Normal workflows update only one service at a time and expect both image tags to
+already exist in `~/apps/fiestaaa/.env`. To initialize a blank machine:
 
-1. Lancer `Provision VPS`.
-2. Dans `fiestaaa_front`, lancer `Build and Deploy Front` avec `skip_deploy=true`. Noter le SHA du commit front utilise comme tag d'image.
-3. Dans `fiestaaa_back`, lancer `Bootstrap VPS Stack` avec `front_image_tag=<sha_front>`. Ce workflow build/push l'API puis lance toute la stack Compose.
-4. Ensuite, utiliser les workflows normaux de deploy back/front.
+1. Run `Provision VPS`.
+2. In `fiestaaa_front`, run `Build and Deploy Front` with `skip_deploy=true`. Note the frontend commit SHA used as the image tag.
+3. In `fiestaaa_back`, run `Bootstrap VPS Stack` with `front_image_tag=<sha_front>`. This workflow builds/pushes the API, then starts the whole Compose stack.
+4. Then use the normal back/front deployment workflows.
 
-Si vous utilisez FCM HTTP v1, stockez aussi la cle de service Firebase en base64 dans `FCM_SERVICE_ACCOUNT_JSON_B64` sur l'environnement GitHub `production` du backend:
+If you use FCM HTTP v1, also store the Firebase service key as base64 in
+`FCM_SERVICE_ACCOUNT_JSON_B64` on the backend GitHub `production` environment:
 
 ```bash
 base64 < service-account.json | tr -d '\n' | gh secret set FCM_SERVICE_ACCOUNT_JSON_B64 --repo theopeuchlestrade/fiestaaa_back --env production
 ```
 
-## Ce que le playbook gere
+## What the Playbook Manages
 
-- paquets systeme de base ;
-- installation Docker Engine + Compose V2 depuis le depot Docker officiel ;
-- utilisateur `deploy` ;
-- cles SSH autorisees pour `deploy` ;
-- UFW pour SSH, HTTP et HTTPS ;
-- Fail2ban pour SSH ;
-- arborescence `~/apps/fiestaaa` ;
-- copie de `docker-compose.prod.yml` vers `~/apps/fiestaaa/docker-compose.yml` ;
-- permissions de `traefik/letsencrypt/acme.json`, `.env` et `data/service-account.json`.
+- base system packages;
+- Docker Engine + Compose V2 installation from the official Docker repository;
+- `deploy` user;
+- authorized SSH keys for `deploy`;
+- UFW for SSH, HTTP, and HTTPS;
+- Fail2ban for SSH;
+- `~/apps/fiestaaa` directory tree;
+- copy of `docker-compose.prod.yml` to `~/apps/fiestaaa/docker-compose.yml`;
+- permissions for `traefik/letsencrypt/acme.json`, `.env`, and `data/service-account.json`.
 
-## Ce qui reste volontairement hors Git
+## What Intentionally Stays Outside Git
 
-- valeurs de `.env` ;
-- `service-account.json` Firebase ;
-- cle privee SSH de deploy ;
-- token GHCR ;
-- keystores Android ;
-- backups de base de donnees.
+- `.env` values;
+- Firebase `service-account.json`;
+- deploy SSH private key;
+- GHCR token;
+- Android keystores;
+- database backups.
 
-Pour un VPS completement neuf, l'ordre pratique est:
+For a completely fresh VPS, the practical order is:
 
-1. cloud-init ou Ansible ;
-2. DNS `fiestaaa.app` et `api.fiestaaa.app` vers l'IP publique ;
-3. secrets GitHub `production` remplis ;
-4. premier deploiement back/front depuis GitHub Actions ;
-5. verification `docker compose ps` et smoke checks publics.
+1. cloud-init or Ansible;
+2. DNS `fiestaaa.app` and `api.fiestaaa.app` pointing to the public IP;
+3. GitHub `production` secrets filled;
+4. first back/front deployment from GitHub Actions;
+5. `docker compose ps` verification and public smoke checks.

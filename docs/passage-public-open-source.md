@@ -1,265 +1,310 @@
-# Passage des dépôts privés à publics
+# Moving Repositories from Private to Public
 
-Runbook pour le moment où `fiestaaa_back` et `fiestaaa_front` passeront de `privé + GitHub Free` à `public + GitHub Free`, au moment de la mise en prod et de l'ouverture du code.
+Runbook for the moment when `fiestaaa_back` and `fiestaaa_front` move from
+`private + GitHub Free` to `public + GitHub Free`, during production launch and
+source-code publication.
 
-## Objectif
+## Objective
 
-Aujourd'hui, les deux repos restent privés. Cela permet de préparer la prod et la rotation des secrets, mais GitHub Free limite plusieurs garde-fous tant que les repos ne sont pas publics.
+Today, both repositories remain private. This lets us prepare production and
+secret rotation, but GitHub Free limits several safeguards while repositories
+are not public.
 
-Quand les repos deviendront publics, l'objectif est de faire le basculement sans exposer de secrets et d'activer immédiatement les protections GitHub qui ne sont pas disponibles aujourd'hui.
+When the repositories become public, the goal is to switch without exposing
+secrets and to immediately enable GitHub protections that are not available
+today.
 
-## Ce qui est déjà prêt dans le code
+## What Is Already Ready in the Code
 
-Les workflows et la doc ont déjà été préparés pour l'état cible :
+Workflows and documentation have already been prepared for the target state:
 
-- Les deux repos utilisent maintenant `main` comme branche par défaut.
-- `fiestaaa_back/.github/workflows/deploy.yml` référence l'environnement GitHub `production`.
-- `fiestaaa_front/.github/workflows/deploy.yml` référence aussi `production`.
-- Les deux repos ont un workflow `Dependency Review`, actuellement configuré pour skipper proprement tant que les repos sont `privés + GitHub Free`.
-- Les workflows de déploiement sont prêts à publier des attestations de provenance.
-- Les deux repos ont un `CODEOWNERS`, un template de PR, un `SECURITY.md`, un `CONTRIBUTING.md`, un `LICENSE`, un `README.md` public-oriented et des templates d'issues.
-- Les fichiers locaux ou générés qui avaient été suivis par erreur ont été retirés du versioning :
-  - backend : `.idea/`, `.docker-config/` ;
-  - frontend : `.dart-tool/`.
-- `fiestaaa_front` a été réécrit avant publication pour retirer d'anciennes valeurs Firebase/GCP/VAPID de l'historique Git, puis force-pushé avec `--force-with-lease`.
-- `gitleaks detect --source . --redact=100` passe sur l'historique complet des deux repos.
-- Les dépendances Flutter ont été mises à jour vers les dernières versions résolubles avec Flutter `3.41.5` / Dart `3.11.3`.
+- Both repositories now use `main` as the default branch.
+- `fiestaaa_back/.github/workflows/deploy.yml` references the GitHub
+  `production` environment.
+- `fiestaaa_front/.github/workflows/deploy.yml` also references `production`.
+- Both repositories have a `Dependency Review` workflow, currently configured to
+  skip cleanly while the repositories are `private + GitHub Free`.
+- Deployment workflows are ready to publish provenance attestations.
+- Both repositories have `CODEOWNERS`, a PR template, `SECURITY.md`,
+  `CONTRIBUTING.md`, a `LICENSE`, a public-oriented `README.md`, and issue
+  templates.
+- Local or generated files that had been tracked by mistake were removed from
+  version control:
+  - backend: `.idea/`, `.docker-config`;
+  - frontend: `.dart-tool/`.
+- `fiestaaa_front` was rewritten before publication to remove old
+  Firebase/GCP/VAPID values from Git history, then force-pushed with
+  `--force-with-lease`.
+- `gitleaks detect --source . --redact=100` passes on the complete history of
+  both repositories.
+- Flutter dependencies were updated to the latest versions resolvable with
+  Flutter `3.41.5` / Dart `3.11.3`.
 
-Tant que les repos sont `privés + Free`, une partie de ces protections n'est pas réellement disponible côté GitHub. Elles deviendront utiles quand les repos seront publics.
+While the repositories remain `private + Free`, some of these protections are
+not actually available on GitHub. They become useful once the repositories are
+public.
 
-## État actuel avant ouverture publique
+## Current State Before Public Opening
 
-État au 2026-05-03 :
+State as of 2026-05-03:
 
 - `fiestaaa_back`
-  - visibilité GitHub : privé ;
-  - branche par défaut : `main` ;
-  - historique `gitleaks` : propre ;
-  - note de préparation open source : environ `8.8/10`.
+  - GitHub visibility: private;
+  - default branch: `main`;
+  - `gitleaks` history: clean;
+  - open-source readiness score: about `8.8/10`.
 - `fiestaaa_front`
-  - visibilité GitHub : privé ;
-  - branche par défaut : `main` ;
-  - historique `gitleaks` après réécriture : propre ;
-  - note de préparation open source : environ `8.5/10`.
+  - GitHub visibility: private;
+  - default branch: `main`;
+  - `gitleaks` history after rewrite: clean;
+  - open-source readiness score: about `8.5/10`.
 
-Ces notes ne signifient pas "public maintenant sans autre action" : elles indiquent que le code et l'historique Git sont proches de l'état cible. Les derniers points importants concernent surtout les réglages GitHub, la rotation/restriction des clés externes et les décisions d'exploitation.
+These scores do not mean "make it public now with no further action": they
+indicate that the code and Git history are close to the target state. The final
+important points mostly concern GitHub settings, external key rotation or
+restriction, and operations decisions.
 
-## Limites actuelles en privé + Free
+## Current Limitations in Private + Free
 
-- Pas d'environnement GitHub exploitable pour séparer proprement les secrets de prod.
-- Pas de règles de déploiement type `required reviewers` ou `wait timer`.
-- Pas de `dependency review` exploitable comme garde-fou GitHub sur PR.
-- Pas d'attestations de provenance GitHub pour des repos privés.
-- Pas de protection de branche disponible sur repo privé Free.
+- No usable GitHub environment to cleanly separate production secrets.
+- No deployment rules such as `required reviewers` or `wait timer`.
+- No usable `dependency review` as a GitHub PR safeguard.
+- No GitHub provenance attestations for private repositories.
+- No branch protection available on a private Free repository.
 
-Conclusion : aujourd'hui, la sécurité repose surtout sur :
+Conclusion: today, security mostly relies on:
 
-- les `repo secrets` classiques ;
-- le durcissement Docker et VPS ;
-- la discipline de review et de déploiement.
+- classic `repo secrets`;
+- Docker and VPS hardening;
+- review and deployment discipline.
 
-## Cible une fois les repos publics
+## Target Once the Repositories Are Public
 
-À l'ouverture du code, viser immédiatement l'état suivant :
+When the code opens, immediately target the following state:
 
-- repos `fiestaaa_back` et `fiestaaa_front` en visibilité `public` ;
-- environnement GitHub `production` configuré sur les deux repos ;
-- secrets de prod déplacés des `repo secrets` vers les `environment secrets` quand c'est possible ;
-- protection de branche sur `main` ;
-- `Dependency Review` actif sur les PRs ;
-- attestations de provenance actives sur les builds GHCR ;
-- fonctionnalités GitHub de sécurité activées (`secret scanning`, `push protection`, `dependabot`, `dependency graph`) ;
-- aucun secret ni fichier sensible dans l'historique Git visible publiquement.
+- `fiestaaa_back` and `fiestaaa_front` repositories visible as `public`;
+- GitHub `production` environment configured on both repositories;
+- production secrets moved from `repo secrets` to `environment secrets` where
+  possible;
+- branch protection on `main`;
+- `Dependency Review` active on PRs;
+- provenance attestations active on GHCR builds;
+- GitHub security features enabled (`secret scanning`, `push protection`,
+  `dependabot`, `dependency graph`);
+- no secret or sensitive file in publicly visible Git history.
 
-## Checklist avant ouverture du code
+## Checklist Before Opening the Code
 
-À faire quelques jours avant de rendre les repos publics.
+Do this a few days before making the repositories public.
 
-### 1. Refaire un audit des secrets
+### 1. Rerun a Secret Audit
 
-Vérifier qu'aucun secret n'est versionné ou prêt à être versionné :
+Check that no secret is versioned or ready to be versioned:
 
-- `.env`, `.env.prod`, `service-account.json`, keystores Android, clés APNs `.p8`, fichiers OAuth `client_secret_*.json`, clés SSH ;
-- artefacts générés localement ;
-- captures d'écran, exemples de config ou snippets dans la doc.
+- `.env`, `.env.prod`, `service-account.json`, Android keystores, APNs `.p8`
+  keys, OAuth `client_secret_*.json` files, SSH keys;
+- locally generated artifacts;
+- screenshots, config examples, or documentation snippets.
 
-Vérifier aussi les fichiers d'exemple :
+Also check example files:
 
 - `fiestaaa_back/.env.example`
 - `fiestaaa_front/.env.example`
 
-Ils doivent rester des placeholders, jamais des vraies valeurs.
+They must remain placeholders, never real values.
 
-État actuel :
+Current state:
 
-- audit `gitleaks` complet OK sur les deux repos ;
-- les `.env` locaux restent ignorés ;
-- les anciens secrets historiques du front ont été retirés par réécriture Git ;
-- les anciennes clés Firebase/GCP/VAPID vues dans l'ancien historique doivent quand même être considérées comme compromises et être rotées ou strictement restreintes côté Google/Firebase.
+- full `gitleaks` audit OK on both repositories;
+- local `.env` files remain ignored;
+- old frontend historical secrets were removed by Git rewrite;
+- old Firebase/GCP/VAPID keys seen in the previous history must still be
+  considered compromised and rotated or strictly restricted in Google/Firebase.
 
-### 2. Refaire un audit de l'historique Git
+### 2. Rerun a Git History Audit
 
-Le point critique avant un passage en public n'est pas seulement l'état courant du repo, mais aussi l'historique.
+The critical point before going public is not only the current repository state,
+but also its history.
 
-Si un secret a déjà été commité un jour, le simple fait de l'avoir supprimé d'un fichier ne suffit pas. Avant le passage en public :
+If a secret was ever committed, simply deleting it from a file is not enough.
+Before going public:
 
-- identifier tout secret historiquement commité ;
-- le considérer comme compromis ;
-- le régénérer si ce n'est pas déjà fait ;
-- décider si l'historique doit être réécrit avant publication.
+- identify any historically committed secret;
+- treat it as compromised;
+- regenerate it if that has not already been done;
+- decide whether history must be rewritten before publication.
 
-Après l'incident de sécurité, il faut partir du principe que tout secret collé dans un commit, un gist, un ticket, un chat ou une capture est potentiellement exposé.
+After the security incident, assume that any secret pasted into a commit, gist,
+ticket, chat, or screenshot is potentially exposed.
 
-État actuel :
+Current state:
 
-- backend : aucun leak détecté dans l'historique ;
-- frontend : ancien historique réécrit, clone frais depuis GitHub vérifié avec `gitleaks`, aucun leak détecté ;
-- une sauvegarde locale pré-réécriture du front existe dans `/private/tmp/fiestaaa_front_pre_rewrite_e13db82_20260503_231008.bundle`. Ne pas publier ni pousser cette sauvegarde.
+- backend: no leak detected in history;
+- frontend: old history rewritten, fresh clone from GitHub checked with
+  `gitleaks`, no leak detected;
+- a local pre-rewrite frontend backup exists at
+  `/private/tmp/fiestaaa_front_pre_rewrite_e13db82_20260503_231008.bundle`. Do
+  not publish or push this backup.
 
-### 3. Vérifier les fichiers et métadonnées open source
+### 3. Check Open-Source Files and Metadata
 
-Avant publication, vérifier au minimum :
+Before publication, check at least:
 
-- licences confirmées et fichiers `LICENSE` présents :
-  - `fiestaaa_back` sous `AGPL-3.0-only`
-  - `fiestaaa_front` sous `MPL-2.0`
-- politique de sécurité `SECURITY.md` ou document équivalent ;
-- `CONTRIBUTING.md` cohérent avec la contribution externe ;
-- `CODEOWNERS` et template de PR présents ;
-- description de repo, topics, homepage, éventuellement templates d'issues ou PR ;
-- revue des assets non open source : logos, visuels, fontes, captures, textes marketing, données d'exemple.
+- licenses confirmed and `LICENSE` files present:
+  - `fiestaaa_back` under `AGPL-3.0-only`
+  - `fiestaaa_front` under `MPL-2.0`
+- security policy `SECURITY.md` or equivalent document;
+- `CONTRIBUTING.md` consistent with external contribution;
+- `CODEOWNERS` and PR template present;
+- repository description, topics, homepage, and optionally issue or PR
+  templates;
+- review of non-open-source assets: logos, visuals, fonts, screenshots,
+  marketing copy, example data.
 
-Point important :
+Important point:
 
-- la politique `SECURITY.md` peut être préparée avant l'ouverture du code ;
-- le choix de licence est maintenant acté ; s'il change un jour, il faudra le faire volontairement et documenter l'impact.
+- `SECURITY.md` can be prepared before opening the code;
+- the license choice is now decided; if it changes someday, it must be done
+  deliberately and the impact must be documented.
 
-### 4. Vérifier les packages GHCR
+### 4. Check GHCR Packages
 
-Décider explicitement si les images GHCR restent privées ou deviennent publiques.
+Explicitly decide whether GHCR images remain private or become public.
 
-Option A, plus simple à court terme :
+Option A, simpler in the short term:
 
-- garder les packages GHCR privés ;
-- conserver `GHCR_TOKEN` sur le VPS pour `docker login`.
+- keep GHCR packages private;
+- keep `GHCR_TOKEN` on the VPS for `docker login`.
 
-Option B, plus simple à long terme :
+Option B, simpler in the long term:
 
-- rendre les packages GHCR publics ;
-- supprimer ensuite le besoin de `GHCR_TOKEN` côté VPS si aucun pull privé n'est nécessaire.
+- make GHCR packages public;
+- then remove the need for `GHCR_TOKEN` on the VPS if no private pull is needed.
 
-Ne pas supposer qu'un package GHCR devient public automatiquement parce que le repo devient public.
+Do not assume a GHCR package automatically becomes public because the repository
+becomes public.
 
-## Ce qui reste faisable en ligne de commande
+## What Can Still Be Done from the Command Line
 
-Avant le passage public, plusieurs actions peuvent encore être faites depuis ce poste :
+Before the public switch, several actions can still be done from this machine:
 
-- relancer les scans de secrets :
+- rerun secret scans:
   - `cd fiestaaa_back && gitleaks detect --source . --redact=100`
   - `cd fiestaaa_front && gitleaks detect --source . --redact=100`
-- vérifier les suites locales :
-  - backend : `cargo fmt --all --check`, `cargo clippy --all-targets --all-features -- -D warnings`, tests avec Postgres ;
-  - frontend : `flutter gen-l10n`, `dart format --output=none --set-exit-if-changed lib test tool`, `flutter analyze`, `flutter test --dart-define-from-file=.env.example`, `flutter build web --release --dart-define-from-file=.env.example`.
-- vérifier l'état GitHub via `gh` :
-  - branche par défaut ;
-  - branches existantes ;
-  - workflows présents ;
-  - secrets configurés, sans afficher leur valeur.
-- créer les environnements GitHub `production` et déplacer les secrets vers des environment secrets via `gh secret set --env production`, à condition d'avoir les vraies valeurs sous la main.
-- configurer une partie des métadonnées GitHub via `gh repo edit` : description, homepage, topics, wiki/discussions/projects selon le choix produit.
-- déclencher des builds ou checks GitHub Actions via `gh workflow run` ou `gh run`.
+- verify local suites:
+  - backend: `cargo fmt --all --check`, `cargo clippy --all-targets --all-features -- -D warnings`, tests with Postgres;
+  - frontend: `flutter gen-l10n`, `dart format --output=none --set-exit-if-changed lib test tool`, `flutter analyze`, `flutter test --dart-define-from-file=.env.example`, `flutter build web --release --dart-define-from-file=.env.example`.
+- check GitHub state with `gh`:
+  - default branch;
+  - existing branches;
+  - present workflows;
+  - configured secrets, without displaying their values.
+- create GitHub `production` environments and move secrets to environment
+  secrets via `gh secret set --env production`, provided the real values are on
+  hand.
+- configure some GitHub metadata via `gh repo edit`: description, homepage,
+  topics, wiki/discussions/projects according to product choice.
+- trigger GitHub Actions builds or checks via `gh workflow run` or `gh run`.
 
-Ce qui ne doit pas être fait en aveugle en CLI :
+What must not be done blindly in the CLI:
 
-- rendre les repos publics sans freeze et dernière vérification ;
-- activer des protections de branche sans vérifier les noms exacts des checks GitHub Actions disponibles ;
-- supprimer ou remplacer des secrets de production sans inventaire des workflows qui les consomment ;
-- rendre les packages GHCR publics sans décision explicite sur le mode de pull du VPS.
+- make repositories public without a freeze and final verification;
+- enable branch protections without checking the exact GitHub Actions check
+  names available;
+- delete or replace production secrets without an inventory of the workflows
+  that consume them;
+- make GHCR packages public without an explicit decision on the VPS pull mode.
 
-Ce qui nécessite plutôt les consoles externes ou une décision manuelle :
+What needs external consoles or a manual decision instead:
 
-- rotation ou restriction des anciennes clés Firebase/GCP/VAPID ;
-- vérification des origines OAuth, bundle IDs, SHA fingerprints Android et domaines autorisés Google/Firebase ;
-- activation et validation de GitHub Private Vulnerability Reporting une fois les repos publics ;
-- décision finale sur la visibilité publique ou privée des packages GHCR ;
-- décision sur la politique marque/logo/assets.
+- rotation or restriction of old Firebase/GCP/VAPID keys;
+- verification of OAuth origins, bundle IDs, Android SHA fingerprints, and
+  Google/Firebase authorized domains;
+- activation and validation of GitHub Private Vulnerability Reporting once the
+  repositories are public;
+- final decision on public or private GHCR package visibility;
+- decision on brand/logo/asset policy.
 
-## Séquence recommandée le jour du passage en public
+## Recommended Sequence on Public-Opening Day
 
-### Étape 1. Geler les merges pendant l'opération
+### Step 1. Freeze Merges During the Operation
 
-Pendant le basculement :
+During the switch:
 
-- éviter les merges simultanés sur `main` ;
-- éviter les rotations de secrets en parallèle ;
-- avoir une seule personne responsable du switch.
+- avoid simultaneous merges to `main`;
+- avoid parallel secret rotations;
+- have one person responsible for the switch.
 
-### Étape 2. Rendre les repos publics
+### Step 2. Make the Repositories Public
 
-Effectuer le changement de visibilité sur :
+Change visibility on:
 
 - `fiestaaa_back`
 - `fiestaaa_front`
 
-Une fois les repos publics, les options GitHub aujourd'hui absentes sur Free deviendront disponibles.
+Once the repositories are public, GitHub options currently missing on Free
+become available.
 
-### Étape 3. Créer l'environnement `production`
+### Step 3. Create the `production` Environment
 
-Dans chaque repo :
+In each repository:
 
 1. `Settings` -> `Environments`
-2. créer `production`
-3. renseigner l'URL :
-   - back : `https://api.fiestaaa.app`
-   - front : `https://fiestaaa.app`
+2. create `production`
+3. fill the URL:
+   - back: `https://api.fiestaaa.app`
+   - front: `https://fiestaaa.app`
 
-Configurer ensuite :
+Then configure:
 
-- `required reviewers` ;
-- `prevent self-review` ;
-- `wait timer` si souhaité ;
-- restriction des branches et tags de déploiement à `main`.
+- `required reviewers`;
+- `prevent self-review`;
+- `wait timer` if desired;
+- deployment branch and tag restriction to `main`.
 
-### Étape 4. Déplacer les secrets de prod
+### Step 4. Move Production Secrets
 
-Déplacer les secrets de prod utilisés par les workflows de déploiement depuis les `repo secrets` vers les `environment secrets` de `production`.
+Move production secrets used by deployment workflows from `repo secrets` to
+`production` `environment secrets`.
 
-Conserver séparément, au besoin, certains secrets purement build ou release qui ne dépendent pas directement de l'environnement de prod, par exemple :
+Keep separate, if needed, some pure build or release secrets that do not depend
+directly on the production environment, for example:
 
-- signature Android ;
-- `google-services.json` Android encodé ;
-- autres secrets de build hors déploiement.
+- Android signing;
+- encoded Android `google-services.json`;
+- other non-deployment build secrets.
 
-### Étape 5. Activer la protection de branche sur `main`
+### Step 5. Enable Branch Protection on `main`
 
-Dans chaque repo :
+In each repository:
 
 1. `Settings` -> `Branches`
-2. ajouter une règle sur `main`
+2. add a rule on `main`
 
-Réglages recommandés :
+Recommended settings:
 
 - `Require a pull request before merging`
-- au moins 1 approbation
+- at least 1 approval
 - `Dismiss stale pull request approvals when new commits are pushed`
 - `Require approval of the most recent reviewable push`
 - `Require conversation resolution before merging`
 - `Require linear history`
 - `Do not allow bypassing the above settings`
-- pas de `force push`
-- pas de suppression de branche protégée
+- no `force push`
+- no protected branch deletion
 
-Checks à rendre obligatoires quand ils existent :
+Checks to make required when they exist:
 
 - `Dependency Review`
 - `Backend CI`
 - `Frontend CI`
 
-Ces workflows doivent déjà exister avant le passage en public pour que la protection de branche soit utile immédiatement.
+These workflows must already exist before going public so branch protection is
+useful immediately.
 
-### Étape 6. Activer les fonctionnalités GitHub de sécurité
+### Step 6. Enable GitHub Security Features
 
-Dans chaque repo public :
+In each public repository:
 
 - `Dependency graph`
 - `Dependabot alerts`
@@ -267,51 +312,59 @@ Dans chaque repo public :
 - `Secret scanning`
 - `Push protection`
 
-Vérifier dans l'UI GitHub que chaque option est bien activée ; certaines peuvent dépendre du type de compte ou des réglages d'organisation.
+Check in the GitHub UI that every option is enabled; some may depend on account
+type or organization settings.
 
-### Étape 7. Vérifier que les protections préparées deviennent actives
+### Step 7. Verify Prepared Protections Become Active
 
-Après passage en public, vérifier que les éléments déjà committés deviennent réellement opérationnels :
+After going public, verify that already committed elements become operational:
 
-- `environment: production` dans les workflows de déploiement ;
-- `Dependency Review` sur les PRs ;
-- attestations de provenance sur les builds GHCR ;
-- règles de déploiement et de branche visibles dans GitHub.
+- `environment: production` in deployment workflows;
+- `Dependency Review` on PRs;
+- provenance attestations on GHCR builds;
+- deployment and branch rules visible in GitHub.
 
-## Vérifications à faire juste après l'ouverture
+## Checks Right After Opening
 
-### Vérification GitHub
+### GitHub Check
 
-- ouvrir une PR de test et vérifier que `Dependency Review` s'exécute ;
-- vérifier que les branches protégées empêchent un merge direct ;
-- vérifier qu'un déploiement demande bien l'approbation et la configuration attendues via `production`.
+- open a test PR and verify that `Dependency Review` runs;
+- verify protected branches prevent direct merge;
+- verify deployment requires the expected approval and configuration through
+  `production`.
 
-### Vérification supply chain
+### Supply Chain Check
 
-- lancer un build de déploiement sur un commit sans changement fonctionnel ;
-- vérifier dans GHCR que l'image publiée possède bien son attestation ;
-- vérifier que le VPS peut toujours pull l'image selon le mode retenu, privé ou public.
+- run a deployment build on a commit with no functional change;
+- verify in GHCR that the published image has its attestation;
+- verify the VPS can still pull the image according to the retained mode,
+  private or public.
 
-### Vérification sécurité
+### Security Check
 
-- repasser un scan rapide du repo public pour confirmer qu'aucun secret n'apparaît ;
-- vérifier les logs GitHub Actions pour s'assurer qu'aucune variable sensible n'est imprimée ;
-- vérifier les téléchargements d'artefacts s'il y en a.
+- rerun a quick scan of the public repository to confirm no secret appears;
+- check GitHub Actions logs to ensure no sensitive variable is printed;
+- check artifact downloads if any exist.
 
-## Ce qu'il faudra probablement ajouter avant ou juste après
+## What Will Probably Need to Be Added Before or Right After
 
-Le passage en public rendra les protections GitHub disponibles, mais pour atteindre un niveau plus sérieux il restera utile de compléter :
+Going public will make GitHub protections available, but to reach a stronger
+level it will remain useful to complete:
 
-- l'activation de GitHub Private Vulnerability Reporting une fois le repo public ;
-- la vérification des checks exacts à rendre obligatoires dans la protection de branche ;
-- éventuellement une politique séparée pour les marques, logos et autres assets non destinés à être librement réutilisés ;
-- éventuellement une décision explicite sur la visibilité publique ou privée des packages GHCR.
+- GitHub Private Vulnerability Reporting activation once the repository is
+  public;
+- verification of the exact checks to require in branch protection;
+- possibly a separate policy for brands, logos, and other assets not intended
+  for free reuse;
+- possibly an explicit decision on public or private GHCR package visibility.
 
-## Décision recommandée
+## Recommended Decision
 
-Le jour où l'app passe vraiment en prod et devient open source :
+On the day the app really goes to production and becomes open source:
 
-1. rendre les repos publics ;
-2. activer immédiatement `production`, la protection de branche et les options GitHub de sécurité ;
-3. vérifier que les secrets de prod ne vivent plus que dans l'environnement GitHub et sur le VPS ;
-4. faire une PR de test pour valider la chaîne complète avant de reprendre un rythme normal de merge.
+1. make the repositories public;
+2. immediately enable `production`, branch protection, and GitHub security
+   options;
+3. verify production secrets live only in the GitHub environment and on the VPS;
+4. create a test PR to validate the full chain before resuming normal merge
+   rhythm.

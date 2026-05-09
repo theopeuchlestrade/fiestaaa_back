@@ -557,14 +557,14 @@ pub struct AddressSearchQuery {
     path = "/geo/address-search",
     tag = "events",
     params(
-        ("q" = String, Query, description = "Adresse ou lieu à rechercher"),
-        ("limit" = u8, Query, description = "Nombre maximum de suggestions (1-10)")
+        ("q" = String, Query, description = "Address or place to search"),
+        ("limit" = u8, Query, description = "Maximum number of suggestions (1-10)")
     ),
     responses(
-        (status = 200, description = "Suggestions géocodées", body = [AddressSuggestion]),
-        (status = 400, description = "Requête trop courte", body = ErrorResponse),
-        (status = 401, description = "Authentification requise", body = ErrorResponse),
-        (status = 502, description = "Service de géocodage indisponible", body = ErrorResponse)
+        (status = 200, description = "Geocoded suggestions", body = [AddressSuggestion]),
+        (status = 400, description = "Query too short", body = ErrorResponse),
+        (status = 401, description = "Authentication required", body = ErrorResponse),
+        (status = 502, description = "Geocoding service unavailable", body = ErrorResponse)
     )
 )]
 #[get("/geo/address-search")]
@@ -677,13 +677,13 @@ async fn fetch_address_suggestions(
     path = "/events/{event_id}",
     tag = "events",
     responses(
-        (status = 200, description = "Événement trouvé", body = Event),
-        (status = 401, description = "Authentification requise", body = ErrorResponse),
-        (status = 403, description = "Accès non autorisé", body = ErrorResponse),
-        (status = 404, description = "Événement introuvable", body = ErrorResponse)
+        (status = 200, description = "Event found", body = Event),
+        (status = 401, description = "Authentication required", body = ErrorResponse),
+        (status = 403, description = "Unauthorized access", body = ErrorResponse),
+        (status = 404, description = "Event not found", body = ErrorResponse)
     ),
     params(
-        ("event_id" = i64, Path, description = "Identifiant de l'événement")
+        ("event_id" = i64, Path, description = "Event identifier")
     )
 )]
 #[get("/events/{event_id}")]
@@ -721,9 +721,9 @@ pub async fn get_event(
     path = "/events",
     tag = "events",
     responses(
-        (status = 200, description = "Liste des événements", body = [Event]),
-        (status = 401, description = "Authentification requise", body = ErrorResponse),
-        (status = 500, description = "Erreur base de données", body = ErrorResponse)
+        (status = 200, description = "Event list", body = [Event]),
+        (status = 401, description = "Authentication required", body = ErrorResponse),
+        (status = 500, description = "Database error", body = ErrorResponse)
     )
 )]
 #[get("/events")]
@@ -774,10 +774,10 @@ pub async fn list_events(state: web::Data<AppState>, req: HttpRequest) -> impl R
     tag = "events",
     request_body = EventPayload,
     responses(
-        (status = 201, description = "Événement créé", body = Event),
-        (status = 400, description = "Payload invalide", body = ErrorResponse),
-        (status = 403, description = "Non autorisé", body = ErrorResponse),
-        (status = 500, description = "Erreur base de données", body = ErrorResponse)
+        (status = 201, description = "Event created", body = Event),
+        (status = 400, description = "Invalid payload", body = ErrorResponse),
+        (status = 403, description = "Unauthorized", body = ErrorResponse),
+        (status = 500, description = "Database error", body = ErrorResponse)
     )
 )]
 #[post("/events")]
@@ -949,14 +949,14 @@ pub async fn create_event(
     tag = "events",
     request_body = EventPayload,
     responses(
-        (status = 200, description = "Événement mis à jour", body = Event),
-        (status = 400, description = "Payload invalide", body = ErrorResponse),
-        (status = 403, description = "Non autorisé", body = ErrorResponse),
-        (status = 404, description = "Événement introuvable", body = ErrorResponse),
-        (status = 500, description = "Erreur base de données", body = ErrorResponse)
+        (status = 200, description = "Event updated", body = Event),
+        (status = 400, description = "Invalid payload", body = ErrorResponse),
+        (status = 403, description = "Unauthorized", body = ErrorResponse),
+        (status = 404, description = "Event not found", body = ErrorResponse),
+        (status = 500, description = "Database error", body = ErrorResponse)
     ),
     params(
-        ("event_id" = i64, Path, description = "Identifiant de l'événement")
+        ("event_id" = i64, Path, description = "Event identifier")
     )
 )]
 #[put("/events/{event_id}")]
@@ -1134,14 +1134,14 @@ pub async fn replace_event(
     tag = "events",
     request_body = EventPatchPayload,
     responses(
-        (status = 200, description = "Événement modifié", body = Event),
-        (status = 400, description = "Payload invalide", body = ErrorResponse),
-        (status = 403, description = "Non autorisé", body = ErrorResponse),
-        (status = 404, description = "Événement introuvable", body = ErrorResponse),
-        (status = 500, description = "Erreur base de données", body = ErrorResponse)
+        (status = 200, description = "Event modified", body = Event),
+        (status = 400, description = "Invalid payload", body = ErrorResponse),
+        (status = 403, description = "Unauthorized", body = ErrorResponse),
+        (status = 404, description = "Event not found", body = ErrorResponse),
+        (status = 500, description = "Database error", body = ErrorResponse)
     ),
     params(
-        ("event_id" = i64, Path, description = "Identifiant de l'événement")
+        ("event_id" = i64, Path, description = "Event identifier")
     )
 )]
 #[patch("/events/{event_id}")]
@@ -1459,13 +1459,13 @@ pub async fn update_event(
     path = "/events/{event_id}",
     tag = "events",
     responses(
-        (status = 200, description = "Événement supprimé", body = StatusResponse),
-        (status = 403, description = "Non autorisé", body = ErrorResponse),
-        (status = 404, description = "Événement introuvable", body = ErrorResponse),
-        (status = 500, description = "Erreur base de données", body = ErrorResponse)
+        (status = 200, description = "Event deleted", body = StatusResponse),
+        (status = 403, description = "Unauthorized", body = ErrorResponse),
+        (status = 404, description = "Event not found", body = ErrorResponse),
+        (status = 500, description = "Database error", body = ErrorResponse)
     ),
     params(
-        ("event_id" = i64, Path, description = "Identifiant de l'événement")
+        ("event_id" = i64, Path, description = "Event identifier")
     )
 )]
 #[delete("/events/{event_id}")]
@@ -1515,13 +1515,13 @@ pub async fn delete_event(
     path = "/events/{event_id}/share",
     tag = "events",
     responses(
-        (status = 201, description = "Lien de partage généré. C'est un bearer token: tout utilisateur authentifié qui l'obtient peut le réclamer jusqu'à expiration ou consommation.", body = ShareTokenResponse),
-        (status = 403, description = "Non autorisé", body = ErrorResponse),
-        (status = 404, description = "Événement introuvable", body = ErrorResponse),
-        (status = 500, description = "Erreur base de données", body = ErrorResponse)
+        (status = 201, description = "Share link generated. This is a bearer token: any authenticated user who obtains it can claim it until expiration or consumption.", body = ShareTokenResponse),
+        (status = 403, description = "Unauthorized", body = ErrorResponse),
+        (status = 404, description = "Event not found", body = ErrorResponse),
+        (status = 500, description = "Database error", body = ErrorResponse)
     ),
     params(
-        ("event_id" = i64, Path, description = "Identifiant de l'événement")
+        ("event_id" = i64, Path, description = "Event identifier")
     )
 )]
 #[post("/events/{event_id}/share")]
@@ -1584,12 +1584,12 @@ pub async fn create_share_link(
     tag = "events",
     request_body = ShareClaimPayload,
     responses(
-        (status = 200, description = "Lien consommé et événement accessible", body = ShareClaimResponse),
-        (status = 400, description = "Token manquant", body = ErrorResponse),
-        (status = 401, description = "Authentification requise", body = ErrorResponse),
-        (status = 404, description = "Lien inexistant", body = ErrorResponse),
-        (status = 410, description = "Lien déjà consommé", body = ErrorResponse),
-        (status = 500, description = "Erreur base de données", body = ErrorResponse)
+        (status = 200, description = "Link consumed and event accessible", body = ShareClaimResponse),
+        (status = 400, description = "Missing token", body = ErrorResponse),
+        (status = 401, description = "Authentication required", body = ErrorResponse),
+        (status = 404, description = "Link not found", body = ErrorResponse),
+        (status = 410, description = "Link already consumed", body = ErrorResponse),
+        (status = 500, description = "Database error", body = ErrorResponse)
     )
 )]
 #[post("/share/claim")]
@@ -1776,16 +1776,16 @@ pub async fn claim_share_link(
     path = "/events/{event_id}/items",
     tag = "events",
     responses(
-        (status = 200, description = "Items configurés pour l'événement", body = [EventItemView]),
-        (status = 400, description = "Scope invalide", body = ErrorResponse),
-        (status = 401, description = "Authentification requise", body = ErrorResponse),
-        (status = 403, description = "Accès réservé aux membres de l'événement", body = ErrorResponse),
-        (status = 404, description = "Événement introuvable", body = ErrorResponse),
-        (status = 500, description = "Erreur base de données", body = ErrorResponse)
+        (status = 200, description = "Items configured for the event", body = [EventItemView]),
+        (status = 400, description = "Invalid scope", body = ErrorResponse),
+        (status = 401, description = "Authentication required", body = ErrorResponse),
+        (status = 403, description = "Access restricted to event members", body = ErrorResponse),
+        (status = 404, description = "Event not found", body = ErrorResponse),
+        (status = 500, description = "Database error", body = ErrorResponse)
     ),
     params(
-        ("event_id" = i64, Path, description = "Identifiant de l'événement"),
-        ("scope" = Option<String>, Query, description = "Filtre: all, mine, to_cover, completed")
+        ("event_id" = i64, Path, description = "Event identifier"),
+        ("scope" = Option<String>, Query, description = "Filter: all, mine, to_cover, completed")
     )
 )]
 #[get("/events/{event_id}/items")]
@@ -1896,12 +1896,12 @@ pub async fn list_event_items(
     path = "/events/{event_id}/items/contributions",
     tag = "events",
     responses(
-        (status = 200, description = "Contributions des items de l'événement", body = [ItemContribution]),
-        (status = 403, description = "Non autorisé", body = ErrorResponse),
-        (status = 404, description = "Événement introuvable", body = ErrorResponse)
+        (status = 200, description = "Event item contributions", body = [ItemContribution]),
+        (status = 403, description = "Unauthorized", body = ErrorResponse),
+        (status = 404, description = "Event not found", body = ErrorResponse)
     ),
     params(
-        ("event_id" = i64, Path, description = "Identifiant de l'événement")
+        ("event_id" = i64, Path, description = "Event identifier")
     )
 )]
 #[get("/events/{event_id}/items/contributions")]
@@ -1940,14 +1940,14 @@ pub async fn list_event_item_contributions(
     tag = "events",
     request_body = EventItemAttachPayload,
     responses(
-        (status = 200, description = "Item attaché à l'événement", body = EventItemView),
-        (status = 400, description = "Payload invalide", body = ErrorResponse),
-        (status = 403, description = "Non autorisé", body = ErrorResponse),
-        (status = 404, description = "Événement ou item introuvable", body = ErrorResponse),
-        (status = 500, description = "Erreur base de données", body = ErrorResponse)
+        (status = 200, description = "Item attached to the event", body = EventItemView),
+        (status = 400, description = "Invalid payload", body = ErrorResponse),
+        (status = 403, description = "Unauthorized", body = ErrorResponse),
+        (status = 404, description = "Event or item not found", body = ErrorResponse),
+        (status = 500, description = "Database error", body = ErrorResponse)
     ),
     params(
-        ("event_id" = i64, Path, description = "Identifiant de l'événement")
+        ("event_id" = i64, Path, description = "Event identifier")
     )
 )]
 #[post("/events/{event_id}/items")]
@@ -2040,14 +2040,14 @@ pub async fn attach_event_item(
     tag = "events",
     request_body = EventCustomItemPayload,
     responses(
-        (status = 200, description = "Item personnalisé ajouté ou mis à jour", body = EventItemView),
-        (status = 400, description = "Payload invalide", body = ErrorResponse),
-        (status = 403, description = "Non autorisé", body = ErrorResponse),
-        (status = 404, description = "Événement introuvable", body = ErrorResponse),
-        (status = 500, description = "Erreur base de données", body = ErrorResponse)
+        (status = 200, description = "Custom item added or updated", body = EventItemView),
+        (status = 400, description = "Invalid payload", body = ErrorResponse),
+        (status = 403, description = "Unauthorized", body = ErrorResponse),
+        (status = 404, description = "Event not found", body = ErrorResponse),
+        (status = 500, description = "Database error", body = ErrorResponse)
     ),
     params(
-        ("event_id" = i64, Path, description = "Identifiant de l'événement")
+        ("event_id" = i64, Path, description = "Event identifier")
     )
 )]
 #[post("/events/{event_id}/items/custom")]
@@ -2257,15 +2257,15 @@ pub async fn create_custom_event_item(
     tag = "events",
     request_body = EventItemReservationPayload,
     responses(
-        (status = 200, description = "Quantité réservée", body = EventItemView),
-        (status = 400, description = "Quantité invalide ou dépassement du maximum", body = ErrorResponse),
-        (status = 401, description = "Authentification requise", body = ErrorResponse),
-        (status = 404, description = "Événement, item ou utilisateur introuvable", body = ErrorResponse),
-        (status = 500, description = "Erreur base de données", body = ErrorResponse)
+        (status = 200, description = "Quantity reserved", body = EventItemView),
+        (status = 400, description = "Invalid quantity or maximum exceeded", body = ErrorResponse),
+        (status = 401, description = "Authentication required", body = ErrorResponse),
+        (status = 404, description = "Event, item, or user not found", body = ErrorResponse),
+        (status = 500, description = "Database error", body = ErrorResponse)
     ),
     params(
-        ("event_id" = i64, Path, description = "Identifiant de l'événement"),
-        ("item_id" = i64, Path, description = "Identifiant de l'item référencé")
+        ("event_id" = i64, Path, description = "Event identifier"),
+        ("item_id" = i64, Path, description = "Referenced item identifier")
     )
 )]
 #[post("/events/{event_id}/items/{item_id}/reserve")]
@@ -2426,15 +2426,15 @@ pub async fn reserve_event_item(
     path = "/events/{event_id}/items/{item_id}",
     tag = "events",
     responses(
-        (status = 200, description = "Item supprimé", body = StatusResponse),
-        (status = 400, description = "Suppression impossible", body = ErrorResponse),
-        (status = 403, description = "Non autorisé", body = ErrorResponse),
-        (status = 404, description = "Item introuvable", body = ErrorResponse),
-        (status = 500, description = "Erreur base de données", body = ErrorResponse)
+        (status = 200, description = "Item deleted", body = StatusResponse),
+        (status = 400, description = "Deletion not possible", body = ErrorResponse),
+        (status = 403, description = "Unauthorized", body = ErrorResponse),
+        (status = 404, description = "Item not found", body = ErrorResponse),
+        (status = 500, description = "Database error", body = ErrorResponse)
     ),
     params(
-        ("event_id" = i64, Path, description = "Identifiant de l'événement"),
-        ("item_id" = i64, Path, description = "Identifiant de l'item")
+        ("event_id" = i64, Path, description = "Event identifier"),
+        ("item_id" = i64, Path, description = "Item identifier")
     )
 )]
 #[delete("/events/{event_id}/items/{item_id}")]
@@ -2554,12 +2554,12 @@ pub async fn delete_event_item(
     path = "/events/{event_id}/polls",
     tag = "events",
     responses(
-        (status = 200, description = "Sondages associés à l'événement", body = [PollView]),
-        (status = 403, description = "Non autorisé", body = ErrorResponse),
-        (status = 404, description = "Événement introuvable", body = ErrorResponse)
+        (status = 200, description = "Polls associated with the event", body = [PollView]),
+        (status = 403, description = "Unauthorized", body = ErrorResponse),
+        (status = 404, description = "Event not found", body = ErrorResponse)
     ),
     params(
-        ("event_id" = i64, Path, description = "Identifiant de l'événement")
+        ("event_id" = i64, Path, description = "Event identifier")
     )
 )]
 #[get("/events/{event_id}/polls")]
@@ -2594,13 +2594,13 @@ pub async fn list_event_polls(
     tag = "events",
     request_body = EventPollCreatePayload,
     responses(
-        (status = 201, description = "Sondage créé", body = PollView),
-        (status = 400, description = "Payload invalide", body = ErrorResponse),
-        (status = 403, description = "Non autorisé", body = ErrorResponse),
-        (status = 404, description = "Événement introuvable", body = ErrorResponse)
+        (status = 201, description = "Poll created", body = PollView),
+        (status = 400, description = "Invalid payload", body = ErrorResponse),
+        (status = 403, description = "Unauthorized", body = ErrorResponse),
+        (status = 404, description = "Event not found", body = ErrorResponse)
     ),
     params(
-        ("event_id" = i64, Path, description = "Identifiant de l'événement")
+        ("event_id" = i64, Path, description = "Event identifier")
     )
 )]
 #[post("/events/{event_id}/polls")]
@@ -2791,15 +2791,15 @@ pub async fn create_event_poll(
     tag = "events",
     request_body = EventPollVotePayload,
     responses(
-        (status = 200, description = "Vote enregistré", body = PollView),
-        (status = 400, description = "Payload invalide", body = ErrorResponse),
-        (status = 403, description = "Non autorisé", body = ErrorResponse),
-        (status = 404, description = "Sondage introuvable", body = ErrorResponse),
-        (status = 410, description = "Sondage expiré", body = ErrorResponse)
+        (status = 200, description = "Vote saved", body = PollView),
+        (status = 400, description = "Invalid payload", body = ErrorResponse),
+        (status = 403, description = "Unauthorized", body = ErrorResponse),
+        (status = 404, description = "Poll not found", body = ErrorResponse),
+        (status = 410, description = "Poll expired", body = ErrorResponse)
     ),
     params(
-        ("event_id" = i64, Path, description = "Identifiant de l'événement"),
-        ("poll_id" = i64, Path, description = "Identifiant du sondage")
+        ("event_id" = i64, Path, description = "Event identifier"),
+        ("poll_id" = i64, Path, description = "Poll identifier")
     )
 )]
 #[post("/events/{event_id}/polls/{poll_id}/vote")]
@@ -2971,13 +2971,13 @@ pub async fn vote_event_poll(
     path = "/events/{event_id}/polls/{poll_id}",
     tag = "events",
     responses(
-        (status = 200, description = "Sondage supprimé", body = StatusResponse),
-        (status = 403, description = "Non autorisé", body = ErrorResponse),
-        (status = 404, description = "Sondage introuvable", body = ErrorResponse)
+        (status = 200, description = "Poll deleted", body = StatusResponse),
+        (status = 403, description = "Unauthorized", body = ErrorResponse),
+        (status = 404, description = "Poll not found", body = ErrorResponse)
     ),
     params(
-        ("event_id" = i64, Path, description = "Identifiant de l'événement"),
-        ("poll_id" = i64, Path, description = "Identifiant du sondage")
+        ("event_id" = i64, Path, description = "Event identifier"),
+        ("poll_id" = i64, Path, description = "Poll identifier")
     )
 )]
 #[delete("/events/{event_id}/polls/{poll_id}")]
@@ -3081,12 +3081,12 @@ pub async fn delete_event_poll(
     path = "/events/{event_id}/expenses",
     tag = "events",
     responses(
-        (status = 200, description = "Dépenses partagées de l'événement", body = [EventExpenseView]),
-        (status = 403, description = "Non autorisé", body = ErrorResponse),
-        (status = 404, description = "Événement introuvable", body = ErrorResponse)
+        (status = 200, description = "Event shared expenses", body = [EventExpenseView]),
+        (status = 403, description = "Unauthorized", body = ErrorResponse),
+        (status = 404, description = "Event not found", body = ErrorResponse)
     ),
     params(
-        ("event_id" = i64, Path, description = "Identifiant de l'événement")
+        ("event_id" = i64, Path, description = "Event identifier")
     )
 )]
 #[get("/events/{event_id}/expenses")]
@@ -3111,13 +3111,13 @@ pub async fn list_event_expenses(
     tag = "events",
     request_body = EventExpensePayload,
     responses(
-        (status = 201, description = "Dépense créée", body = EventExpenseView),
-        (status = 400, description = "Payload invalide", body = ErrorResponse),
-        (status = 403, description = "Non autorisé", body = ErrorResponse),
-        (status = 404, description = "Événement introuvable", body = ErrorResponse)
+        (status = 201, description = "Expense created", body = EventExpenseView),
+        (status = 400, description = "Invalid payload", body = ErrorResponse),
+        (status = 403, description = "Unauthorized", body = ErrorResponse),
+        (status = 404, description = "Event not found", body = ErrorResponse)
     ),
     params(
-        ("event_id" = i64, Path, description = "Identifiant de l'événement")
+        ("event_id" = i64, Path, description = "Event identifier")
     )
 )]
 #[post("/events/{event_id}/expenses")]
@@ -3266,13 +3266,13 @@ pub async fn create_event_expense(
     path = "/events/{event_id}/expenses/{expense_id}",
     tag = "events",
     responses(
-        (status = 200, description = "Dépense supprimée", body = StatusResponse),
-        (status = 403, description = "Non autorisé", body = ErrorResponse),
-        (status = 404, description = "Dépense introuvable", body = ErrorResponse)
+        (status = 200, description = "Expense deleted", body = StatusResponse),
+        (status = 403, description = "Unauthorized", body = ErrorResponse),
+        (status = 404, description = "Expense not found", body = ErrorResponse)
     ),
     params(
-        ("event_id" = i64, Path, description = "Identifiant de l'événement"),
-        ("expense_id" = i64, Path, description = "Identifiant de la dépense")
+        ("event_id" = i64, Path, description = "Event identifier"),
+        ("expense_id" = i64, Path, description = "Expense identifier")
     )
 )]
 #[delete("/events/{event_id}/expenses/{expense_id}")]
@@ -3377,12 +3377,12 @@ pub async fn delete_event_expense(
     path = "/events/{event_id}/expenses/summary",
     tag = "events",
     responses(
-        (status = 200, description = "Résumé des dépenses partagées", body = EventExpensesSummaryView),
-        (status = 403, description = "Non autorisé", body = ErrorResponse),
-        (status = 404, description = "Événement introuvable", body = ErrorResponse)
+        (status = 200, description = "Shared expense summary", body = EventExpensesSummaryView),
+        (status = 403, description = "Unauthorized", body = ErrorResponse),
+        (status = 404, description = "Event not found", body = ErrorResponse)
     ),
     params(
-        ("event_id" = i64, Path, description = "Identifiant de l'événement")
+        ("event_id" = i64, Path, description = "Event identifier")
     )
 )]
 #[get("/events/{event_id}/expenses/summary")]

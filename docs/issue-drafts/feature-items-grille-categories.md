@@ -1,46 +1,46 @@
-# [BACK] Grille items + categories + resume quantites
+# [BACK] Item grid + categories + quantity summary
 
-## Objectif
-Ajouter des categories simples aux items et fournir un resume des quantites par categorie.
+## Objective
+Add simple categories to items and provide a quantity summary by category.
 
-## Contexte
-La liste d'items est longue et difficile a parcourir. On veut filtrer et voir les quantites rapidement.
+## Context
+The item list is long and hard to browse. We want to filter and quickly see quantities.
 
-## Perimetre
-- Inclus : champ category sur item, validation des valeurs, resume par categorie.
-- Exclu : rendu UI (gere cote front).
+## Scope
+- Included: category field on item, value validation, summary by category.
+- Excluded: UI rendering (handled on the frontend).
 
 ## API / Endpoints
-- Routes impactees (methodes, paths) : endpoints items pour accepter category; GET /events/{id}/items (ou summary) renvoie la categorie.
-- Payloads (inputs/outputs) : category enum (soft|alcool|sale|sucre|autre), quantite si dispo.
-- Versioning / compatibilite : champs optionnel retro-compatible.
+- Impacted routes (methods, paths): item endpoints to accept category; GET /events/{id}/items (or summary) returns the category.
+- Payloads (inputs/outputs): category enum (soft|alcohol|savory|sweet|other), quantity if available.
+- Versioning / compatibility: optional backward-compatible field.
 
-## Donnees / Migrations
-- Tables/collections impactees : items.
-- Migrations necessaires (oui/non) : oui, ajout item_category.
-- Donnees retro-compatibles (oui/non) : oui, valeur par defaut "autre".
+## Data / Migrations
+- Impacted tables/collections: items.
+- Required migrations (yes/no): yes, add item_category.
+- Backward-compatible data (yes/no): yes, default value "other".
 
-## Regles metier / Validations
-- Regles principales : categorie obligatoire pour nouvel item; valeurs fermees.
-- Cas limites : items existants sans categorie, conversion.
+## Business Rules / Validations
+- Main rules: category required for new items; closed value set.
+- Edge cases: existing items without category, conversion.
 
-## Securite / Permissions
-- Roles / droits : selon regles items actuelles.
-- Donnees sensibles : aucune.
+## Security / Permissions
+- Roles / rights: according to current item rules.
+- Sensitive data: none.
 
-## Observabilite
-- Logs / metrics / alerting : none.
+## Observability
+- Logs / metrics / alerting: none.
 
 ## Tests
-- Unitaires : validation category.
-- Integration : creation item + lecture resume.
-- E2E (si applicable) : affichage grille + filtre cote front.
+- Unit tests: category validation.
+- Integration: item creation + summary reading.
+- E2E (if applicable): grid + filter display on the frontend.
 
 ## Definition of Done
-- [ ] API conforme aux specs
-- [ ] Migrations appliquees et documentees
-- [ ] Tests passes
-- [ ] Docs mises a jour (si besoin)
+- [ ] API matches the specs
+- [ ] Migrations applied and documented
+- [ ] Tests pass
+- [ ] Docs updated (if needed)
 
-## Notes / Risques
-Clarifier la source de "quantite" (nombre d'inscrits vs champ explicite).
+## Notes / Risks
+Clarify the source of "quantity" (number of joined users vs explicit field).

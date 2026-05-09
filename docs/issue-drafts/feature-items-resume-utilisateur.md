@@ -1,45 +1,45 @@
-# [BACK] Resume des items utilisateur par evenement
+# [BACK] User item summary by event
 
-## Objectif
-Exposer un resume des items auxquels un utilisateur participe pour un evenement.
+## Objective
+Expose a summary of the items a user participates in for an event.
 
-## Contexte
-Aujourd'hui il faut parcourir la liste complete des items pour retrouver ce que l'utilisateur doit apporter.
+## Context
+Today, users have to browse the full item list to find what they should bring.
 
-## Perimetre
-- Inclus : endpoint "mes items" par evenement, tri et format lisible.
-- Exclu : notifications, exports.
+## Scope
+- Included: "my items" endpoint by event, sorting, and readable format.
+- Excluded: notifications, exports.
 
 ## API / Endpoints
-- Routes impactees (methodes, paths) : GET /events/{id}/my-items (auth) ou champ my_items dans GET /events/{id}.
-- Payloads (inputs/outputs) : liste d'items avec quantite, statut, categorie (si dispo).
-- Versioning / compatibilite : ajout d'un endpoint ou champ optionnel.
+- Impacted routes (methods, paths): GET /events/{id}/my-items (auth) or my_items field in GET /events/{id}.
+- Payloads (inputs/outputs): item list with quantity, status, category (if available).
+- Versioning / compatibility: add an endpoint or optional field.
 
-## Donnees / Migrations
-- Tables/collections impactees : items + table de participation.
-- Migrations necessaires (oui/non) : non.
-- Donnees retro-compatibles (oui/non) : oui.
+## Data / Migrations
+- Impacted tables/collections: items + participation table.
+- Required migrations (yes/no): no.
+- Backward-compatible data (yes/no): yes.
 
-## Regles metier / Validations
-- Regles principales : renvoyer uniquement les items associes a l'utilisateur courant.
-- Cas limites : utilisateur non participant, liste vide.
+## Business Rules / Validations
+- Main rules: return only items associated with the current user.
+- Edge cases: user is not a participant, empty list.
 
-## Securite / Permissions
-- Roles / droits : utilisateur connecte, membre de l'evenement.
-- Donnees sensibles : aucune.
+## Security / Permissions
+- Roles / rights: authenticated user, event member.
+- Sensitive data: none.
 
-## Observabilite
-- Logs / metrics / alerting : none ou log de debug si besoin.
+## Observability
+- Logs / metrics / alerting: none, or debug log if needed.
 
 ## Tests
-- Unitaires : selection des items par user.
-- Integration : endpoint renvoie les bons items.
-- E2E (si applicable) : affichage resume cote front.
+- Unit tests: item selection by user.
+- Integration: endpoint returns the correct items.
+- E2E (if applicable): summary display on the frontend.
 
 ## Definition of Done
-- [ ] API conforme aux specs
-- [ ] Tests passes
-- [ ] Docs mises a jour (si besoin)
+- [ ] API matches the specs
+- [ ] Tests pass
+- [ ] Docs updated (if needed)
 
-## Notes / Risques
-Verifier la performance si la liste d'items est grande.
+## Notes / Risks
+Check performance if the item list is large.

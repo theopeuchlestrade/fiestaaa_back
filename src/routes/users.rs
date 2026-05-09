@@ -68,11 +68,11 @@ pub struct HandleAvailabilityQuery {
     path = "/handles/availability",
     tag = "users",
     responses(
-        (status = 200, description = "Disponibilité d'un handle", body = HandleAvailabilityResponse),
-        (status = 400, description = "Handle invalide", body = ErrorResponse)
+        (status = 200, description = "Handle availability", body = HandleAvailabilityResponse),
+        (status = 400, description = "Invalid handle", body = ErrorResponse)
     ),
     params(
-        ("handle" = String, Query, description = "Handle à tester")
+        ("handle" = String, Query, description = "Handle to check")
     )
 )]
 #[get("/handles/availability")]
@@ -103,10 +103,10 @@ pub async fn check_handle_availability(
     tag = "users",
     request_body = HandleUpdatePayload,
     responses(
-        (status = 200, description = "Handle mis à jour", body = MeResponse),
-        (status = 400, description = "Handle invalide", body = ErrorResponse),
-        (status = 401, description = "Authentification requise", body = ErrorResponse),
-        (status = 409, description = "Handle déjà pris", body = ErrorResponse)
+        (status = 200, description = "Handle updated", body = MeResponse),
+        (status = 400, description = "Invalid handle", body = ErrorResponse),
+        (status = 401, description = "Authentication required", body = ErrorResponse),
+        (status = 409, description = "Handle already taken", body = ErrorResponse)
     )
 )]
 #[patch("/me/handle")]
@@ -172,10 +172,10 @@ pub async fn update_handle(
     path = "/me/avatar",
     tag = "users",
     responses(
-        (status = 200, description = "Avatar mis à jour", body = MeResponse),
-        (status = 400, description = "Fichier invalide", body = ErrorResponse),
-        (status = 401, description = "Authentification requise", body = ErrorResponse),
-        (status = 413, description = "Fichier trop volumineux", body = ErrorResponse),
+        (status = 200, description = "Avatar updated", body = MeResponse),
+        (status = 400, description = "Invalid file", body = ErrorResponse),
+        (status = 401, description = "Authentication required", body = ErrorResponse),
+        (status = 413, description = "File too large", body = ErrorResponse),
     )
 )]
 #[post("/me/avatar")]
@@ -368,10 +368,10 @@ pub async fn upload_avatar(
     path = "/me",
     tag = "users",
     responses(
-        (status = 200, description = "Compte supprimé avec succès", body = StatusResponse),
-        (status = 401, description = "Authentification requise", body = ErrorResponse),
-        (status = 404, description = "Utilisateur introuvable", body = ErrorResponse),
-        (status = 500, description = "Erreur serveur", body = ErrorResponse)
+        (status = 200, description = "Account deleted successfully", body = StatusResponse),
+        (status = 401, description = "Authentication required", body = ErrorResponse),
+        (status = 404, description = "User not found", body = ErrorResponse),
+        (status = 500, description = "Server error", body = ErrorResponse)
     )
 )]
 #[delete("/me")]

@@ -1,58 +1,70 @@
-# Incident de securite / compromission suspectee
+# Security Incident / Suspected Compromise
 
-Runbook operationnel a utiliser en complement de `fiestaaa_back/docs/deploiement.md` lorsqu'un VPS, un secret ou un compte tiers peut avoir ete compromis.
+Operational runbook to use together with `fiestaaa_back/docs/deploiement.md`
+when a VPS, secret, or third-party account may have been compromised.
 
-Ce document privilegie la reconstruction propre. Dans le contexte Fiestaaa, si les donnees ne sont pas critiques, il est generalement plus sur et plus rapide de repartir de zero que d'essayer de "nettoyer" un serveur douteux.
+This document favors clean rebuilds. In the Fiestaaa context, if the data is not
+critical, it is generally safer and faster to start from scratch than to try to
+"clean" a questionable server.
 
-## Quand declencher ce runbook
+## When to Trigger This Runbook
 
-Declencher ce runbook si au moins un des signaux suivants apparait :
+Trigger this runbook if at least one of the following signals appears:
 
-- la cle hote SSH du VPS change sans action explicite de votre part ;
-- `fiestaaa.app` ou `api.fiestaaa.app` repond avec un comportement inattendu (ex. `404 page not found` a la place des routes connues de l'API) ;
-- des secrets ont ete exposes dans un repo, dans un historique Git, dans un chat, dans un screenshot ou dans un poste utilisateur non fiable ;
-- vous ne reconnaissez plus les utilisateurs, services, conteneurs ou fichiers presents sur le serveur ;
-- un tiers a potentiellement eu acces au VPS, aux comptes GitHub, Google/Firebase, Resend ou Apple Developer.
+- the VPS SSH host key changes without explicit action on your side;
+- `fiestaaa.app` or `api.fiestaaa.app` responds with unexpected behavior, for
+  example `404 page not found` instead of known API routes;
+- secrets were exposed in a repository, Git history, chat, screenshot, or
+  untrusted user workstation;
+- you no longer recognize users, services, containers, or files on the server;
+- a third party may have accessed the VPS or the GitHub, Google/Firebase, Resend,
+  or Apple Developer accounts.
 
-## Regles de base
+## Ground Rules
 
-- Considerer le VPS courant comme non fiable tant qu'il n'a pas ete reinitialise ou verifie hors de tout doute.
-- Ne plus reutiliser les anciennes valeurs secretes (`.env`, `.env.prod`, JSON Firebase, cles SSH, tokens GitHub, mots de passe DB, etc.).
-- Ne jamais accepter une nouvelle host key SSH "a l'aveugle". Verifier la machine via OVH, la console KVM ou le mode rescue.
-- Si des donnees de prod sont critiques, faire un snapshot ou une sauvegarde avant toute suppression. Si les donnees sont de test, preferer la reconstruction complete.
-- Ne pas recopier l'ancien `.env` sur le nouveau serveur. Repartir d'un fichier neuf avec des valeurs regenerees.
+- Treat the current VPS as untrusted until it has been reset or verified beyond
+  doubt.
+- Do not reuse old secret values (`.env`, `.env.prod`, Firebase JSON, SSH keys,
+  GitHub tokens, DB passwords, etc.).
+- Never accept a new SSH host key blindly. Verify the machine through OVH, the
+  KVM console, or rescue mode.
+- If production data is critical, take a snapshot or backup before deleting
+  anything. If the data is test data, prefer a complete rebuild.
+- Do not copy the old `.env` to the new server. Start from a fresh file with
+  regenerated values.
 
-## Strategie recommandee pour Fiestaaa
+## Recommended Fiestaaa Strategy
 
-### Cas 1 : environnement de test / donnees jetables
+### Case 1: Test Environment / Disposable Data
 
-Strategie recommandee :
+Recommended strategy:
 
-1. Geler l'ancien environnement.
-2. Faire tourner tous les secrets.
-3. Reinstaller completement le VPS.
-4. Recreer les integrations tierces (Google/Firebase, Resend, Apple si necessaire).
-5. Redeployer proprement depuis Git et `deploiement.md`.
+1. Freeze the old environment.
+2. Rotate every secret.
+3. Fully reinstall the VPS.
+4. Recreate third-party integrations (Google/Firebase, Resend, Apple if needed).
+5. Redeploy cleanly from Git and `deploiement.md`.
 
-### Cas 2 : donnees de prod importantes
+### Case 2: Important Production Data
 
-Strategie recommandee :
+Recommended strategy:
 
-1. Isoler le serveur.
-2. Sauvegarder les volumes et les journaux.
-3. Faire la rotation des secrets.
-4. Reinstaller ou migrer vers un nouveau VPS.
-5. Restaurer uniquement les donnees necessaires apres verification.
+1. Isolate the server.
+2. Back up volumes and logs.
+3. Rotate secrets.
+4. Reinstall or migrate to a new VPS.
+5. Restore only the necessary data after verification.
 
-Le reste de ce document detaille surtout le **Cas 1**, qui est l'option la plus adaptee si l'environnement actuel ne contient que de la donnee de test.
+The rest of this document mostly details **Case 1**, which is the most suitable
+option if the current environment contains only test data.
 
-## Plan d'action recommande a partir de maintenant
+## Recommended Action Plan from Now
 
-### 1. Geler l'ancien environnement
+### 1. Freeze the Old Environment
 
-- Ne plus deployer vers le VPS actuel.
-- Ne plus saisir de mot de passe sur l'ancien hote tant que son identite n'est pas confirmee.
-- Supprimer les anciennes host keys SSH locales :
+- Stop deploying to the current VPS.
+- Stop entering passwords on the old host until its identity is confirmed.
+- Remove old local SSH host keys:
 
 ```bash
 ssh-keygen -R 51.75.20.71
@@ -60,18 +72,19 @@ ssh-keygen -R fiestaaa.app
 ssh-keygen -R "[2001:41d0:305:2100::d42f]:22"
 ```
 
-- Si besoin, conserver uniquement une sauvegarde minimale des fichiers de config utiles (`docker-compose.yml`, structure des dossiers, etc.), jamais des secrets pour reutilisation.
+- If needed, keep only a minimal backup of useful config files
+  (`docker-compose.yml`, directory structure, etc.), never secrets for reuse.
 
-### 2. Generer une nouvelle cle SSH d'administration
+### 2. Generate a New Administration SSH Key
 
-Creer une nouvelle paire de cles dediee au nouveau VPS :
+Create a new key pair dedicated to the new VPS:
 
 ```bash
 ssh-keygen -t ed25519 -a 64 -f ~/.ssh/fiestaaa_vps_2026 -C "theo@fiestaaa-vps-2026"
 cat ~/.ssh/fiestaaa_vps_2026.pub
 ```
 
-Ajouter une entree dediee dans `~/.ssh/config` :
+Add a dedicated entry in `~/.ssh/config`:
 
 ```sshconfig
 Host fiestaaa-vps
@@ -83,26 +96,29 @@ Host fiestaaa-vps
   UseKeychain yes
 ```
 
-Ne pas supprimer l'ancienne cle locale tant que la nouvelle machine n'est pas operationnelle.
+Do not delete the old local key until the new machine is operational.
 
-### 3. Faire tourner les secrets et comptes tiers
+### 3. Rotate Secrets and Third-Party Accounts
 
 #### 3.1 GitHub
 
-Objectif :
+Objective:
 
-- remplacer le token GHCR ;
-- remplacer la cle privee utilisee par les GitHub Actions pour se connecter au VPS ;
-- mettre a jour tous les secrets Actions des repos `fiestaaa_back` et `fiestaaa_front`.
+- replace the GHCR token;
+- replace the private key used by GitHub Actions to connect to the VPS;
+- update all Actions secrets for `fiestaaa_back` and `fiestaaa_front`.
 
-Actions :
+Actions:
 
-1. Creer un nouveau `GHCR_TOKEN` dedie au VPS avec le scope minimal `read:packages`.
-2. Supprimer ou revoquer l'ancien token.
-3. Generer une nouvelle cle privee SSH pour le deploiement GitHub Actions si vous souhaitez la separer de votre cle admin.
-4. Mettre a jour les secrets GitHub Actions, idealement dans l'environnement GitHub `production` plutot qu'au niveau global du repo.
+1. Create a new `GHCR_TOKEN` dedicated to the VPS with the minimal
+   `read:packages` scope.
+2. Delete or revoke the old token.
+3. Generate a new SSH private key for GitHub Actions deployment if you want it
+   separate from your admin key.
+4. Update GitHub Actions secrets, ideally in the GitHub `production` environment
+   rather than at the global repository level.
 
-Secrets backend a verifier / regenerer si necessaire :
+Backend secrets to verify / regenerate if needed:
 
 - `VPS_HOST`
 - `VPS_PORT`
@@ -121,7 +137,7 @@ Secrets backend a verifier / regenerer si necessaire :
 - `AVATAR_UPLOAD_DIR`
 - `INVITATION_EMAIL_SENDER`
 - `RESEND_API_KEY`
-- `FCM_SERVER_KEY` (optionnel, uniquement si vous gardez le fallback FCM legacy)
+- `FCM_SERVER_KEY` (optional, only if you keep the legacy FCM fallback)
 - `FIESTAAA_FCM_VAPID_KEY`
 - `FCM_SERVICE_ACCOUNT_PATH`
 - `FCM_PROJECT_ID`
@@ -133,7 +149,7 @@ Secrets backend a verifier / regenerer si necessaire :
 - `FIESTAAA_APPLE_REDIRECT_URI`
 - `NOTIFICATION_DEDUP_TTL_SECONDS`
 
-Secrets frontend a verifier / regenerer si necessaire :
+Frontend secrets to verify / regenerate if needed:
 
 - `VPS_HOST`
 - `VPS_PORT`
@@ -151,9 +167,9 @@ Secrets frontend a verifier / regenerer si necessaire :
 - `FIREBASE_WEB_API_KEY`
 - `FIREBASE_WEB_APP_ID`
 - `FIREBASE_WEB_MEASUREMENT_ID`
-- `FIREBASE_AUTH_DOMAIN` (optionnel ; par defaut `${FIREBASE_PROJECT_ID}.firebaseapp.com`)
+- `FIREBASE_AUTH_DOMAIN` (optional; defaults to `${FIREBASE_PROJECT_ID}.firebaseapp.com`)
 
-Autres valeurs/fichiers sensibles ou a mettre a jour hors workflows :
+Other sensitive values/files to update outside workflows:
 
 - `service-account.json`
 - `google-services.json`
@@ -164,95 +180,109 @@ Autres valeurs/fichiers sensibles ou a mettre a jour hors workflows :
 - `ANDROID_KEY_ALIAS`
 - `ANDROID_KEY_PASSWORD`
 
-Remarque :
+Note:
 
-- les secrets Actions sont la source de verite de la prod ; les `.env.prod` locaux ne doivent pas etre recopies tels quels sur le nouveau serveur.
+- Actions secrets are the source of truth for production; local `.env.prod`
+  files must not be copied as-is to the new server.
 
 #### 3.2 Google Cloud / Firebase
 
-Objectif :
+Objective:
 
-- repartir d'un nouveau projet propre ;
-- recreer les identifiants OAuth, la config Firebase et la cle de service.
+- start from a new clean project;
+- recreate OAuth credentials, Firebase config, and service key.
 
-Strategie recommandee :
+Recommended strategy:
 
-1. Considerer l'ancien projet comme perdu.
-2. Si le projet Firebase a deja ete supprime, verifier dans Google Cloud qu'il est bien en suppression ou deja supprime.
-3. Creer un **nouveau projet Google Cloud**.
-4. Ajouter Firebase a ce projet.
-5. Recreer :
-   - le client OAuth Web ;
-   - le client OAuth Android ;
-   - le client OAuth iOS ;
-   - le fichier `google-services.json` ;
-   - le fichier `GoogleService-Info.plist` ;
-   - la nouvelle cle de service Firebase/Admin ;
-   - la configuration Web (`FIREBASE_*`, `FIESTAAA_GOOGLE_WEB_CLIENT_ID`).
-6. Configurer les domaines / origines web :
+1. Treat the old project as lost.
+2. If the Firebase project has already been deleted, verify in Google Cloud that
+   it is being deleted or has already been deleted.
+3. Create a **new Google Cloud project**.
+4. Add Firebase to this project.
+5. Recreate:
+   - the Web OAuth client;
+   - the Android OAuth client;
+   - the iOS OAuth client;
+   - the `google-services.json` file;
+   - the `GoogleService-Info.plist` file;
+   - the new Firebase/Admin service key;
+   - the Web configuration (`FIREBASE_*`, `FIESTAAA_GOOGLE_WEB_CLIENT_ID`).
+6. Configure web domains / origins:
    - `https://fiestaaa.app`
-   - si utile : `https://www.fiestaaa.app`
+   - if useful: `https://www.fiestaaa.app`
 
-Points de vigilance :
+Watch points:
 
-- ne jamais reutiliser l'ancien `service-account.json` ;
-- les valeurs `FIREBASE_*` et `FIESTAAA_GOOGLE_*` doivent etre coherentes entre backend et frontend ;
-- si vous utilisez encore le fallback FCM legacy, regenerer `FCM_SERVER_KEY` ; sinon, si vous etes passes a FCM HTTP v1 avec `service-account.json`, laissez `FCM_SERVER_KEY` vide ;
-- mettre a jour aussi les valeurs mobile liees au nouveau projet si vous les utilisez : `FIREBASE_ANDROID_API_KEY`, `FIREBASE_ANDROID_APP_ID`, `ANDROID_GOOGLE_SERVICES_JSON`, `google-services.json`, `GoogleService-Info.plist`.
+- never reuse the old `service-account.json`;
+- `FIREBASE_*` and `FIESTAAA_GOOGLE_*` values must be consistent between backend
+  and frontend;
+- if you still use the legacy FCM fallback, regenerate `FCM_SERVER_KEY`;
+  otherwise, if you moved to FCM HTTP v1 with `service-account.json`, leave
+  `FCM_SERVER_KEY` empty;
+- also update mobile values linked to the new project if you use them:
+  `FIREBASE_ANDROID_API_KEY`, `FIREBASE_ANDROID_APP_ID`,
+  `ANDROID_GOOGLE_SERVICES_JSON`, `google-services.json`,
+  `GoogleService-Info.plist`.
 
 #### 3.3 Resend
 
-Objectif :
+Objective:
 
-- invalider toute ancienne cle d'envoi ;
-- recreer un domaine d'envoi propre.
+- invalidate any old sending key;
+- recreate a clean sending domain.
 
-Strategie recommandee :
+Recommended strategy:
 
-1. Creer une nouvelle API key Resend.
-2. Configurer un nouveau domaine ou sous-domaine d'envoi.
-3. Verifier les enregistrements DNS.
-4. Mettre a jour `INVITATION_EMAIL_SENDER` et `RESEND_API_KEY`.
-5. Supprimer l'ancienne API key une fois la nouvelle operationnelle.
+1. Create a new Resend API key.
+2. Configure a new sending domain or subdomain.
+3. Verify DNS records.
+4. Update `INVITATION_EMAIL_SENDER` and `RESEND_API_KEY`.
+5. Delete the old API key once the new one is operational.
 
-Conseil :
+Tip:
 
-- utiliser un sous-domaine dedie a l'email (`mail.fiestaaa.app` ou `notify.fiestaaa.app`) plutot que le domaine racine.
+- use a dedicated email subdomain (`mail.fiestaaa.app` or `notify.fiestaaa.app`)
+  rather than the root domain.
 
 #### 3.4 Apple Developer
 
-Objectif :
+Objective:
 
-- repartir d'une configuration Sign in with Apple web propre.
+- restart from a clean Sign in with Apple web configuration.
 
-Strategie recommandee :
+Recommended strategy:
 
-1. Revoquer les anciennes cles Apple utilisees pour l'auth.
-2. Supprimer ou recreer le `Services ID` web si vous avez un doute.
-3. Reconfigurer Sign in with Apple for the web.
-4. Regenerer les valeurs :
+1. Revoke old Apple keys used for auth.
+2. Delete or recreate the web `Services ID` if you have any doubt.
+3. Reconfigure Sign in with Apple for the web.
+4. Regenerate values:
    - `FIESTAAA_APPLE_SERVICE_ID`
    - `FIESTAAA_APPLE_REDIRECT_URI`
-5. Si vous utilisez des cles `.p8`, ne reutilisez pas une cle potentiellement exposee.
+5. If you use `.p8` keys, do not reuse a potentially exposed key.
 
-Point de vigilance :
+Watch point:
 
-- ne supprimez pas aveuglement l'`App ID` mobile si l'app est deja connue d'Apple / App Store Connect ;
-- en cas de doute, recreer d'abord la partie web (Services ID, redirect URL, key) avant de toucher au bundle ID mobile.
+- do not blindly delete the mobile `App ID` if the app is already known to Apple
+  / App Store Connect;
+- when in doubt, recreate the web part first (Services ID, redirect URL, key)
+  before touching the mobile bundle ID.
 
-#### 3.5 Android / signature de l'application
+#### 3.5 Android / App Signing
 
-Objectif :
+Objective:
 
-- verifier si la cle Android locale doit etre remplacee.
+- verify whether the local Android key must be replaced.
 
-Strategie recommandee :
+Recommended strategy:
 
-- si l'application n'est pas publiee ou n'a aucune valeur, regenerer un keystore de release neuf ;
-- si l'application est publiee sur Google Play avec Play App Signing, **ne changez pas l'app signing key a la legere** ;
-- si seule l'upload key est compromise et que Play App Signing est active, utilisez la procedure de reset d'upload key dans Play Console.
+- if the app is not published or has no value, regenerate a fresh release
+  keystore;
+- if the app is published on Google Play with Play App Signing, **do not change
+  the app signing key lightly**;
+- if only the upload key is compromised and Play App Signing is enabled, use the
+  upload key reset procedure in Play Console.
 
-Variables/fichiers concernes :
+Relevant variables/files:
 
 - `ANDROID_KEYSTORE_BASE64`
 - `ANDROID_KEYSTORE_PASSWORD`
@@ -260,27 +290,27 @@ Variables/fichiers concernes :
 - `ANDROID_KEY_PASSWORD`
 - `google-services.json`
 
-### 4. Reinstaller completement le VPS OVH
+### 4. Fully Reinstall the OVH VPS
 
-Strategie recommandee :
+Recommended strategy:
 
-1. Lancer une reinstallation complete du VPS depuis OVH.
-2. Injecter la **nouvelle cle publique SSH** lors de la reinstallation.
-3. Repartir sur une image propre.
-4. Ne pas restaurer l'ancien `/etc`, l'ancien `~/.ssh` ou l'ancien `.env`.
+1. Start a full VPS reinstallation from OVH.
+2. Inject the **new SSH public key** during reinstallation.
+3. Start from a clean image.
+4. Do not restore the old `/etc`, old `~/.ssh`, or old `.env`.
 
-Une fois le nouveau VPS accessible, suivre ensuite `fiestaaa_back/docs/deploiement.md` :
+Once the new VPS is reachable, follow `fiestaaa_back/docs/deploiement.md`:
 
-- section "1) Preparer le VPS"
-- section "2) Preparer l'arborescence sur le VPS"
-- section "3) Premier demarrage manuel"
-- section "4) CI/CD GitHub Actions (backend)"
+- section "1) Prepare the VPS"
+- section "2) Prepare the VPS Directory Tree"
+- section "3) First Manual Startup"
+- section "4) GitHub Actions CI/CD (backend)"
 - section "5) Frontend (fiestaaa_front)"
-- section "6) Verifications runtime"
+- section "6) Runtime Checks"
 
-### 5. Recreer une configuration runtime propre
+### 5. Recreate a Clean Runtime Configuration
 
-Repartir de zero :
+Start from scratch:
 
 ```bash
 mkdir -p ~/apps/fiestaaa/{backend,frontend,data/uploads,traefik/letsencrypt}
@@ -289,29 +319,30 @@ touch ~/apps/fiestaaa/traefik/letsencrypt/acme.json
 chmod 600 ~/apps/fiestaaa/traefik/letsencrypt/acme.json
 ```
 
-Puis :
+Then:
 
-- creer un nouveau `.env` a partir des placeholders de `deploiement.md` ;
-- deposer le nouveau `service-account.json` dans `~/apps/fiestaaa/backend/service-account.json` ;
-- verifier que `CORS_ALLOWED_ORIGINS` contient bien `APP_BASE_URL`.
+- create a new `.env` from the placeholders in `deploiement.md`;
+- place the new `service-account.json` in
+  `~/apps/fiestaaa/backend/service-account.json`;
+- verify `CORS_ALLOWED_ORIGINS` contains `APP_BASE_URL`.
 
-Ne pas reutiliser :
+Do not reuse:
 
-- l'ancien `.env` ;
-- l'ancien `.env.prod` ;
-- les anciens tokens ;
-- les anciens fichiers Firebase / Apple / Android potentiellement exposes.
+- the old `.env`;
+- the old `.env.prod`;
+- old tokens;
+- old potentially exposed Firebase / Apple / Android files.
 
-### 6. Redeployer dans le bon ordre
+### 6. Redeploy in the Right Order
 
-Ordre recommande :
+Recommended order:
 
-1. backend ;
-2. smoke tests API ;
-3. frontend ;
-4. smoke tests front + OAuth.
+1. backend;
+2. API smoke tests;
+3. frontend;
+4. frontend + OAuth smoke tests.
 
-Checks minimaux :
+Minimum checks:
 
 ```bash
 curl -vk https://api.fiestaaa.app/health
@@ -321,89 +352,97 @@ curl -I -X OPTIONS https://api.fiestaaa.app/auth/oauth/google \
   -H 'Access-Control-Request-Headers: content-type'
 ```
 
-Verifier ensuite :
+Then verify:
 
-- la presence de `Access-Control-Allow-Origin: https://fiestaaa.app` sur le preflight ;
-- l'ouverture du front `https://fiestaaa.app` ;
-- le login Google ;
-- le login Apple si utilise ;
-- l'envoi d'emails via Resend ;
-- la sante du backend et de la DB.
+- `Access-Control-Allow-Origin: https://fiestaaa.app` is present on the
+  preflight;
+- `https://fiestaaa.app` opens;
+- Google login;
+- Apple login if used;
+- email sending through Resend;
+- backend and DB health.
 
-## Que faire des fichiers `.env`, `.env.prod` et des secrets locaux
+## What to Do with `.env`, `.env.prod`, and Local Secrets
 
 ### Backend
 
-- `fiestaaa_back/.env` : fichier **dev local**. Le recreer avec des valeurs de dev uniquement.
-- `fiestaaa_back/.env.prod` : ne pas le considerer comme source de verite. Si vous le gardez localement, regenez toutes les valeurs secretes.
-- `fiestaaa_back/.env.example` : garder uniquement des placeholders non sensibles.
+- `fiestaaa_back/.env`: **local dev** file. Recreate it with dev-only values.
+- `fiestaaa_back/.env.prod`: do not treat it as the source of truth. If you keep
+  it locally, regenerate every secret value.
+- `fiestaaa_back/.env.example`: keep only non-sensitive placeholders.
 
 ### Frontend
 
-- `fiestaaa_front/.env` : config locale / dev, sans secret reutilisable en prod.
-- `fiestaaa_front/.env.prod` : regenirer toutes les valeurs sensibles, surtout celles liees a Firebase, au keystore Android et aux integrations.
+- `fiestaaa_front/.env`: local / dev config, without reusable production
+  secrets.
+- `fiestaaa_front/.env.prod`: regenerate every sensitive value, especially those
+  linked to Firebase, the Android keystore, and integrations.
 
-### Regle simple
+### Simple Rule
 
-Si une valeur etait presente sur l'ancien VPS, dans un ancien `.env`, dans un historique Git, dans un export de build ou dans un chat public/prive douteux, considerer cette valeur comme compromise et en regenerer une nouvelle.
+If a value was present on the old VPS, in an old `.env`, in Git history, in a
+build export, or in a questionable public/private chat, consider it compromised
+and regenerate a new one.
 
-## Hygiene Git et historique
+## Git Hygiene and History
 
-Le repo ignore deja les fichiers sensibles (`.env`, `.env.*`, `service-account.json`, keystores, certificats). Cela ne supprime pas un secret s'il a deja ete pousse dans l'historique.
+The repository already ignores sensitive files (`.env`, `.env.*`,
+`service-account.json`, keystores, certificates). This does not remove a secret
+if it was already pushed into history.
 
-Procedure recommandee :
+Recommended procedure:
 
-1. Faire tourner les secrets d'abord.
-2. Ensuite seulement, nettoyer l'historique Git si necessaire.
-3. Verifier les actions suivantes :
-   - repository prive ;
-   - 2FA active sur GitHub ;
-   - acces des collaborateurs revus ;
-   - suppression des anciens tokens PAT ;
-   - suppression des anciennes cles SSH non utilisees.
+1. Rotate secrets first.
+2. Only then clean Git history if needed.
+3. Verify the following:
+   - repository private;
+   - 2FA active on GitHub;
+   - collaborator access reviewed;
+   - old PAT tokens deleted;
+   - old unused SSH keys deleted.
 
-## Checklist courte
+## Short Checklist
 
 ### Immediate
 
-- [ ] Geler l'ancien VPS
-- [ ] Generer une nouvelle cle SSH admin
-- [ ] Regenerer `GHCR_TOKEN`
-- [ ] Regenerer `JWT_SECRET`
-- [ ] Regenerer credentials Postgres
-- [ ] Regenerer `RESEND_API_KEY`
-- [ ] Regenerer la configuration Firebase / Google Cloud
-- [ ] Regenerer la configuration Apple web
-- [ ] Evaluer la rotation du keystore Android
+- [ ] Freeze the old VPS
+- [ ] Generate a new admin SSH key
+- [ ] Regenerate `GHCR_TOKEN`
+- [ ] Regenerate `JWT_SECRET`
+- [ ] Regenerate Postgres credentials
+- [ ] Regenerate `RESEND_API_KEY`
+- [ ] Regenerate Firebase / Google Cloud configuration
+- [ ] Regenerate Apple web configuration
+- [ ] Evaluate Android keystore rotation
 
 ### Infra
 
-- [ ] Reinstaller le VPS depuis OVH
-- [ ] Injecter la nouvelle cle publique SSH
-- [ ] Refaire l'installation Docker / Compose / UFW / Fail2ban
-- [ ] Recreer `~/apps/fiestaaa`
-- [ ] Refaire un `.env` neuf
-- [ ] Reposer un nouveau `service-account.json`
+- [ ] Reinstall the VPS from OVH
+- [ ] Inject the new SSH public key
+- [ ] Redo Docker / Compose / UFW / Fail2ban installation
+- [ ] Recreate `~/apps/fiestaaa`
+- [ ] Recreate a fresh `.env`
+- [ ] Put a new `service-account.json`
 
 ### CI/CD
 
-- [ ] Mettre a jour les secrets GitHub backend
-- [ ] Mettre a jour les secrets GitHub frontend
-- [ ] Redeployer `fiestaaa_back`
-- [ ] Verifier `/health` et le preflight CORS
-- [ ] Redeployer `fiestaaa_front`
-- [ ] Verifier `https://fiestaaa.app`
-- [ ] Verifier les logins Google / Apple
+- [ ] Update backend GitHub secrets
+- [ ] Update frontend GitHub secrets
+- [ ] Redeploy `fiestaaa_back`
+- [ ] Verify `/health` and CORS preflight
+- [ ] Redeploy `fiestaaa_front`
+- [ ] Verify `https://fiestaaa.app`
+- [ ] Verify Google / Apple logins
 
-## Liens utiles
+## Useful Links
 
-- OVHcloud VPS rescue : https://help.ovhcloud.com/csm/fr-ca-vps-rescue?id=kb_article_view&sysparm_article=KB0047660
-- Google Cloud project lifecycle : https://cloud.google.com/resource-manager/docs/creating-managing-projects
-- Firebase project / Google Cloud project relation : https://firebase.google.com/docs/projects/use-firebase-with-existing-cloud-project
-- Google OAuth Web : https://developers.google.com/identity/protocols/oauth2/javascript-implicit-flow
-- Firebase Admin setup : https://firebase.google.com/docs/admin/setup
-- Resend API keys : https://resend.com/docs/dashboard/api-keys/introduction
-- Resend domains : https://resend.com/docs/dashboard/domains/introduction
-- Apple Sign in with Apple for the web : https://developer.apple.com/help/account/capabilities/configure-sign-in-with-apple-for-the-web/
-- Apple revoke keys : https://developer.apple.com/fr/help/account/keys/revoke-edit-and-download-keys
-- Android app signing : https://developer.android.com/guide/publishing/app-signing.html
+- OVHcloud VPS rescue: https://help.ovhcloud.com/csm/fr-ca-vps-rescue?id=kb_article_view&sysparm_article=KB0047660
+- Google Cloud project lifecycle: https://cloud.google.com/resource-manager/docs/creating-managing-projects
+- Firebase project / Google Cloud project relation: https://firebase.google.com/docs/projects/use-firebase-with-existing-cloud-project
+- Google OAuth Web: https://developers.google.com/identity/protocols/oauth2/javascript-implicit-flow
+- Firebase Admin setup: https://firebase.google.com/docs/admin/setup
+- Resend API keys: https://resend.com/docs/dashboard/api-keys/introduction
+- Resend domains: https://resend.com/docs/dashboard/domains/introduction
+- Apple Sign in with Apple for the web: https://developer.apple.com/help/account/capabilities/configure-sign-in-with-apple-for-the-web/
+- Apple revoke keys: https://developer.apple.com/fr/help/account/keys/revoke-edit-and-download-keys
+- Android app signing: https://developer.android.com/guide/publishing/app-signing.html

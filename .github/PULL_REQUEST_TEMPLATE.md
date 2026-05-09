@@ -1,18 +1,18 @@
-## Contexte
+## Context
 
-Décrivez le problème ou l'objectif traité par cette PR.
+Describe the problem or goal addressed by this PR.
 
-## Changements
+## Changes
 
 - 
 
-## Vérifications
+## Verification
 
 - [ ] `cargo fmt --all --check`
 - [ ] `cargo clippy --all-targets --all-features -- -D warnings`
 - [ ] `cargo test --locked --all-targets --jobs 1 -- --test-threads=1`
 
-## Sécurité
+## Security
 
-- [ ] Aucun secret, token, fichier `.env`, service account ou clé privée n'est ajouté.
-- [ ] Les changements touchant l'auth, les permissions, les données personnelles ou le déploiement sont explicités.
+- [ ] No secret, token, `.env` file, service account, or private key is added.
+- [ ] Changes affecting auth, permissions, personal data, or deployment are explained.

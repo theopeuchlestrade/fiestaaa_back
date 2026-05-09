@@ -172,8 +172,8 @@ jobs:
             sudo chown -R 10001:10001 data/uploads
             sudo chmod 750 data/uploads data/uploads/avatars
             install -m 600 /dev/null .env
-            # Génère un .env à partir des secrets GitHub pour le runtime docker compose
-            # Pas de quotes sur EOF afin d'expanser les variables côté runner et éviter les valeurs littérales ${VAR}
+            # Generate a .env from GitHub secrets for the docker compose runtime
+            # Do not quote EOF so variables expand on the runner side and avoid literal ${VAR} values
             cat > .env <<EOF
             API_IMAGE_TAG=${TAG}
             FRONT_IMAGE_TAG=${current_front_image_tag}
@@ -212,20 +212,20 @@ jobs:
               if command -v docker-compose >/dev/null 2>&1; then
                 compose_cmd="docker-compose"
               else
-                echo "docker compose/docker-compose introuvable sur le VPS" >&2
+                echo "docker compose/docker-compose not found on the VPS" >&2
                 exit 1
               fi
             fi
             docker container prune -f >/dev/null 2>&1 || true
             docker image prune -af >/dev/null 2>&1 || true
             ${compose_cmd} pull api
-            # Ne touche pas aux dépendances (db/redis) pour éviter les recréations inutiles et bugs docker-compose v1
+            # Leave dependencies (db/redis) untouched to avoid unnecessary recreations and docker-compose v1 bugs
             ${compose_cmd} up -d --no-deps api
             ${compose_cmd} ps
         env:
           ADMIN_EMAILS: ${{ secrets.ADMIN_EMAILS }}
           GHCR_USERNAME: ${{ secrets.GHCR_USERNAME || github.repository_owner }}
-          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}  # PAT read:packages pour le pull
+          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}  # read:packages PAT for pull
           TAG: ${{ github.sha }}
           APP_BASE_URL: ${{ secrets.APP_BASE_URL }}
           AVATAR_BASE_URL: ${{ secrets.AVATAR_BASE_URL }}

@@ -1,46 +1,46 @@
-# [BACK] Separation items apporte vs besoin
+# [BACK] Separate bring vs need items
 
-## Objectif
-Distinguer les items "Ce que j'apporte" (tout le monde) et "Ce que j'ai besoin" (createur).
+## Objective
+Distinguish "what I bring" (everyone) items from "what I need" (creator) items.
 
-## Contexte
-Le modele actuel melange les items demandes par le createur et les propositions des participants.
+## Context
+The current model mixes items requested by the creator with participant offers.
 
-## Perimetre
-- Inclus : ajout d'un type d'item (bring/need) et regles d'acces associees.
-- Exclu : categories d'items (soft/alcool, etc) traitees dans une autre issue.
+## Scope
+- Included: add an item type (bring/need) and associated access rules.
+- Excluded: item categories (soft drinks/alcohol, etc.) handled in another issue.
 
 ## API / Endpoints
-- Routes impactees (methodes, paths) : endpoints items (create/update/list) pour accepter item_kind.
-- Payloads (inputs/outputs) : item_kind enum (need|bring).
-- Versioning / compatibilite : champs optionnel avec valeur par defaut.
+- Impacted routes (methods, paths): item endpoints (create/update/list) to accept item_kind.
+- Payloads (inputs/outputs): item_kind enum (need|bring).
+- Versioning / compatibility: optional field with default value.
 
-## Donnees / Migrations
-- Tables/collections impactees : items.
-- Migrations necessaires (oui/non) : oui, ajout item_kind.
-- Donnees retro-compatibles (oui/non) : oui, valeur par defaut "need" pour items existants.
+## Data / Migrations
+- Impacted tables/collections: items.
+- Required migrations (yes/no): yes, add item_kind.
+- Backward-compatible data (yes/no): yes, default value "need" for existing items.
 
-## Regles metier / Validations
-- Regles principales : createur/admin peut creer/modifier "need"; participants peuvent creer "bring".
-- Cas limites : conversion d'un item "need" en "bring" et inversement; suppression.
+## Business Rules / Validations
+- Main rules: creator/admin can create/update "need"; participants can create "bring".
+- Edge cases: converting an item from "need" to "bring" and the reverse; deletion.
 
-## Securite / Permissions
-- Roles / droits : createur/admin vs participant.
-- Donnees sensibles : aucune.
+## Security / Permissions
+- Roles / rights: creator/admin vs participant.
+- Sensitive data: none.
 
-## Observabilite
-- Logs / metrics / alerting : log lors de changement de type d'item.
+## Observability
+- Logs / metrics / alerting: log item type changes.
 
 ## Tests
-- Unitaires : validation de item_kind et permissions.
-- Integration : creation d'items need vs bring.
-- E2E (si applicable) : separation visible cote front.
+- Unit tests: item_kind and permission validation.
+- Integration: creation of need vs bring items.
+- E2E (if applicable): separation visible on the frontend.
 
 ## Definition of Done
-- [ ] API conforme aux specs
-- [ ] Migrations appliquees et documentees
-- [ ] Tests passes
-- [ ] Docs mises a jour (si besoin)
+- [ ] API matches the specs
+- [ ] Migrations applied and documented
+- [ ] Tests pass
+- [ ] Docs updated (if needed)
 
-## Notes / Risques
-Impact possible sur l'UI et le tri existant.
+## Notes / Risks
+Possible impact on the UI and existing sorting.

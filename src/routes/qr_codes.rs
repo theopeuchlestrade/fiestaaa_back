@@ -96,12 +96,12 @@ async fn get_user_id_from_email(db: &sqlx::PgPool, email: &str) -> Result<i64, H
     path = "/events/{event_id}/my-qr-code",
     tag = "qr_codes",
     responses(
-        (status = 200, description = "QR code token généré ou récupéré", body = QRCodeGenerateResponse),
-        (status = 403, description = "Non autorisé ou invitation invalide", body = ErrorResponse),
-        (status = 404, description = "Événement introuvable", body = ErrorResponse)
+        (status = 200, description = "QR code token generated or retrieved", body = QRCodeGenerateResponse),
+        (status = 403, description = "Unauthorized or invalid invitation", body = ErrorResponse),
+        (status = 404, description = "Event not found", body = ErrorResponse)
     ),
     params(
-        ("event_id" = i64, Path, description = "Identifiant de l'événement")
+        ("event_id" = i64, Path, description = "Event identifier")
     )
 )]
 #[get("/events/{event_id}/my-qr-code")]
@@ -275,14 +275,14 @@ pub async fn generate_my_qr_code(
     tag = "qr_codes",
     request_body = QRCodeScanPayload,
     responses(
-        (status = 200, description = "QR code scanné avec succès", body = QRCodeScanResponse),
-        (status = 400, description = "Token invalide", body = ErrorResponse),
-        (status = 403, description = "Non autorisé", body = ErrorResponse),
-        (status = 404, description = "QR code introuvable", body = ErrorResponse),
-        (status = 409, description = "QR code déjà scanné", body = ErrorResponse)
+        (status = 200, description = "QR code scanned successfully", body = QRCodeScanResponse),
+        (status = 400, description = "Invalid token", body = ErrorResponse),
+        (status = 403, description = "Unauthorized", body = ErrorResponse),
+        (status = 404, description = "QR code not found", body = ErrorResponse),
+        (status = 409, description = "QR code already scanned", body = ErrorResponse)
     ),
     params(
-        ("event_id" = i64, Path, description = "Identifiant de l'événement")
+        ("event_id" = i64, Path, description = "Event identifier")
     )
 )]
 #[post("/events/{event_id}/scan-qr")]
@@ -491,12 +491,12 @@ pub async fn scan_qr_code(
     path = "/events/{event_id}/qr-scan-stats",
     tag = "qr_codes",
     responses(
-        (status = 200, description = "Statistiques de scan", body = QRCodeStatsResponse),
-        (status = 403, description = "Non autorisé", body = ErrorResponse),
-        (status = 404, description = "Événement introuvable", body = ErrorResponse)
+        (status = 200, description = "Scan statistics", body = QRCodeStatsResponse),
+        (status = 403, description = "Unauthorized", body = ErrorResponse),
+        (status = 404, description = "Event not found", body = ErrorResponse)
     ),
     params(
-        ("event_id" = i64, Path, description = "Identifiant de l'événement")
+        ("event_id" = i64, Path, description = "Event identifier")
     )
 )]
 #[get("/events/{event_id}/qr-scan-stats")]

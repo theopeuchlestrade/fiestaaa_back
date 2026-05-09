@@ -28,7 +28,7 @@ where
 
 #[derive(Serialize, Deserialize, ToSchema)]
 pub struct LoginPayload {
-    /// Email ou identifiant (handle)
+    /// Email or identifier (handle)
     #[serde(alias = "email", alias = "handle")]
     pub identifier: String,
     pub password: String,
@@ -474,13 +474,13 @@ pub struct PaymentProviderPayload {
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct DeviceRegisterPayload {
-    /// Jeton FCM renvoyé par firebase_messaging
+    /// FCM token returned by firebase_messaging
     pub token: String,
-    /// Plateforme de l'appareil: ios, android ou web
+    /// Device platform: ios, android, or web
     pub platform: String,
-    /// Langue préférée (ex: fr-FR)
+    /// Preferred language (for example: fr-FR)
     pub locale: Option<String>,
-    /// Version applicative pour diagnostiques
+    /// Application version for diagnostics
     pub app_version: Option<String>,
 }
 

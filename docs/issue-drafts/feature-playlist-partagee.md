@@ -1,46 +1,46 @@
-# [BACK] Playlist partagee pour evenement
+# [BACK] Shared playlist for event
 
-## Objectif
-Ajouter un support de playlist partagee par evenement (Spotify/Apple Music/Deezer) avec validation cote serveur.
+## Objective
+Add support for a shared playlist by event (Spotify/Apple Music/Deezer) with server-side validation.
 
-## Contexte
-Besoin d'un espace musique commun pour les participants.
+## Context
+Need a shared music space for participants.
 
-## Perimetre
-- Inclus : stockage du lien, type de service, lecture dans le GET evenement, ecriture par createur.
-- Exclu : synchronisation temps reel, import de titres, edition de playlist.
+## Scope
+- Included: link storage, service type, reading in GET event, writing by creator.
+- Excluded: realtime synchronization, title import, playlist editing.
 
 ## API / Endpoints
-- Routes impactees (methodes, paths) : GET /events/{id}, PATCH /events/{id} (ou PATCH /events/{id}/playlist).
-- Payloads (inputs/outputs) : playlist_url (nullable), playlist_provider (spotify|apple_music|deezer|other).
-- Versioning / compatibilite : ajout de champs optionnels retro-compatibles.
+- Impacted routes (methods, paths): GET /events/{id}, PATCH /events/{id} (or PATCH /events/{id}/playlist).
+- Payloads (inputs/outputs): playlist_url (nullable), playlist_provider (spotify|apple_music|deezer|other).
+- Versioning / compatibility: add optional backward-compatible fields.
 
-## Donnees / Migrations
-- Tables/collections impactees : events.
-- Migrations necessaires (oui/non) : oui, ajout playlist_url + playlist_provider.
-- Donnees retro-compatibles (oui/non) : oui (valeurs null par defaut).
+## Data / Migrations
+- Impacted tables/collections: events.
+- Required migrations (yes/no): yes, add playlist_url + playlist_provider.
+- Backward-compatible data (yes/no): yes (default null values).
 
-## Regles metier / Validations
-- Regles principales : seul createur/admin peut modifier; provider connu; url valide; suppression possible.
-- Cas limites : provider inconnu, url invalide, url vide.
+## Business Rules / Validations
+- Main rules: only creator/admin can modify; known provider; valid URL; removal possible.
+- Edge cases: unknown provider, invalid URL, empty URL.
 
-## Securite / Permissions
-- Roles / droits : createur, admin.
-- Donnees sensibles : aucune.
+## Security / Permissions
+- Roles / rights: creator, admin.
+- Sensitive data: none.
 
-## Observabilite
-- Logs / metrics / alerting : log d'update playlist avec event_id + provider.
+## Observability
+- Logs / metrics / alerting: log playlist update with event_id + provider.
 
 ## Tests
-- Unitaires : validation provider/url.
-- Integration : update event + lecture.
-- E2E (si applicable) : creation evenement avec playlist.
+- Unit tests: provider/URL validation.
+- Integration: event update + reading.
+- E2E (if applicable): event creation with playlist.
 
 ## Definition of Done
-- [ ] API conforme aux specs
-- [ ] Migrations appliquees et documentees
-- [ ] Tests passes
-- [ ] Docs mises a jour (si besoin)
+- [ ] API matches the specs
+- [ ] Migrations applied and documented
+- [ ] Tests pass
+- [ ] Docs updated (if needed)
 
-## Notes / Risques
-Validation des URLs par provider (regex ou parsing).
+## Notes / Risks
+Provider-specific URL validation (regex or parsing).

@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Résumé rapide de la base (utilisateurs, événements, invitations, devices, check-ins)
-# Utilisation : cd ~/apps/fiestaaa && ./scripts/db_stats.sh
+# Quick database summary (users, events, invitations, devices, check-ins)
+# Usage: cd ~/apps/fiestaaa && ./scripts/db_stats.sh
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ENV_FILE="${ROOT_DIR}/.env"
 
-# Charge .env si présent (pour DATABASE_URL ou POSTGRES_*) en ignorant les lignes invalides
+# Load .env if present (for DATABASE_URL or POSTGRES_*) while ignoring invalid lines
 if [[ -f "$ENV_FILE" ]]; then
   set -a
   while IFS= read -r line; do
@@ -21,14 +21,14 @@ if [[ -f "$ENV_FILE" ]]; then
   set +a
 fi
 
-# Compose command (Compose V2 requis)
+# Compose command (Compose V2 required)
 compose_cmd="docker compose"
 if ! docker compose version >/dev/null 2>&1; then
-  echo "docker compose introuvable. Installez le plugin Compose V2 (docker-compose-plugin) et relancez." >&2
+  echo "docker compose not found. Install the Compose V2 plugin (docker-compose-plugin) and rerun." >&2
   exit 1
 fi
 
-# Construit une URL si DATABASE_URL n'est pas fournie
+# Build a URL if DATABASE_URL is not provided
 if [[ -z "${DATABASE_URL:-}" ]]; then
   DB_USER="${POSTGRES_USER:-postgres}"
   DB_PASS="${POSTGRES_PASSWORD:-postgres}"
@@ -42,7 +42,7 @@ run_psql() {
   if command -v psql >/dev/null 2>&1; then
     psql "$DATABASE_URL" "$@"
   else
-    # Fallback : exécute psql depuis le conteneur db
+    # Fallback: run psql from the db container
     DB_USER="${POSTGRES_USER:-postgres}"
     DB_NAME="${POSTGRES_DB:-postgres}"
     $compose_cmd exec -T db psql -U "$DB_USER" -d "$DB_NAME" "$@"
@@ -62,11 +62,11 @@ md_table() {
   underline+="|"
   echo "$underline"
 
-  # Sortie psql en unaligned avec séparateur '|', puis on re-pipe pour formater Markdown
+  # psql output in unaligned mode with '|' separator, then pipe again to format Markdown
   run_psql -A -F '|' -t -c "$query" | sed 's/^/| /; s/|/ | /g; s/$/ |/'
 }
 
-md_table "Synthèse" "users_total|events_total|invitations_accepted|invitations_waiting|invitations_declined|checkins_total|devices_active" "
+md_table "Summary" "users_total|events_total|invitations_accepted|invitations_waiting|invitations_declined|checkins_total|devices_active" "
 SELECT
   (SELECT count(*) FROM users) AS users_total,
   (SELECT count(*) FROM events) AS events_total,
@@ -77,14 +77,14 @@ SELECT
   (SELECT count(*) FROM user_devices WHERE disabled_at IS NULL) AS devices_active;
 "
 
-md_table "Invitations par statut" "status|invitations" "
+md_table "Invitations by status" "status|invitations" "
 SELECT status, count(*) AS invitations
 FROM invitations
 GROUP BY status
 ORDER BY status;
 "
 
-md_table "Devices actifs par plateforme" "platform|active_devices" "
+md_table "Active devices by platform" "platform|active_devices" "
 SELECT platform, count(*) AS active_devices
 FROM user_devices
 WHERE disabled_at IS NULL
@@ -92,7 +92,7 @@ GROUP BY platform
 ORDER BY platform;
 "
 
-md_table "Nouveaux utilisateurs (14 derniers jours)" "day|new_users" "
+md_table "New users (last 14 days)" "day|new_users" "
 SELECT date_trunc('day', created_at)::date AS day, count(*) AS new_users
 FROM users
 GROUP BY day
