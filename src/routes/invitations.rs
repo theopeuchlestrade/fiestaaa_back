@@ -662,12 +662,12 @@ async fn insert_invitation_for_user(
     path = "/events/{event_id}/invitations",
     tag = "invitations",
     responses(
-        (status = 200, description = "Invitations de l'événement", body = [Invitation]),
-        (status = 403, description = "Non autorisé", body = ErrorResponse),
-        (status = 404, description = "Événement introuvable", body = ErrorResponse)
+        (status = 200, description = "Event invitations", body = [Invitation]),
+        (status = 403, description = "Unauthorized", body = ErrorResponse),
+        (status = 404, description = "Event not found", body = ErrorResponse)
     ),
     params(
-        ("event_id" = i64, Path, description = "Identifiant de l'événement")
+        ("event_id" = i64, Path, description = "Event identifier")
     )
 )]
 #[get("/events/{event_id}/invitations")]
@@ -772,13 +772,13 @@ pub async fn list_event_invitations(
     tag = "invitations",
     request_body = InvitationPayload,
     responses(
-        (status = 201, description = "Invitation créée", body = Invitation),
-        (status = 202, description = "Invitation email acceptée pour traitement", body = StatusResponse),
-        (status = 400, description = "Payload invalide", body = ErrorResponse),
-        (status = 403, description = "Non autorisé", body = ErrorResponse),
-        (status = 404, description = "Événement ou utilisateur introuvable", body = ErrorResponse),
-        (status = 409, description = "Invitation existante", body = ErrorResponse),
-        (status = 429, description = "Trop d'invitations email", body = ErrorResponse)
+        (status = 201, description = "Invitation created", body = Invitation),
+        (status = 202, description = "Email invitation accepted for processing", body = StatusResponse),
+        (status = 400, description = "Invalid payload", body = ErrorResponse),
+        (status = 403, description = "Unauthorized", body = ErrorResponse),
+        (status = 404, description = "Event or user not found", body = ErrorResponse),
+        (status = 409, description = "Existing invitation", body = ErrorResponse),
+        (status = 429, description = "Too many email invitations", body = ErrorResponse)
     )
 )]
 #[post("/events/{event_id}/invitations")]
@@ -914,9 +914,9 @@ pub async fn create_invitation(
     path = "/events/{event_id}/invitations/{email}",
     tag = "invitations",
     responses(
-        (status = 200, description = "Invitation supprimée", body = StatusResponse),
-        (status = 403, description = "Non autorisé", body = ErrorResponse),
-        (status = 404, description = "Invitation introuvable", body = ErrorResponse)
+        (status = 200, description = "Invitation deleted", body = StatusResponse),
+        (status = 403, description = "Unauthorized", body = ErrorResponse),
+        (status = 404, description = "Invitation not found", body = ErrorResponse)
     )
 )]
 #[delete("/events/{event_id}/invitations/{email}")]
@@ -981,8 +981,8 @@ pub async fn delete_invitation(
     path = "/my/invitations",
     tag = "invitations",
     responses(
-        (status = 200, description = "Invitations de l'utilisateur", body = [Invitation]),
-        (status = 401, description = "Authentification requise", body = ErrorResponse)
+        (status = 200, description = "User invitations", body = [Invitation]),
+        (status = 401, description = "Authentication required", body = ErrorResponse)
     )
 )]
 #[get("/my/invitations")]
@@ -1028,10 +1028,10 @@ pub async fn list_my_invitations(state: web::Data<AppState>, req: HttpRequest) -
     tag = "invitations",
     request_body = InvitationPatchPayload,
     responses(
-        (status = 200, description = "Invitation mise à jour", body = Invitation),
-        (status = 400, description = "Payload invalide", body = ErrorResponse),
-        (status = 401, description = "Authentification requise", body = ErrorResponse),
-        (status = 404, description = "Invitation introuvable", body = ErrorResponse)
+        (status = 200, description = "Invitation updated", body = Invitation),
+        (status = 400, description = "Invalid payload", body = ErrorResponse),
+        (status = 401, description = "Authentication required", body = ErrorResponse),
+        (status = 404, description = "Invitation not found", body = ErrorResponse)
     )
 )]
 #[patch("/my/invitations/{event_id}")]

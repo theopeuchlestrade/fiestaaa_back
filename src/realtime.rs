@@ -133,13 +133,13 @@ fn request_origin_allowed(state: &AppState, req: &HttpRequest) -> bool {
     path = "/ws-ticket",
     tag = "notifications",
     responses(
-        (status = 200, description = "Ticket realtime éphémère", body = RealtimeTicketResponse),
-        (status = 401, description = "Authentification requise", body = ErrorResponse),
-        (status = 403, description = "Accès refusé", body = ErrorResponse),
-        (status = 404, description = "Événement introuvable", body = ErrorResponse)
+        (status = 200, description = "Ephemeral realtime ticket", body = RealtimeTicketResponse),
+        (status = 401, description = "Authentication required", body = ErrorResponse),
+        (status = 403, description = "Access denied", body = ErrorResponse),
+        (status = 404, description = "Event not found", body = ErrorResponse)
     ),
     params(
-        ("event_id" = Option<i64>, Query, description = "Identifiant d'événement à cibler")
+        ("event_id" = Option<i64>, Query, description = "Target event identifier")
     )
 )]
 #[get("/ws-ticket")]

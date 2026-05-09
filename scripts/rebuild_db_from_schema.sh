@@ -6,7 +6,7 @@ ENV_FILE="${ROOT_DIR}/.env"
 SCHEMA_FILE="${ROOT_DIR}/migrations/001_initial_schema.sql"
 
 if [[ ! -f "$SCHEMA_FILE" ]]; then
-  echo "Schéma consolidé introuvable: $SCHEMA_FILE" >&2
+  echo "Consolidated schema not found: $SCHEMA_FILE" >&2
   exit 1
 fi
 
@@ -37,7 +37,7 @@ run_psql() {
     psql "$DATABASE_URL" "$@"
   else
     if ! docker compose version >/dev/null 2>&1; then
-      echo "psql et docker compose sont introuvables. Installez l'un des deux puis relancez." >&2
+      echo "psql and docker compose were not found. Install one of them and rerun." >&2
       exit 1
     fi
     compose_cmd="docker compose"
@@ -47,7 +47,7 @@ run_psql() {
   fi
 }
 
-echo "Reconstruction complète de la base depuis ${SCHEMA_FILE}"
+echo "Full database rebuild from ${SCHEMA_FILE}"
 
 run_psql -v ON_ERROR_STOP=1 <<'SQL'
 DROP SCHEMA IF EXISTS public CASCADE;
@@ -56,4 +56,4 @@ SQL
 
 run_psql -v ON_ERROR_STOP=1 -f "$SCHEMA_FILE"
 
-echo "Base reconstruite avec succès."
+echo "Database rebuilt successfully."

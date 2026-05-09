@@ -47,8 +47,8 @@ fn invalid_item_kind() -> HttpResponse {
     path = "/items",
     tag = "items",
     responses(
-        (status = 200, description = "Liste des items", body = [Item]),
-        (status = 500, description = "Erreur base de données", body = ErrorResponse)
+        (status = 200, description = "Item list", body = [Item]),
+        (status = 500, description = "Database error", body = ErrorResponse)
     )
 )]
 #[get("/items")]
@@ -76,10 +76,10 @@ pub async fn list_items(state: web::Data<AppState>) -> impl Responder {
     tag = "items",
     request_body = ItemPayload,
     responses(
-        (status = 201, description = "Item créé", body = Item),
-        (status = 400, description = "Payload invalide ou type inconnu", body = ErrorResponse),
-        (status = 403, description = "Non autorisé", body = ErrorResponse),
-        (status = 500, description = "Erreur base de données", body = ErrorResponse)
+        (status = 201, description = "Item created", body = Item),
+        (status = 400, description = "Invalid payload or unknown type", body = ErrorResponse),
+        (status = 403, description = "Unauthorized", body = ErrorResponse),
+        (status = 500, description = "Database error", body = ErrorResponse)
     )
 )]
 #[post("/items")]
@@ -150,14 +150,14 @@ pub async fn create_item(
     tag = "items",
     request_body = ItemPayload,
     responses(
-        (status = 200, description = "Item mis à jour", body = Item),
-        (status = 400, description = "Payload invalide ou type inconnu", body = ErrorResponse),
-        (status = 403, description = "Non autorisé", body = ErrorResponse),
-        (status = 404, description = "Item introuvable", body = ErrorResponse),
-        (status = 500, description = "Erreur base de données", body = ErrorResponse)
+        (status = 200, description = "Item updated", body = Item),
+        (status = 400, description = "Invalid payload or unknown type", body = ErrorResponse),
+        (status = 403, description = "Unauthorized", body = ErrorResponse),
+        (status = 404, description = "Item not found", body = ErrorResponse),
+        (status = 500, description = "Database error", body = ErrorResponse)
     ),
     params(
-        ("item_id" = i64, Path, description = "Identifiant de l'item")
+        ("item_id" = i64, Path, description = "Item identifier")
     )
 )]
 #[put("/items/{item_id}")]
@@ -273,14 +273,14 @@ pub async fn replace_item(
     tag = "items",
     request_body = ItemPatchPayload,
     responses(
-        (status = 200, description = "Item modifié", body = Item),
-        (status = 400, description = "Payload invalide ou type inconnu", body = ErrorResponse),
-        (status = 403, description = "Non autorisé", body = ErrorResponse),
-        (status = 404, description = "Item introuvable", body = ErrorResponse),
-        (status = 500, description = "Erreur base de données", body = ErrorResponse)
+        (status = 200, description = "Item modified", body = Item),
+        (status = 400, description = "Invalid payload or unknown type", body = ErrorResponse),
+        (status = 403, description = "Unauthorized", body = ErrorResponse),
+        (status = 404, description = "Item not found", body = ErrorResponse),
+        (status = 500, description = "Database error", body = ErrorResponse)
     ),
     params(
-        ("item_id" = i64, Path, description = "Identifiant de l'item")
+        ("item_id" = i64, Path, description = "Item identifier")
     )
 )]
 #[patch("/items/{item_id}")]
@@ -417,13 +417,13 @@ pub async fn update_item(
     path = "/items/{item_id}",
     tag = "items",
     responses(
-        (status = 200, description = "Item supprimé", body = StatusResponse),
-        (status = 403, description = "Non autorisé", body = ErrorResponse),
-        (status = 404, description = "Item introuvable", body = ErrorResponse),
-        (status = 500, description = "Erreur base de données", body = ErrorResponse)
+        (status = 200, description = "Item deleted", body = StatusResponse),
+        (status = 403, description = "Unauthorized", body = ErrorResponse),
+        (status = 404, description = "Item not found", body = ErrorResponse),
+        (status = 500, description = "Database error", body = ErrorResponse)
     ),
     params(
-        ("item_id" = i64, Path, description = "Identifiant de l'item")
+        ("item_id" = i64, Path, description = "Item identifier")
     )
 )]
 #[delete("/items/{item_id}")]

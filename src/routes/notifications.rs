@@ -39,10 +39,10 @@ async fn current_user_id(req: &HttpRequest, state: &AppState) -> Result<i64, Htt
     tag = "notifications",
     request_body = DeviceRegisterPayload,
     responses(
-        (status = 200, description = "Jeton enregistré", body = StatusResponse),
-        (status = 400, description = "Payload invalide", body = ErrorResponse),
-        (status = 401, description = "Authentification requise", body = ErrorResponse),
-        (status = 500, description = "Erreur base de données", body = ErrorResponse)
+        (status = 200, description = "Token saved", body = StatusResponse),
+        (status = 400, description = "Invalid payload", body = ErrorResponse),
+        (status = 401, description = "Authentication required", body = ErrorResponse),
+        (status = 500, description = "Database error", body = ErrorResponse)
     )
 )]
 #[post("/me/devices")]
@@ -118,10 +118,10 @@ pub async fn register_device(
     tag = "notifications",
     request_body = DeviceRefreshPayload,
     responses(
-        (status = 200, description = "Jeton rafraîchi", body = StatusResponse),
-        (status = 400, description = "Payload invalide", body = ErrorResponse),
-        (status = 401, description = "Authentification requise", body = ErrorResponse),
-        (status = 500, description = "Erreur base de données", body = ErrorResponse)
+        (status = 200, description = "Token refreshed", body = StatusResponse),
+        (status = 400, description = "Invalid payload", body = ErrorResponse),
+        (status = 401, description = "Authentication required", body = ErrorResponse),
+        (status = 500, description = "Database error", body = ErrorResponse)
     )
 )]
 #[post("/me/devices/refresh")]
@@ -258,8 +258,8 @@ pub async fn refresh_device(
     tag = "notifications",
     request_body = DeviceDeletePayload,
     responses(
-        (status = 200, description = "Jeton supprimé", body = StatusResponse),
-        (status = 401, description = "Authentification requise", body = ErrorResponse)
+        (status = 200, description = "Token deleted", body = StatusResponse),
+        (status = 401, description = "Authentication required", body = ErrorResponse)
     )
 )]
 #[post("/me/devices/revoke")]

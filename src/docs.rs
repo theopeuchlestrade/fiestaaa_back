@@ -129,16 +129,16 @@ use crate::models::{
         )
     ),
     tags(
-        (name = "root", description = "Endpoints généraux"),
-        (name = "auth", description = "Authentification"),
-        (name = "health", description = "Surveillance de l'API"),
-        (name = "items", description = "Catalogue des items référencés"),
-        (name = "events", description = "Gestion des événements"),
-        (name = "invitations", description = "Gestion des invitations aux événements"),
-        (name = "friends", description = "Gestion des amis et demandes"),
-        (name = "users", description = "Gestion des utilisateurs et handles"),
-        (name = "payment-providers", description = "Configuration des fournisseurs de paiement (admin)"),
-        (name = "notifications", description = "Enregistrement des devices pour les notifications push")
+        (name = "root", description = "General endpoints"),
+        (name = "auth", description = "Authentication"),
+        (name = "health", description = "API monitoring"),
+        (name = "items", description = "Referenced item catalog"),
+        (name = "events", description = "Event management"),
+        (name = "invitations", description = "Event invitation management"),
+        (name = "friends", description = "Friend and request management"),
+        (name = "users", description = "User and handle management"),
+        (name = "payment-providers", description = "Payment provider configuration (admin)"),
+        (name = "notifications", description = "Device registration for push notifications")
     )
 )]
 pub struct ApiDoc;

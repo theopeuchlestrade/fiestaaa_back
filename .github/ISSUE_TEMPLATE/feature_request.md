@@ -1,51 +1,51 @@
 ---
 name: "Feature - Back"
-about: "Nouvelle fonctionnalite backend"
+about: "New backend feature"
 title: "[BACK] "
 labels: ["feature", "backend"]
 ---
 
-## Objectif
-Decrire le resultat attendu en 1-2 phrases.
+## Objective
+Describe the expected result in 1-2 sentences.
 
-## Contexte
-Pourquoi cette demande maintenant ? Lien vers issue, doc, discussion.
+## Context
+Why this request now? Link to issue, doc, or discussion.
 
-## Perimetre
-- Inclus :
-- Exclu :
+## Scope
+- Included:
+- Excluded:
 
 ## API / Endpoints
-- Routes impactees (methodes, paths) :
-- Payloads (inputs/outputs) :
-- Versioning / compatibilite :
+- Impacted routes (methods, paths):
+- Payloads (inputs/outputs):
+- Versioning / compatibility:
 
-## Donnees / Migrations
-- Tables/collections impactees :
-- Migrations necessaires (oui/non) :
-- Donnees retro-compatibles (oui/non) :
+## Data / Migrations
+- Impacted tables/collections:
+- Required migrations (yes/no):
+- Backward-compatible data (yes/no):
 
-## Regles metier / Validations
-- Regles principales :
-- Cas limites :
+## Business Rules / Validations
+- Main rules:
+- Edge cases:
 
-## Securite / Permissions
-- Roles / droits :
-- Donnees sensibles :
+## Security / Permissions
+- Roles / rights:
+- Sensitive data:
 
-## Observabilite
-- Logs / metrics / alerting :
+## Observability
+- Logs / metrics / alerting:
 
 ## Tests
-- Unitaires :
-- Integration :
-- E2E (si applicable) :
+- Unit tests:
+- Integration:
+- E2E (if applicable):
 
 ## Definition of Done
-- [ ] API conforme aux specs
-- [ ] Migrations appliquees et documentees
-- [ ] Tests passes
-- [ ] Docs mises a jour (si besoin)
+- [ ] API matches the specs
+- [ ] Migrations applied and documented
+- [ ] Tests pass
+- [ ] Docs updated (if needed)
 
-## Notes / Risques
-Liste courte des risques, dependances, ou points ouverts.
+## Notes / Risks
+Short list of risks, dependencies, or open questions.

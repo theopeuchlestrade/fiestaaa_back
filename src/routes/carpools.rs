@@ -329,13 +329,13 @@ async fn fetch_carpool_views(
     path = "/events/{event_id}/carpools",
     tag = "carpools",
     params(
-        ("event_id" = i64, Path, description = "Identifiant de l'événement"),
-        ("sort" = Option<String>, Query, description = "Critère de tri: departure_asc, departure_desc, seats_asc, seats_desc, available_seats_asc, available_seats_desc")
+        ("event_id" = i64, Path, description = "Event identifier"),
+        ("sort" = Option<String>, Query, description = "Sort criterion: departure_asc, departure_desc, seats_asc, seats_desc, available_seats_asc, available_seats_desc")
     ),
     responses(
-        (status = 200, description = "Liste des covoiturages", body = Vec<CarpoolView>),
-        (status = 403, description = "Non autorisé", body = ErrorResponse),
-        (status = 404, description = "Événement introuvable", body = ErrorResponse)
+        (status = 200, description = "Carpool list", body = Vec<CarpoolView>),
+        (status = 403, description = "Unauthorized", body = ErrorResponse),
+        (status = 404, description = "Event not found", body = ErrorResponse)
     )
 )]
 #[get("/events/{event_id}/carpools")]
@@ -375,13 +375,13 @@ pub struct CarpoolListQuery {
     tag = "carpools",
     request_body = CarpoolPayload,
     responses(
-        (status = 201, description = "Covoiturage créé", body = CarpoolView),
-        (status = 400, description = "Payload invalide", body = ErrorResponse),
-        (status = 403, description = "Non autorisé", body = ErrorResponse),
-        (status = 404, description = "Événement introuvable", body = ErrorResponse)
+        (status = 201, description = "Carpool created", body = CarpoolView),
+        (status = 400, description = "Invalid payload", body = ErrorResponse),
+        (status = 403, description = "Unauthorized", body = ErrorResponse),
+        (status = 404, description = "Event not found", body = ErrorResponse)
     ),
     params(
-        ("event_id" = i64, Path, description = "Identifiant de l'événement")
+        ("event_id" = i64, Path, description = "Event identifier")
     )
 )]
 #[post("/events/{event_id}/carpools")]
@@ -544,13 +544,13 @@ pub async fn create_carpool(
     tag = "carpools",
     request_body = CarpoolPatchPayload,
     responses(
-        (status = 200, description = "Covoiturage modifié", body = CarpoolView),
-        (status = 400, description = "Payload invalide", body = ErrorResponse),
-        (status = 403, description = "Non autorisé", body = ErrorResponse),
-        (status = 404, description = "Covoiture introuvable", body = ErrorResponse)
+        (status = 200, description = "Carpool updated", body = CarpoolView),
+        (status = 400, description = "Invalid payload", body = ErrorResponse),
+        (status = 403, description = "Unauthorized", body = ErrorResponse),
+        (status = 404, description = "Carpool not found", body = ErrorResponse)
     ),
     params(
-        ("carpool_id" = i64, Path, description = "Identifiant du covoiturage")
+        ("carpool_id" = i64, Path, description = "Carpool identifier")
     )
 )]
 #[patch("/carpools/{carpool_id}")]
@@ -672,12 +672,12 @@ pub async fn update_carpool(
     path = "/carpools/{carpool_id}",
     tag = "carpools",
     responses(
-        (status = 200, description = "Covoiturage supprimé", body = StatusResponse),
-        (status = 403, description = "Non autorisé", body = ErrorResponse),
-        (status = 404, description = "Covoiturage introuvable", body = ErrorResponse)
+        (status = 200, description = "Carpool deleted", body = StatusResponse),
+        (status = 403, description = "Unauthorized", body = ErrorResponse),
+        (status = 404, description = "Carpool not found", body = ErrorResponse)
     ),
     params(
-        ("carpool_id" = i64, Path, description = "Identifiant du covoiturage")
+        ("carpool_id" = i64, Path, description = "Carpool identifier")
     )
 )]
 #[delete("/carpools/{carpool_id}")]
@@ -778,14 +778,14 @@ pub async fn delete_carpool(
     path = "/carpools/{carpool_id}/join",
     tag = "carpools",
     responses(
-        (status = 200, description = "Inscription réussie", body = CarpoolJoinResponse),
-        (status = 400, description = "Plus de places disponibles", body = ErrorResponse),
-        (status = 403, description = "Non autorisé", body = ErrorResponse),
-        (status = 404, description = "Covoiturage introuvable", body = ErrorResponse),
-        (status = 409, description = "Déjà inscrit", body = ErrorResponse)
+        (status = 200, description = "Joined successfully", body = CarpoolJoinResponse),
+        (status = 400, description = "No seats available", body = ErrorResponse),
+        (status = 403, description = "Unauthorized", body = ErrorResponse),
+        (status = 404, description = "Carpool not found", body = ErrorResponse),
+        (status = 409, description = "Already joined", body = ErrorResponse)
     ),
     params(
-        ("carpool_id" = i64, Path, description = "Identifiant du covoiturage")
+        ("carpool_id" = i64, Path, description = "Carpool identifier")
     )
 )]
 #[post("/carpools/{carpool_id}/join")]
@@ -989,13 +989,13 @@ pub async fn join_carpool(
     path = "/carpools/{carpool_id}/join",
     tag = "carpools",
     responses(
-        (status = 200, description = "Désinscription réussie", body = CarpoolLeaveResponse),
-        (status = 403, description = "Non autorisé", body = ErrorResponse),
-        (status = 404, description = "Covoiturage introuvable", body = ErrorResponse),
-        (status = 400, description = "Pas inscrit", body = ErrorResponse)
+        (status = 200, description = "Left successfully", body = CarpoolLeaveResponse),
+        (status = 403, description = "Unauthorized", body = ErrorResponse),
+        (status = 404, description = "Carpool not found", body = ErrorResponse),
+        (status = 400, description = "Not joined", body = ErrorResponse)
     ),
     params(
-        ("carpool_id" = i64, Path, description = "Identifiant du covoiturage")
+        ("carpool_id" = i64, Path, description = "Carpool identifier")
     )
 )]
 #[delete("/carpools/{carpool_id}/join")]

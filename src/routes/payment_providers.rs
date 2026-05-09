@@ -37,8 +37,8 @@ async fn ensure_admin(req: &HttpRequest, state: &AppState) -> Result<(), HttpRes
     path = "/payment-providers",
     tag = "payment-providers",
     responses(
-        (status = 200, description = "Liste des fournisseurs de paiement", body = [PaymentProvider]),
-        (status = 500, description = "Erreur base de données", body = ErrorResponse)
+        (status = 200, description = "Payment provider list", body = [PaymentProvider]),
+        (status = 500, description = "Database error", body = ErrorResponse)
     )
 )]
 #[get("/payment-providers")]
@@ -66,10 +66,10 @@ pub async fn list_payment_providers(state: web::Data<AppState>) -> impl Responde
     tag = "payment-providers",
     request_body = PaymentProviderPayload,
     responses(
-        (status = 201, description = "Fournisseur de paiement créé", body = PaymentProvider),
-        (status = 400, description = "Payload invalide", body = ErrorResponse),
-        (status = 403, description = "Non autorisé", body = ErrorResponse),
-        (status = 500, description = "Erreur base de données", body = ErrorResponse)
+        (status = 201, description = "Payment provider created", body = PaymentProvider),
+        (status = 400, description = "Invalid payload", body = ErrorResponse),
+        (status = 403, description = "Unauthorized", body = ErrorResponse),
+        (status = 500, description = "Database error", body = ErrorResponse)
     )
 )]
 #[post("/payment-providers")]
@@ -91,14 +91,14 @@ pub async fn create_payment_provider(
     tag = "payment-providers",
     request_body = PaymentProviderPayload,
     responses(
-        (status = 200, description = "Fournisseur de paiement mis à jour", body = PaymentProvider),
-        (status = 400, description = "Payload invalide", body = ErrorResponse),
-        (status = 403, description = "Non autorisé", body = ErrorResponse),
-        (status = 404, description = "Fournisseur introuvable", body = ErrorResponse),
-        (status = 500, description = "Erreur base de données", body = ErrorResponse)
+        (status = 200, description = "Payment provider updated", body = PaymentProvider),
+        (status = 400, description = "Invalid payload", body = ErrorResponse),
+        (status = 403, description = "Unauthorized", body = ErrorResponse),
+        (status = 404, description = "Provider not found", body = ErrorResponse),
+        (status = 500, description = "Database error", body = ErrorResponse)
     ),
     params(
-        ("provider_id" = i32, Path, description = "Identifiant du fournisseur")
+        ("provider_id" = i32, Path, description = "Provider identifier")
     )
 )]
 #[put("/payment-providers/{provider_id}")]
@@ -206,14 +206,14 @@ async fn create_or_replace_provider(
     tag = "payment-providers",
     request_body = PaymentProviderPatchPayload,
     responses(
-        (status = 200, description = "Fournisseur de paiement modifié", body = PaymentProvider),
-        (status = 400, description = "Payload invalide", body = ErrorResponse),
-        (status = 403, description = "Non autorisé", body = ErrorResponse),
-        (status = 404, description = "Fournisseur introuvable", body = ErrorResponse),
-        (status = 500, description = "Erreur base de données", body = ErrorResponse)
+        (status = 200, description = "Payment provider modified", body = PaymentProvider),
+        (status = 400, description = "Invalid payload", body = ErrorResponse),
+        (status = 403, description = "Unauthorized", body = ErrorResponse),
+        (status = 404, description = "Provider not found", body = ErrorResponse),
+        (status = 500, description = "Database error", body = ErrorResponse)
     ),
     params(
-        ("provider_id" = i32, Path, description = "Identifiant du fournisseur")
+        ("provider_id" = i32, Path, description = "Provider identifier")
     )
 )]
 #[patch("/payment-providers/{provider_id}")]
@@ -321,13 +321,13 @@ pub async fn update_payment_provider(
     path = "/payment-providers/{provider_id}",
     tag = "payment-providers",
     responses(
-        (status = 200, description = "Fournisseur supprimé", body = StatusResponse),
-        (status = 403, description = "Non autorisé", body = ErrorResponse),
-        (status = 404, description = "Fournisseur introuvable", body = ErrorResponse),
-        (status = 500, description = "Erreur base de données", body = ErrorResponse)
+        (status = 200, description = "Provider deleted", body = StatusResponse),
+        (status = 403, description = "Unauthorized", body = ErrorResponse),
+        (status = 404, description = "Provider not found", body = ErrorResponse),
+        (status = 500, description = "Database error", body = ErrorResponse)
     ),
     params(
-        ("provider_id" = i32, Path, description = "Identifiant du fournisseur")
+        ("provider_id" = i32, Path, description = "Provider identifier")
     )
 )]
 #[delete("/payment-providers/{provider_id}")]

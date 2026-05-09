@@ -1,32 +1,32 @@
 ---
 name: "Chore - Back"
-about: "Maintenance ou refactor backend"
+about: "Backend maintenance or refactor"
 title: "[BACK][CHORE] "
 labels: ["chore", "backend"]
 ---
 
-## Objectif
-Decrire le but du changement.
+## Objective
+Describe the goal of the change.
 
-## Contexte
-Pourquoi ce travail est necessaire.
+## Context
+Why this work is necessary.
 
-## Portee
-- Inclus :
-- Exclu :
+## Scope
+- Included:
+- Excluded:
 
-## Changements prevus
-Liste courte des actions.
+## Planned Changes
+Short list of actions.
 
-## Risques
-Points de vigilance, impacts possibles.
+## Risks
+Watch points and possible impacts.
 
 ## Tests
-- Unitaires :
-- Integration :
-- E2E (si applicable) :
+- Unit tests:
+- Integration:
+- E2E (if applicable):
 
 ## Definition of Done
-- [ ] Changement applique
-- [ ] Tests passes
-- [ ] Docs mises a jour (si besoin)
+- [ ] Change applied
+- [ ] Tests pass
+- [ ] Docs updated (if needed)
