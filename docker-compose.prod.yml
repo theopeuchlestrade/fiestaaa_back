@@ -29,6 +29,9 @@ services:
       - --providers.docker.exposedbydefault=false
       - --entrypoints.web.address=:80
       - --entrypoints.websecure.address=:443
+      - --entrypoints.web.http.redirections.entrypoint.to=websecure
+      - --entrypoints.web.http.redirections.entrypoint.scheme=https
+      - --entrypoints.web.http.redirections.entrypoint.permanent=true
       - --certificatesresolvers.le.acme.httpchallenge=true
       - --certificatesresolvers.le.acme.httpchallenge.entrypoint=web
       - --certificatesresolvers.le.acme.email=contact@fiestaaa.app
@@ -120,7 +123,7 @@ services:
     image: ghcr.io/theopeuchlestrade/fiestaaa_front:${FRONT_IMAGE_TAG:?FRONT_IMAGE_TAG is required}
     labels:
       - traefik.enable=true
-      - traefik.http.routers.front.rule=Host(`fiestaaa.app`)
+      - traefik.http.routers.front.rule=Host(`fiestaaa.app`) || Host(`www.fiestaaa.app`)
       - traefik.http.routers.front.entrypoints=websecure
       - traefik.http.routers.front.tls.certresolver=le
       - traefik.http.services.front.loadbalancer.server.port=8080

@@ -135,6 +135,26 @@ jobs:
             echo "ready=true" >> "${GITHUB_OUTPUT}"
           fi
 
+      - name: Sync production compose file
+        if: steps.bootstrap.outputs.ready == 'true'
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_PORT: ${{ secrets.VPS_PORT }}
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+        run: |
+          set -euo pipefail
+          key_path="${RUNNER_TEMP}/fiestaaa_deploy"
+          printf '%s\n' "${VPS_SSH_KEY}" > "${key_path}"
+          chmod 600 "${key_path}"
+          scp -i "${key_path}" \
+            -P "${VPS_PORT}" \
+            -o BatchMode=yes \
+            -o StrictHostKeyChecking=accept-new \
+            docker-compose.prod.yml \
+            "${VPS_USER}@${VPS_HOST}:~/apps/fiestaaa/docker-compose.yml"
+          rm -f "${key_path}"
+
       - name: Deploy to VPS
         if: steps.bootstrap.outputs.ready == 'true'
         uses: appleboy/ssh-action@v1.2.2
@@ -157,8 +177,8 @@ jobs:
               echo "FRONT_IMAGE_TAG missing in ~/apps/fiestaaa/.env. Seed both API_IMAGE_TAG and FRONT_IMAGE_TAG before the first deployment." >&2
               exit 1
             fi
+            sudo install -d -m 755 -o "${VPS_USER}" data
             if [ -n "${FCM_SERVICE_ACCOUNT_JSON_B64:-}" ]; then
-              install -d -m 750 data
               tmp_service_account="$(mktemp)"
               printf '%s' "${FCM_SERVICE_ACCOUNT_JSON_B64}" | base64 -d > "${tmp_service_account}"
               sudo install -m 400 -o 10001 -g 10001 "${tmp_service_account}" data/service-account.json
@@ -168,9 +188,7 @@ jobs:
               sudo chown 10001:10001 data/service-account.json
               sudo chmod 400 data/service-account.json
             fi
-            install -d -m 750 data/uploads data/uploads/avatars
-            sudo chown -R 10001:10001 data/uploads
-            sudo chmod 750 data/uploads data/uploads/avatars
+            sudo install -d -m 750 -o 10001 -g 10001 data/uploads data/uploads/avatars
             install -m 600 /dev/null .env
             # Generate a .env from GitHub secrets for the docker compose runtime
             # Do not quote EOF so variables expand on the runner side and avoid literal ${VAR} values

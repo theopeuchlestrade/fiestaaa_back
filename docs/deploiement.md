@@ -41,12 +41,13 @@ GitHub Actions (GHCR).
 graph TD
   subgraph Clients
     W["Web client fiestaaa.app"] -->|HTTPS| T
+    WW["Web client www.fiestaaa.app"] -->|HTTPS| T
     M["Mobile / API client api.fiestaaa.app"] -->|HTTPS| T
   end
 
   subgraph "VPS (ports 80/443 exposed)"
     T["Traefik TLS + routes"] -->|Docker metadata| S["socket-proxy"]
-    T -->|Host: fiestaaa.app| F
+    T -->|Host: fiestaaa.app / www.fiestaaa.app| F
     T -->|Host: api.fiestaaa.app| A
 
     subgraph "Compose stack"
@@ -70,8 +71,9 @@ graph TD
 
 ### Key Components
 
-- Traefik: single reverse proxy, TLS (Let's Encrypt), routes `fiestaaa.app` to
-  service `front`, and `api.fiestaaa.app` to service `api`.
+- Traefik: single reverse proxy, TLS (Let's Encrypt), redirects HTTP to HTTPS,
+  routes `fiestaaa.app` and `www.fiestaaa.app` to service `front`, and
+  `api.fiestaaa.app` to service `api`.
 - socket-proxy: limited read-only exposure of the Docker API to Traefik on a
   dedicated internal Docker network; the Docker socket is no longer mounted
   directly into Traefik.
@@ -135,8 +137,8 @@ See `infra/vps/README.md` for the short usage guide.
 > `infra/vps/`.
 
 1. **Access**
-   - Confirm the server IP and DNS (`fiestaaa.app`, `api.fiestaaa.app` point to
-     the VPS so Traefik can generate certificates).
+   - Confirm the server IP and DNS (`fiestaaa.app`, `www.fiestaaa.app`, and
+     `api.fiestaaa.app` point to the VPS so Traefik can generate certificates).
    - Verify SSH access: `ssh <user>@<ip>`.
 2. **System Dependencies**
    ```bash
@@ -499,7 +501,11 @@ therefore goes through the manual `Bootstrap VPS Stack` workflow.
   checks `http://127.0.0.1:8080/`.
 - CORS: API-side authorizations through `CORS_ALLOWED_ORIGINS`
   (`https://fiestaaa.app,https://www.fiestaaa.app` in production).
-- Front: `curl -I https://fiestaaa.app`.
+- Front: `curl -I https://fiestaaa.app` and
+  `curl -I https://www.fiestaaa.app`.
+- HTTP redirect: `curl -I http://fiestaaa.app` and
+  `curl -I http://api.fiestaaa.app` should return a permanent redirect to
+  HTTPS.
 - Stack up: `docker compose ps` (`socket-proxy`, `traefik`, `api`, `front`,
   `redis` must be Up, `db` healthy).
 - Logs: `docker compose logs -f api`, `docker compose logs -f front`,
@@ -583,7 +589,8 @@ The script loads `.env`, builds the Postgres URL (`DATABASE_URL` or
 
 ### VPS Go-Live (infra)
 
-- [ ] IP/DNS validated (`fiestaaa.app`, `api.fiestaaa.app` -> VPS)
+- [ ] IP/DNS validated (`fiestaaa.app`, `www.fiestaaa.app`,
+      `api.fiestaaa.app` -> VPS)
 - [ ] `infra/vps/cloud-init.yml` applied on a fresh VPS or Ansible playbook run
 - [ ] SSH OK, deployment user added to the docker group
 - [ ] Non-standard SSH port configured and tested from a second session
