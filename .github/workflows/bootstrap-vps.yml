@@ -232,3 +232,17 @@ jobs:
         run: |
           curl --fail --silent --show-error --retry 12 --retry-delay 5 --retry-all-errors https://api.fiestaaa.app/health
           curl --fail --silent --show-error --head --retry 12 --retry-delay 5 --retry-all-errors https://fiestaaa.app
+          curl --fail --silent --show-error --head --retry 12 --retry-delay 5 --retry-all-errors https://www.fiestaaa.app
+          for url in http://fiestaaa.app http://api.fiestaaa.app; do
+            for attempt in $(seq 1 12); do
+              status="$(curl --silent --show-error --output /dev/null --write-out "%{http_code}" "${url}" || true)"
+              if [ "${status}" = "301" ] || [ "${status}" = "308" ]; then
+                break
+              fi
+              if [ "${attempt}" = "12" ]; then
+                echo "::error::Expected ${url} to redirect permanently to HTTPS, got HTTP ${status}"
+                exit 1
+              fi
+              sleep 5
+            done
+          done
