@@ -181,14 +181,17 @@ jobs:
             if [ -n "${FCM_SERVICE_ACCOUNT_JSON_B64:-}" ]; then
               tmp_service_account="$(mktemp)"
               printf '%s' "${FCM_SERVICE_ACCOUNT_JSON_B64}" | base64 -d > "${tmp_service_account}"
-              sudo install -m 400 -o 10001 -g 10001 "${tmp_service_account}" data/service-account.json
+              sudo install -m 400 "${tmp_service_account}" data/service-account.json
+              sudo chown 10001:10001 data/service-account.json
               rm -f "${tmp_service_account}"
             fi
             if [ -f data/service-account.json ]; then
               sudo chown 10001:10001 data/service-account.json
               sudo chmod 400 data/service-account.json
             fi
-            sudo install -d -m 750 -o 10001 -g 10001 data/uploads data/uploads/avatars
+            sudo install -d -m 750 data/uploads data/uploads/avatars
+            sudo chown 10001:10001 data/uploads data/uploads/avatars
+            sudo chmod 750 data/uploads data/uploads/avatars
             install -m 600 /dev/null .env
             # Generate a .env from GitHub secrets for the docker compose runtime
             # Do not quote EOF so variables expand on the runner side and avoid literal ${VAR} values

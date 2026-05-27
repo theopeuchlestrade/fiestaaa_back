@@ -141,8 +141,12 @@ jobs:
             umask 077
             sudo install -d -m 755 -o "${VPS_USER}" data
             sudo install -d -m 750 -o "${VPS_USER}" traefik
-            sudo install -d -m 750 -o 10001 -g 10001 data/uploads data/uploads/avatars
-            sudo install -d -m 700 -o 999 -g 999 data/postgres
+            sudo install -d -m 750 data/uploads data/uploads/avatars
+            sudo chown 10001:10001 data/uploads data/uploads/avatars
+            sudo chmod 750 data/uploads data/uploads/avatars
+            sudo install -d -m 700 data/postgres
+            sudo chown 999:999 data/postgres
+            sudo chmod 700 data/postgres
             sudo install -d -m 700 -o root -g root traefik/letsencrypt
             sudo touch traefik/letsencrypt/acme.json
             sudo chown root:root traefik/letsencrypt/acme.json
@@ -150,7 +154,8 @@ jobs:
             if [ -n "${FCM_SERVICE_ACCOUNT_JSON_B64:-}" ]; then
               tmp_service_account="$(mktemp)"
               printf '%s' "${FCM_SERVICE_ACCOUNT_JSON_B64}" | base64 -d > "${tmp_service_account}"
-              sudo install -m 400 -o 10001 -g 10001 "${tmp_service_account}" data/service-account.json
+              sudo install -m 400 "${tmp_service_account}" data/service-account.json
+              sudo chown 10001:10001 data/service-account.json
               rm -f "${tmp_service_account}"
             fi
             if [ -f data/service-account.json ]; then
