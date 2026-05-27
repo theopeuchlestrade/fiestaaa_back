@@ -31,6 +31,22 @@ pub async fn reset_tables(pool: &PgPool, tables: &[&str]) -> sqlx::Result<()> {
 }
 
 pub fn build_state(pool: PgPool, secret: &str, admin_emails: &[&str]) -> web::Data<AppState> {
+    build_state_with_avatar_storage(
+        pool,
+        secret,
+        admin_emails,
+        "./uploads/avatars".into(),
+        "http://localhost:8080/media/avatars".into(),
+    )
+}
+
+pub fn build_state_with_avatar_storage(
+    pool: PgPool,
+    secret: &str,
+    admin_emails: &[&str],
+    avatar_upload_dir: String,
+    avatar_base_url: String,
+) -> web::Data<AppState> {
     fiestaaa_back::install_rustls_crypto_provider();
 
     let admins = admin_emails
@@ -52,8 +68,8 @@ pub fn build_state(pool: PgPool, secret: &str, admin_emails: &[&str]) -> web::Da
         invitation_email_api_key: None,
         app_base_url: "http://localhost:3000".into(),
         cors_allowed_origins: HashSet::from(["http://localhost:3000".to_string()]),
-        avatar_upload_dir: "./uploads/avatars".into(),
-        avatar_base_url: "http://localhost:8080/media/avatars".into(),
+        avatar_upload_dir,
+        avatar_base_url,
         redis_client: None,
         notifications,
         fcm_project_id: None,

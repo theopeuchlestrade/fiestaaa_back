@@ -1,9 +1,13 @@
 mod common;
 
-use std::error::Error;
+use std::{
+    error::Error,
+    io::Write,
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 use actix_web::{App, http::StatusCode, test};
-use common::{DB_LOCK, build_state, obtain_pool, reset_tables};
+use common::{DB_LOCK, build_state, build_state_with_avatar_storage, obtain_pool, reset_tables};
 use fiestaaa_back::{
     auth::{encode_jwt, hash_password, now_ts},
     models::{Claims, HandleAvailabilityResponse, HandleUpdatePayload},
@@ -47,6 +51,29 @@ async fn seed_user(pool: &PgPool, email: &str, handle: &str) -> sqlx::Result<i64
     .bind(handle)
     .fetch_one(pool)
     .await
+}
+
+fn test_png_avatar() -> Result<Vec<u8>, image::ImageError> {
+    let img = image::RgbImage::from_pixel(2, 2, image::Rgb([240, 80, 120]));
+    let mut bytes = Vec::new();
+    image::DynamicImage::ImageRgb8(img).write_to(
+        &mut std::io::Cursor::new(&mut bytes),
+        image::ImageFormat::Png,
+    )?;
+    Ok(bytes)
+}
+
+fn multipart_avatar_body(boundary: &str, avatar_bytes: &[u8]) -> Result<Vec<u8>, std::io::Error> {
+    let mut body = Vec::new();
+    write!(body, "--{boundary}\r\n")?;
+    write!(
+        body,
+        "Content-Disposition: form-data; name=\"avatar\"; filename=\"avatar.png\"\r\n"
+    )?;
+    write!(body, "Content-Type: image/png\r\n\r\n")?;
+    body.extend_from_slice(avatar_bytes);
+    write!(body, "\r\n--{boundary}--\r\n")?;
+    Ok(body)
 }
 
 #[tokio::test]
@@ -187,5 +214,63 @@ async fn handle_availability_and_update_cover_validation_and_conflicts()
     .fetch_one(&pool)
     .await?;
     assert_eq!(stored.0, "fresh_handle");
+    Ok(())
+}
+
+#[tokio::test]
+async fn upload_avatar_accepts_multipart_image_and_returns_public_url() -> Result<(), Box<dyn Error>>
+{
+    let Some(pool) = obtain_pool().await else {
+        eprintln!("Skipping root/health/users tests: DATABASE_URL or TEST_DATABASE_URL not set");
+        return Ok(());
+    };
+    let _guard = DB_LOCK.lock().await;
+    reset_tables(&pool, &["users"]).await?;
+
+    let secret = "secret";
+    seed_user(&pool, "owner@example.com", "owner_handle").await?;
+    let token = make_token(secret, "owner@example.com", "owner_handle").expect("token");
+
+    let suffix = SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos();
+    let avatar_root = std::env::temp_dir().join(format!("fiestaaa-avatar-test-{suffix}"));
+    let avatar_upload_dir = avatar_root.join("avatars");
+    let avatar_base_url = "https://api.example.test/media/avatars";
+    let state = build_state_with_avatar_storage(
+        pool,
+        secret,
+        &[],
+        avatar_upload_dir.to_string_lossy().into_owned(),
+        avatar_base_url.into(),
+    );
+    let app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
+
+    let boundary = "fiestaaa-test-boundary";
+    let body = multipart_avatar_body(boundary, &test_png_avatar()?)?;
+    let resp = test::call_service(
+        &app,
+        test::TestRequest::post()
+            .uri("/me/avatar")
+            .insert_header(("Authorization", format!("Bearer {token}")))
+            .insert_header((
+                "Content-Type",
+                format!("multipart/form-data; boundary={boundary}"),
+            ))
+            .set_payload(body)
+            .to_request(),
+    )
+    .await;
+
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body: TestMeResponse = test::read_body_json(resp).await;
+    let avatar_url = body.avatar_url.expect("avatar url");
+    let expected_prefix = format!("{avatar_base_url}/");
+    assert!(avatar_url.starts_with(&expected_prefix));
+    assert!(avatar_url.ends_with(".jpg"));
+
+    let filename = avatar_url
+        .strip_prefix(&expected_prefix)
+        .expect("avatar filename");
+    assert!(avatar_upload_dir.join(filename).is_file());
+    let _ = tokio::fs::remove_dir_all(avatar_root).await;
     Ok(())
 }

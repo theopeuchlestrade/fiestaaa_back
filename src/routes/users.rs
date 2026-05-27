@@ -18,7 +18,7 @@ use crate::{
     state::AppState,
 };
 
-const MAX_AVATAR_BYTES: usize = 1_000_000; // ~1MB
+const MAX_AVATAR_BYTES: usize = 8 * 1024 * 1024;
 const MAX_AVATAR_DIM: u32 = 512;
 const MAX_SOURCE_AVATAR_DIM: u32 = 4096;
 const MAX_SOURCE_AVATAR_ALLOC_BYTES: u64 = 64 * 1024 * 1024;
@@ -236,7 +236,7 @@ pub async fn upload_avatar(
             if bytes.len() + chunk.len() > MAX_AVATAR_BYTES {
                 return HttpResponse::PayloadTooLarge().json(ErrorResponse {
                     error: "file_too_large".into(),
-                    details: Some("limite 1 Mo".into()),
+                    details: Some("limite 8 Mo".into()),
                 });
             }
             bytes.extend_from_slice(&chunk);
