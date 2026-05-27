@@ -1,16 +1,57 @@
 mod common;
 
-use std::error::Error;
+use std::{error::Error, net::SocketAddr, thread::JoinHandle};
 
-use actix_web::{App, http::StatusCode, test};
-use common::{DB_LOCK, build_state, obtain_pool, reset_tables};
+use actix_web::{
+    App, HttpRequest, HttpResponse, HttpServer,
+    dev::ServerHandle,
+    http::{StatusCode, header::AUTHORIZATION},
+    test, web,
+};
+use base64::{Engine as _, engine::general_purpose::STANDARD};
+use common::{
+    DB_LOCK, TestOAuthConfig, build_state, build_state_with_oauth_config, obtain_pool, reset_tables,
+};
 use fiestaaa_back::{
-    auth::{hash_password, session_cookie_name, verify_password},
+    auth::{hash_password, now_ts, session_cookie_name, verify_password},
     routes,
     security::sha256_hex,
 };
+use serde::Serialize;
 use serde_json::Value;
 use uuid::Uuid;
+
+const TEST_GOOGLE_WEB_CLIENT_ID: &str = "fiestaaa-web-client.apps.googleusercontent.com";
+const TEST_APPLE_SERVICE_ID: &str = "app.fiestaaa.web";
+const TEST_APPLE_KID: &str = "fiestaaa-test-apple-key";
+const TEST_APPLE_MODULUS: &str = "zp_AAIAxF-hYotR45X6z1ZFYEAUlCixB0VcRVTq13fSyqdtuxWskRkeZQ1N0DTHZFU88On5LF5syZs7IZcP49U9DhB7AXDs1IcrsRVtBCg28omstiWb-eTGjLEmvNQf52aI6t_2gMCDnQ__NOhMAFJWMFhnDZynve99VUXnsm1m1Q50XgxPo45JW1p7eyU7zvsAr8NnB4Tg6W-Q5zYuXAXMJoKYURuqKDE5SNky1ZFLDwoj9zd86sPxWUHwZ6auhgVY29KCbJRHycirPl8AmmxT4fSflXK_192mDqOZMD898_snXG3LrvaK5Q-ZNJWdfF3_3ehs25zyjHqASrTQIAQ";
+const TEST_APPLE_PRIVATE_KEY: &str = r#"-----BEGIN RSA PRIVATE KEY-----
+MIIEpAIBAAKCAQEAzp/AAIAxF+hYotR45X6z1ZFYEAUlCixB0VcRVTq13fSyqdtu
+xWskRkeZQ1N0DTHZFU88On5LF5syZs7IZcP49U9DhB7AXDs1IcrsRVtBCg28omst
+iWb+eTGjLEmvNQf52aI6t/2gMCDnQ//NOhMAFJWMFhnDZynve99VUXnsm1m1Q50X
+gxPo45JW1p7eyU7zvsAr8NnB4Tg6W+Q5zYuXAXMJoKYURuqKDE5SNky1ZFLDwoj9
+zd86sPxWUHwZ6auhgVY29KCbJRHycirPl8AmmxT4fSflXK/192mDqOZMD898/snX
+G3LrvaK5Q+ZNJWdfF3/3ehs25zyjHqASrTQIAQIDAQABAoIBAAlMx+nN20fR8aFc
+kld0ATig2teXv6/KR6kaM+HD63kiwSLjiUQR+zc9lECjQjMw1e4/W3zff9Y/akCV
+2I+6BxvVdjq9XpeYI59SgJlrjs0ayq19yPYpAFWonglJhL0Mj5qT0nRDEmFwLbCS
+FCTjw4ppo70/6htb2BdZeT/aTsO8LHgEO/Cx7Bu3D8wKC+1mHgjuROkOEZGZC6/m
+JUXxZT8qHOgjIB4GRAvkiqUoOHuDPq8d+g8o99uzA43fjO3DDHWiZbHowe7GJSHc
+hi2p+DbG2LLK15R00QCFEqy7tQefXnnbH6iMGat71f2hYw94cbhFrLg+zXmW6+Io
+Kmu8utUCgYEA5vw5CEXmV7bQtPadiT7lUPd4lnvqnLyWWTv9JopJL5kZdkmXz3RD
+DrY3TcetwzchccbzOVgH3uDbZlMuk/q4CgkGWmLtHrr6k70+Pr0zOAaNDhH/+mlG
+MFcGocDGj6SXTBgIDM1lylCkBLaC4d8vaJNxX532hfvwkLUAv3wC6A0CgYEA5QAk
+jo/KGsODKpPXaz3+J+fR76TMjLsLxzk3L7ifysB4/HuGcl9/fQ7qux+MQMN88CRy
+oAUEB9qN4GY4ICuTAA3bwWDSjDqGdyiN4LQBFdR3TFLwV37Yc2NpcI7aIbbMTmOz
+L+VdG49y6lHc8pv8R8XqcnYwNvMHusA7RkTxzsUCgYEA1zzetDvWaZPcJVTM9ZAb
+RXhk8O0lcMo2244P1jL0AZuLY3MuOE0hE3tuS1cvLwKXcpsuGBhUtTYYm+AVPiVa
+C1ffiKg4RvN6/eJRN0s8iA9qr1rMif5BPlhJwL6PCFkZ9vlJvwxCtuSwAghEK8+6
+MJt8ANqEVtOulllkCgq39p0CgYEAzSGtnY6sSgEs8+zvIP+tNW3xnquPF9lNma5l
+AvhtGyACwJiePMHS3+GG3wxJhJIYzry3eSRFEgvy3zpxuE+QJJJFchobQMYEQaUw
+QkK8XiOuoc4BwT69Ac/hWZR9TYoDxYyFrLfXCaMcG04tj52vBVQCyXmZgv98wwsD
+jdSgjskCgYBlG8tPgcx6uvK5M76yoW79twgsWXWafVUSlKqEvrrE7l5pxGwiiSzb
+ul/DgmDWuyiZmPqXu0sY6DqWbT4RZZK888cK05BzA/bzyVFJJxPa2mC8QM4w9T2X
+hrNGoIWum5S6bDLJo9GG+CV5wNYO5gGhWzm6W28SgkdoB1dmV8YwBQ==
+-----END RSA PRIVATE KEY-----"#;
 
 async fn overwrite_pending_token_for(pool: &sqlx::PgPool, email: &str) -> sqlx::Result<String> {
     let token = Uuid::new_v4().to_string();
@@ -39,6 +80,157 @@ async fn pending_token_hash_for(pool: &sqlx::PgPool, email: &str) -> sqlx::Resul
     .bind(email)
     .fetch_one(pool)
     .await
+}
+
+async fn mock_google_tokeninfo(req: HttpRequest) -> HttpResponse {
+    let query = req.query_string();
+    if query.contains("id_token=valid-google-id-token") {
+        return HttpResponse::Ok().json(serde_json::json!({
+            "aud": TEST_GOOGLE_WEB_CLIENT_ID,
+            "iss": "https://accounts.google.com",
+            "sub": "google-id-subject",
+            "email": "Google.User@Example.com",
+            "email_verified": "true"
+        }));
+    }
+    if query.contains("id_token=wrong-aud-google-id-token") {
+        return HttpResponse::Ok().json(serde_json::json!({
+            "aud": "another-client.apps.googleusercontent.com",
+            "iss": "https://accounts.google.com",
+            "sub": "google-wrong-aud",
+            "email": "wrong-aud@example.com",
+            "email_verified": true
+        }));
+    }
+    if query.contains("access_token=valid-google-access-token") {
+        return HttpResponse::Ok().json(serde_json::json!({
+            "audience": TEST_GOOGLE_WEB_CLIENT_ID,
+            "sub": "google-access-subject"
+        }));
+    }
+
+    HttpResponse::Unauthorized().finish()
+}
+
+async fn mock_google_userinfo(req: HttpRequest) -> HttpResponse {
+    let auth = req
+        .headers()
+        .get(AUTHORIZATION)
+        .and_then(|v| v.to_str().ok());
+    if auth == Some("Bearer valid-google-access-token") {
+        return HttpResponse::Ok().json(serde_json::json!({
+            "sub": "google-access-subject",
+            "email": "Access.User@Example.com",
+            "email_verified": true
+        }));
+    }
+
+    HttpResponse::Unauthorized().finish()
+}
+
+async fn mock_apple_keys() -> HttpResponse {
+    HttpResponse::Ok().json(serde_json::json!({
+        "keys": [{
+            "kid": TEST_APPLE_KID,
+            "kty": "RSA",
+            "alg": "RS256",
+            "use": "sig",
+            "n": TEST_APPLE_MODULUS,
+            "e": "AQAB"
+        }]
+    }))
+}
+
+struct OAuthMockServer {
+    base_url: String,
+    handle: ServerHandle,
+    thread: JoinHandle<()>,
+}
+
+impl OAuthMockServer {
+    async fn stop(self) {
+        self.handle.stop(true).await;
+        let _ = self.thread.join();
+    }
+}
+
+fn spawn_oauth_mock_server() -> Result<OAuthMockServer, Box<dyn Error>> {
+    let (tx, rx) = std::sync::mpsc::channel::<std::io::Result<(SocketAddr, ServerHandle)>>();
+    let thread = std::thread::spawn(move || {
+        actix_web::rt::System::new().block_on(async move {
+            let server = match HttpServer::new(|| {
+                App::new()
+                    .route("/google/tokeninfo", web::get().to(mock_google_tokeninfo))
+                    .route("/google/userinfo", web::get().to(mock_google_userinfo))
+                    .route("/apple/keys", web::get().to(mock_apple_keys))
+            })
+            .bind(("127.0.0.1", 0))
+            {
+                Ok(server) => server,
+                Err(err) => {
+                    let _ = tx.send(Err(err));
+                    return;
+                }
+            };
+            let Some(addr) = server.addrs().first().copied() else {
+                let _ = tx.send(Err(std::io::Error::other("oauth mock server did not bind")));
+                return;
+            };
+            let server = server.run();
+            let handle = server.handle();
+            let _ = tx.send(Ok((addr, handle)));
+            let _ = server.await;
+        });
+    });
+    let (addr, handle) = rx.recv()??;
+    Ok(OAuthMockServer {
+        base_url: format!("http://{addr}"),
+        handle,
+        thread,
+    })
+}
+
+fn oauth_test_config(base_url: &str) -> TestOAuthConfig {
+    TestOAuthConfig {
+        google_client_id: Some(TEST_GOOGLE_WEB_CLIENT_ID.into()),
+        apple_service_id: Some(TEST_APPLE_SERVICE_ID.into()),
+        google_tokeninfo_url: Some(format!("{base_url}/google/tokeninfo")),
+        google_userinfo_url: Some(format!("{base_url}/google/userinfo")),
+        apple_jwks_url: Some(format!("{base_url}/apple/keys")),
+        ..TestOAuthConfig::default()
+    }
+}
+
+#[derive(Serialize)]
+struct TestAppleClaims<'a> {
+    sub: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    email: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    email_verified: Option<serde_json::Value>,
+    exp: usize,
+    iss: &'a str,
+    aud: &'a str,
+}
+
+fn apple_id_token(aud: &str, sub: &str, email: Option<&str>) -> String {
+    let mut header = jsonwebtoken::Header::new(jsonwebtoken::Algorithm::RS256);
+    header.kid = Some(TEST_APPLE_KID.into());
+    let claims = TestAppleClaims {
+        sub,
+        email,
+        email_verified: email.map(|_| serde_json::json!("true")),
+        exp: (now_ts() + 3600) as usize,
+        iss: "https://appleid.apple.com",
+        aud,
+    };
+    let key_body = TEST_APPLE_PRIVATE_KEY
+        .lines()
+        .filter(|line| !line.starts_with("-----"))
+        .collect::<String>();
+    let key_der = STANDARD.decode(key_body).expect("test apple private key");
+    let key = jsonwebtoken::EncodingKey::from_rsa_der(&key_der);
+    jsonwebtoken::encode(&header, &claims, &key).expect("test apple id token")
 }
 
 #[tokio::test]
@@ -184,6 +376,302 @@ async fn register_rejects_invalid_payload() -> Result<(), Box<dyn Error>> {
         .fetch_one(&pool)
         .await?;
     assert_eq!(pending_count.0, 0);
+    Ok(())
+}
+
+#[tokio::test]
+async fn oauth_google_id_token_creates_user_and_identity() -> Result<(), Box<dyn Error>> {
+    let Some(pool) = obtain_pool().await else {
+        eprintln!("Skipping auth tests: DATABASE_URL or TEST_DATABASE_URL not set");
+        return Ok(());
+    };
+    let _guard = DB_LOCK.lock().await;
+    reset_tables(
+        &pool,
+        &["oauth_identities", "pending_registrations", "users"],
+    )
+    .await?;
+
+    let oauth_server = spawn_oauth_mock_server()?;
+    let state = build_state_with_oauth_config(
+        pool.clone(),
+        "secret",
+        &[],
+        oauth_test_config(&oauth_server.base_url),
+    );
+    let app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
+
+    let resp = test::call_service(
+        &app,
+        test::TestRequest::post()
+            .uri("/auth/oauth/google")
+            .set_json(serde_json::json!({ "idToken": "valid-google-id-token" }))
+            .to_request(),
+    )
+    .await;
+
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(
+        body.get("email").and_then(|value| value.as_str()),
+        Some("google.user@example.com")
+    );
+    assert!(
+        body.get("token")
+            .and_then(|value| value.as_str())
+            .is_some_and(|token| !token.is_empty())
+    );
+
+    let user_count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM users")
+        .fetch_one(&pool)
+        .await?;
+    assert_eq!(user_count.0, 1);
+    let (provider, subject): (String, String) = sqlx::query_as(
+        "SELECT provider, fiestaaa_decrypt_text(provider_subject_ciphertext)
+         FROM oauth_identities",
+    )
+    .fetch_one(&pool)
+    .await?;
+    assert_eq!(provider, "google");
+    assert_eq!(subject, "google-id-subject");
+
+    oauth_server.stop().await;
+    Ok(())
+}
+
+#[tokio::test]
+async fn oauth_google_access_token_uses_userinfo_email() -> Result<(), Box<dyn Error>> {
+    let Some(pool) = obtain_pool().await else {
+        eprintln!("Skipping auth tests: DATABASE_URL or TEST_DATABASE_URL not set");
+        return Ok(());
+    };
+    let _guard = DB_LOCK.lock().await;
+    reset_tables(
+        &pool,
+        &["oauth_identities", "pending_registrations", "users"],
+    )
+    .await?;
+
+    let oauth_server = spawn_oauth_mock_server()?;
+    let state = build_state_with_oauth_config(
+        pool.clone(),
+        "secret",
+        &[],
+        oauth_test_config(&oauth_server.base_url),
+    );
+    let app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
+
+    let resp = test::call_service(
+        &app,
+        test::TestRequest::post()
+            .uri("/auth/oauth/google")
+            .set_json(serde_json::json!({
+                "accessToken": "valid-google-access-token"
+            }))
+            .to_request(),
+    )
+    .await;
+
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(
+        body.get("email").and_then(|value| value.as_str()),
+        Some("access.user@example.com")
+    );
+
+    let (provider, subject): (String, String) = sqlx::query_as(
+        "SELECT provider, fiestaaa_decrypt_text(provider_subject_ciphertext)
+         FROM oauth_identities",
+    )
+    .fetch_one(&pool)
+    .await?;
+    assert_eq!(provider, "google");
+    assert_eq!(subject, "google-access-subject");
+
+    oauth_server.stop().await;
+    Ok(())
+}
+
+#[tokio::test]
+async fn oauth_google_rejects_audience_mismatch() -> Result<(), Box<dyn Error>> {
+    let Some(pool) = obtain_pool().await else {
+        eprintln!("Skipping auth tests: DATABASE_URL or TEST_DATABASE_URL not set");
+        return Ok(());
+    };
+    let _guard = DB_LOCK.lock().await;
+    reset_tables(
+        &pool,
+        &["oauth_identities", "pending_registrations", "users"],
+    )
+    .await?;
+
+    let oauth_server = spawn_oauth_mock_server()?;
+    let state = build_state_with_oauth_config(
+        pool.clone(),
+        "secret",
+        &[],
+        oauth_test_config(&oauth_server.base_url),
+    );
+    let app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
+
+    let resp = test::call_service(
+        &app,
+        test::TestRequest::post()
+            .uri("/auth/oauth/google")
+            .set_json(serde_json::json!({ "idToken": "wrong-aud-google-id-token" }))
+            .to_request(),
+    )
+    .await;
+
+    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(
+        body.get("error").and_then(|value| value.as_str()),
+        Some("invalid_token")
+    );
+    let user_count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM users")
+        .fetch_one(&pool)
+        .await?;
+    assert_eq!(user_count.0, 0);
+
+    oauth_server.stop().await;
+    Ok(())
+}
+
+#[tokio::test]
+async fn oauth_apple_reuses_identity_without_email() -> Result<(), Box<dyn Error>> {
+    let Some(pool) = obtain_pool().await else {
+        eprintln!("Skipping auth tests: DATABASE_URL or TEST_DATABASE_URL not set");
+        return Ok(());
+    };
+    let _guard = DB_LOCK.lock().await;
+    reset_tables(
+        &pool,
+        &["oauth_identities", "pending_registrations", "users"],
+    )
+    .await?;
+
+    let oauth_server = spawn_oauth_mock_server()?;
+    let state = build_state_with_oauth_config(
+        pool.clone(),
+        "secret",
+        &[],
+        oauth_test_config(&oauth_server.base_url),
+    );
+    let app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
+
+    let first_token = apple_id_token(
+        TEST_APPLE_SERVICE_ID,
+        "apple-stable-subject",
+        Some("Apple.User@Example.com"),
+    );
+    let first_resp = test::call_service(
+        &app,
+        test::TestRequest::post()
+            .uri("/auth/oauth/apple")
+            .set_json(serde_json::json!({ "idToken": first_token }))
+            .to_request(),
+    )
+    .await;
+    assert_eq!(first_resp.status(), StatusCode::OK);
+    let first_body: Value = test::read_body_json(first_resp).await;
+    assert_eq!(
+        first_body.get("email").and_then(|value| value.as_str()),
+        Some("apple.user@example.com")
+    );
+    let public_id = first_body
+        .get("public_id")
+        .and_then(|value| value.as_str())
+        .expect("public_id")
+        .to_owned();
+
+    let second_token = apple_id_token(TEST_APPLE_SERVICE_ID, "apple-stable-subject", None);
+    let second_resp = test::call_service(
+        &app,
+        test::TestRequest::post()
+            .uri("/auth/oauth/apple")
+            .set_json(serde_json::json!({ "idToken": second_token }))
+            .to_request(),
+    )
+    .await;
+    assert_eq!(second_resp.status(), StatusCode::OK);
+    let second_body: Value = test::read_body_json(second_resp).await;
+    assert_eq!(
+        second_body
+            .get("public_id")
+            .and_then(|value| value.as_str()),
+        Some(public_id.as_str())
+    );
+    assert_eq!(
+        second_body.get("email").and_then(|value| value.as_str()),
+        Some("apple.user@example.com")
+    );
+
+    let user_count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM users")
+        .fetch_one(&pool)
+        .await?;
+    assert_eq!(user_count.0, 1);
+    let (provider, subject): (String, String) = sqlx::query_as(
+        "SELECT provider, fiestaaa_decrypt_text(provider_subject_ciphertext)
+         FROM oauth_identities",
+    )
+    .fetch_one(&pool)
+    .await?;
+    assert_eq!(provider, "apple");
+    assert_eq!(subject, "apple-stable-subject");
+
+    oauth_server.stop().await;
+    Ok(())
+}
+
+#[tokio::test]
+async fn oauth_apple_rejects_audience_mismatch() -> Result<(), Box<dyn Error>> {
+    let Some(pool) = obtain_pool().await else {
+        eprintln!("Skipping auth tests: DATABASE_URL or TEST_DATABASE_URL not set");
+        return Ok(());
+    };
+    let _guard = DB_LOCK.lock().await;
+    reset_tables(
+        &pool,
+        &["oauth_identities", "pending_registrations", "users"],
+    )
+    .await?;
+
+    let oauth_server = spawn_oauth_mock_server()?;
+    let state = build_state_with_oauth_config(
+        pool.clone(),
+        "secret",
+        &[],
+        oauth_test_config(&oauth_server.base_url),
+    );
+    let app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
+
+    let token = apple_id_token(
+        "wrong.service.id",
+        "apple-wrong-audience",
+        Some("wrong@example.com"),
+    );
+    let resp = test::call_service(
+        &app,
+        test::TestRequest::post()
+            .uri("/auth/oauth/apple")
+            .set_json(serde_json::json!({ "idToken": token }))
+            .to_request(),
+    )
+    .await;
+
+    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(
+        body.get("error").and_then(|value| value.as_str()),
+        Some("invalid_token")
+    );
+    let user_count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM users")
+        .fetch_one(&pool)
+        .await?;
+    assert_eq!(user_count.0, 0);
+
+    oauth_server.stop().await;
     Ok(())
 }
 

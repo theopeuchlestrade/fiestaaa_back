@@ -905,7 +905,7 @@ async fn fetch_google_userinfo(
 ) -> Option<serde_json::Value> {
     let response = state
         .http_client
-        .get("https://www.googleapis.com/oauth2/v3/userinfo")
+        .get(state.google_userinfo_url.as_str())
         .bearer_auth(access_token)
         .send()
         .await
@@ -1155,7 +1155,7 @@ async fn oauth_google(
 
     let token_info = match state
         .http_client
-        .get("https://oauth2.googleapis.com/tokeninfo")
+        .get(state.google_tokeninfo_url.as_str())
         .query(&query)
         .send()
         .await
@@ -1390,7 +1390,7 @@ async fn fetch_apple_decoding_key(
 ) -> Option<jsonwebtoken::DecodingKey> {
     let resp = state
         .http_client
-        .get("https://appleid.apple.com/auth/keys")
+        .get(state.apple_jwks_url.as_str())
         .send()
         .await
         .ok()?;

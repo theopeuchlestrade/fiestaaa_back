@@ -40,4 +40,5 @@ rustls = { version = "0.23.37", default-features = false, features = ["ring", "s
 sha2 = "0.10"
 
 [dev-dependencies]
+base64 = "0.22"
 once_cell = "1"

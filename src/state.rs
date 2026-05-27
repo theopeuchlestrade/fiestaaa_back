@@ -27,6 +27,9 @@ pub struct AppState {
     pub google_ios_client_id: Option<String>,
     pub apple_app_id: Option<String>,
     pub apple_service_id: Option<String>,
+    pub google_tokeninfo_url: String,
+    pub google_userinfo_url: String,
+    pub apple_jwks_url: String,
     pub auth_rate_limiter: AuthRateLimiter,
     pub invitation_rate_limiter: AuthRateLimiter,
 }
