@@ -71,6 +71,9 @@ async fn main() -> std::io::Result<()> {
         google_ios_client_id: cfg.google_ios_client_id.clone(),
         apple_app_id: cfg.apple_app_id.clone(),
         apple_service_id: cfg.apple_service_id.clone(),
+        google_tokeninfo_url: "https://oauth2.googleapis.com/tokeninfo".into(),
+        google_userinfo_url: "https://www.googleapis.com/oauth2/v3/userinfo".into(),
+        apple_jwks_url: "https://appleid.apple.com/auth/keys".into(),
         auth_rate_limiter: rate_limit::AuthRateLimiter::new(
             cfg.auth_rate_limit_max_attempts,
             Duration::from_secs(cfg.auth_rate_limit_window_seconds),
