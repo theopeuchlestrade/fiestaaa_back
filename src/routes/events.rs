@@ -4,7 +4,7 @@ use log::{info, warn};
 use regex::Regex;
 use serde::Deserialize;
 use serde_json::json;
-use sqlx::{Error, PgPool, Row};
+use sqlx::{AssertSqlSafe, Error, PgPool, Row};
 use std::collections::{HashMap, HashSet};
 use std::net::IpAddr;
 use uuid::Uuid;
@@ -702,7 +702,7 @@ pub async fn get_event(
          WHERE e.event_id = $1",
     );
 
-    match sqlx::query_as::<_, Event>(&sql)
+    match sqlx::query_as::<_, Event>(AssertSqlSafe(sql))
         .bind(*event_id)
         .fetch_optional(&state.db)
         .await
@@ -754,7 +754,7 @@ pub async fn list_events(state: web::Data<AppState>, req: HttpRequest) -> impl R
          ORDER BY e.date_event, e.start_time",
     );
 
-    let res = sqlx::query_as::<_, Event>(&sql)
+    let res = sqlx::query_as::<_, Event>(AssertSqlSafe(sql))
         .bind(user_id)
         .fetch_all(&state.db)
         .await;
@@ -903,7 +903,7 @@ pub async fn create_event(
          RETURNING *",
     );
 
-    let res = sqlx::query_as::<_, Event>(&sql)
+    let res = sqlx::query_as::<_, Event>(AssertSqlSafe(sql))
         .bind(payload.name_event.trim())
         .bind(payload.description.trim())
         .bind(payload.date_event)
@@ -1067,7 +1067,7 @@ pub async fn replace_event(
          RETURNING *",
     );
 
-    let res = sqlx::query_as::<_, Event>(&sql)
+    let res = sqlx::query_as::<_, Event>(AssertSqlSafe(sql))
         .bind(payload.name_event.trim())
         .bind(payload.description.trim())
         .bind(payload.date_event)
@@ -1370,7 +1370,7 @@ pub async fn update_event(
          RETURNING *",
     );
 
-    let res = sqlx::query_as::<_, Event>(&sql)
+    let res = sqlx::query_as::<_, Event>(AssertSqlSafe(sql))
         .bind(
             payload
                 .name_event
@@ -1695,7 +1695,7 @@ pub async fn claim_share_link(
          JOIN users owner ON owner.id = e.owner_user_id
          WHERE e.event_id = $1",
     );
-    let event = sqlx::query_as::<_, Event>(&event_sql)
+    let event = sqlx::query_as::<_, Event>(AssertSqlSafe(event_sql))
         .bind(event_id)
         .fetch_optional(&mut *tx)
         .await;

@@ -7,7 +7,7 @@ shared expenses, access QR codes, notifications, and realtime streams.
 
 ## Stack
 
-- Rust 1.90
+- Rust 1.96
 - Actix Web
 - PostgreSQL via SQLx
 - Redis for some ephemeral state

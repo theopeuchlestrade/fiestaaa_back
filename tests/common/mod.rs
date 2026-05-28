@@ -5,7 +5,7 @@ use fiestaaa_back::{
     db, notifications::NotificationService, rate_limit::AuthRateLimiter, state::AppState,
 };
 use once_cell::sync::Lazy;
-use sqlx::PgPool;
+use sqlx::{AssertSqlSafe, PgPool};
 use tokio::sync::Mutex;
 
 pub static DB_LOCK: Lazy<Mutex<()>> = Lazy::new(|| Mutex::new(()));
@@ -38,7 +38,7 @@ pub async fn reset_tables(pool: &PgPool, tables: &[&str]) -> sqlx::Result<()> {
     }
     let names = tables.join(", ");
     let query = format!("TRUNCATE {} RESTART IDENTITY CASCADE", names);
-    sqlx::query(&query).execute(pool).await?;
+    sqlx::query(AssertSqlSafe(query)).execute(pool).await?;
     Ok(())
 }
 

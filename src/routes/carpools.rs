@@ -3,7 +3,8 @@ use chrono::Utc;
 use log::{info, warn};
 use serde::Deserialize;
 use serde_json::json;
-use sqlx::{PgPool, Row};
+use sqlx::{AssertSqlSafe, PgPool, Row};
+use std::cmp::Reverse;
 
 use crate::{
     auth::extract_active_claims_from_auth,
@@ -164,7 +165,7 @@ fn select_carpools_sql(from_and_where: &str) -> String {
 
 async fn fetch_carpool(db: &PgPool, carpool_id: i64) -> Result<Carpool, HttpResponse> {
     let sql = select_carpools_sql("FROM carpools c WHERE c.carpool_id = $1");
-    sqlx::query_as::<_, Carpool>(&sql)
+    sqlx::query_as::<_, Carpool>(AssertSqlSafe(sql))
         .bind(carpool_id)
         .fetch_optional(db)
         .await
@@ -184,7 +185,7 @@ async fn fetch_carpool_views(
     sort_by: Option<String>,
 ) -> Result<Vec<CarpoolView>, HttpResponse> {
     let sql = select_carpools_sql("FROM carpools c WHERE c.event_id = $1");
-    let carpools = sqlx::query_as::<_, Carpool>(&sql)
+    let carpools = sqlx::query_as::<_, Carpool>(AssertSqlSafe(sql))
         .bind(event_id)
         .fetch_all(db)
         .await
@@ -199,16 +200,16 @@ async fn fetch_carpool_views(
     fn apply_sort(list: &mut [Carpool], sort_by: Option<&str>) {
         match sort_by {
             Some("departure_asc") => {
-                list.sort_by(|a, b| a.depart_at.cmp(&b.depart_at));
+                list.sort_by_key(|carpool| carpool.depart_at);
             }
             Some("departure_desc") => {
-                list.sort_by(|a, b| b.depart_at.cmp(&a.depart_at));
+                list.sort_by_key(|carpool| Reverse(carpool.depart_at));
             }
             Some("seats_asc") => {
-                list.sort_by(|a, b| a.seats_total.cmp(&b.seats_total));
+                list.sort_by_key(|carpool| carpool.seats_total);
             }
             Some("seats_desc") => {
-                list.sort_by(|a, b| b.seats_total.cmp(&a.seats_total));
+                list.sort_by_key(|carpool| Reverse(carpool.seats_total));
             }
             Some("available_seats_asc") => {
                 list.sort_by(|a, b| {
@@ -222,7 +223,7 @@ async fn fetch_carpool_views(
             }
             _ => {
                 // Default sorting: by departure time ascending
-                list.sort_by(|a, b| a.depart_at.cmp(&b.depart_at));
+                list.sort_by_key(|carpool| carpool.depart_at);
             }
         }
     }

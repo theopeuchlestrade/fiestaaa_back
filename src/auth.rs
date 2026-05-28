@@ -3,13 +3,12 @@ use actix_web::http::header::AUTHORIZATION;
 use actix_web::{HttpRequest, HttpResponse};
 use argon2::{
     Argon2,
-    password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
+    password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString, rand_core::OsRng},
 };
 use chrono::{DateTime, Utc};
 use jsonwebtoken::{
     Algorithm, DecodingKey, EncodingKey, Header, Validation, decode, encode, errors::ErrorKind,
 };
-use rand_core::OsRng;
 use sqlx::{Pool, Postgres};
 use uuid::Uuid;
 

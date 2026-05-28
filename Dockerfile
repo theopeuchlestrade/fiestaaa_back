@@ -1,7 +1,13 @@
-# Pinned Rust builder image for deterministic production builds (1.90.0-bookworm)
-FROM rust:1.90.0-bookworm@sha256:3914072ca0c3b8aad871db9169a651ccfce30cf58303e5d6f2db16d1d8a7e58f AS builder
+# Pinned Rust builder base. Docker Hub does not yet publish rust:1.96.0-bookworm,
+# so rustup installs the exact project toolchain below.
+FROM rust:1.95.0-bookworm@sha256:6258907abe69656e41cd992e0b705cdcfabcbbe3db374f92ed2d47121282d4a1 AS builder
+
+ARG RUST_VERSION=1.96.0
 
 LABEL org.opencontainers.image.source="https://github.com/theopeuchlestrade/fiestaaa_back"
+
+RUN rustup toolchain install "$RUST_VERSION" --profile minimal \
+ && rustup default "$RUST_VERSION"
 
 # Build deps for sqlx/postgres and native-tls consumers such as reqwest.
 RUN apt-get update \
