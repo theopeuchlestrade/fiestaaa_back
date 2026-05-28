@@ -2,7 +2,7 @@
 name = "fiestaaa_back"
 version = "0.1.0"
 edition = "2024"
-rust-version = "1.90"
+rust-version = "1.96"
 description = "Backend API for Fiestaaa"
 license = "AGPL-3.0-only"
 repository = "https://github.com/theopeuchlestrade/fiestaaa_back"
@@ -19,10 +19,10 @@ serde_json = "1"
 jsonwebtoken = { version = "10", default-features = false, features = ["rust_crypto"] }
 env_logger = "0.11"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
-sqlx = { version = "0.8.6", default-features = false, features = ["runtime-tokio", "postgres", "migrate", "macros", "derive", "time", "chrono", "uuid"] }
+sqlx = { version = "0.9.0", default-features = false, features = ["runtime-tokio", "postgres", "migrate", "macros", "derive", "time", "chrono", "uuid"] }
 argon2 = "0.5"
 dotenvy = "0.15"
-rand_core = "0.6"
+rand = "0.10"
 actix-cors = "0.7"
 futures-util = "0.3"
 redis = { version = "1", features = ["aio", "tokio-comp"] }
@@ -37,7 +37,7 @@ log = "0.4"
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp"] }
 gcp_auth = "0.12.6"
 rustls = { version = "0.23.37", default-features = false, features = ["ring", "std"] }
-sha2 = "0.10"
+sha2 = "0.11"
 
 [dev-dependencies]
 base64 = "0.22"

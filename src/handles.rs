@@ -1,4 +1,4 @@
-use rand_core::{OsRng, RngCore};
+use rand::{Rng, RngExt};
 use sqlx::PgPool;
 
 const HANDLE_MIN_LEN: usize = 4;
@@ -109,12 +109,12 @@ pub async fn handle_available(db: &PgPool, handle: &str) -> Result<bool, sqlx::E
 }
 
 pub async fn generate_unique_handle(db: &PgPool) -> Result<String, sqlx::Error> {
-    let mut rng = OsRng;
+    let mut rng = rand::rng();
     let mut attempts = 0;
     while attempts < 20 {
         let first = pick_word(&mut rng);
         let second = pick_word(&mut rng);
-        let number = (rng.next_u64() % 10_000) as u32;
+        let number: u32 = rng.random_range(..10_000);
         let candidate = format!("{first}-{second}-{number:04}");
         if handle_available(db, &candidate).await? {
             return Ok(candidate);
@@ -123,7 +123,7 @@ pub async fn generate_unique_handle(db: &PgPool) -> Result<String, sqlx::Error> 
     }
 
     // Fallback: still ensure a unique suffix even if the word pool is saturated.
-    let suffix = rng.next_u64();
+    let suffix: u64 = rng.random();
     let fallback = format!("fiestaaa-{suffix:x}");
     if handle_available(db, &fallback).await? {
         Ok(fallback)
@@ -133,8 +133,8 @@ pub async fn generate_unique_handle(db: &PgPool) -> Result<String, sqlx::Error> 
     }
 }
 
-fn pick_word(rng: &mut OsRng) -> &'static str {
-    let idx = (rng.next_u64() as usize) % HANDLE_WORDS.len();
+fn pick_word(rng: &mut impl Rng) -> &'static str {
+    let idx = rng.random_range(..HANDLE_WORDS.len());
     HANDLE_WORDS[idx]
 }
 
