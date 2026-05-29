@@ -27,7 +27,9 @@ GitHub Actions (GHCR).
 - Traefik no longer accesses `/var/run/docker.sock` directly; it goes through a
   Docker proxy with limited read access.
 - `FCM_SERVER_KEY` is optional and only used for the legacy FCM fallback. The
-  recommended path is FCM HTTP v1 with `service-account.json`.
+  production deployment uses FCM HTTP v1 and requires
+  `FCM_SERVICE_ACCOUNT_JSON_B64` so GitHub Actions can materialize
+  `service-account.json` on the VPS.
 - PRs should pass a `dependency review`, and images pushed to GHCR should have a
   provenance attestation.
 - While repositories remain `private + GitHub Free`, some prepared workflow
@@ -301,10 +303,10 @@ touch ~/apps/fiestaaa/traefik/letsencrypt/acme.json && chmod 600 ~/apps/fiestaaa
   by GitHub Actions workflows. Without both values, the production compose now
   refuses to start to avoid any implicit fallback to `latest`.
 
-- **Firebase service file**: put the JSON in
-  `~/apps/fiestaaa/data/service-account.json` (unversioned, mounted read-only in
-  the API container) and apply
-  `chmod 600 ~/apps/fiestaaa/data/service-account.json`.
+- **Firebase service file**: GitHub Actions materializes
+  `~/apps/fiestaaa/data/service-account.json` from
+  `FCM_SERVICE_ACCOUNT_JSON_B64`. For a manual deployment, put the JSON there
+  yourself, then apply `chown 10001:10001` and `chmod 400`.
 - **Persistent data**:
   - Postgres: `./data/postgres` (volume `db`).
   - Avatar uploads: `./data/uploads` (volume mounted on `/data/uploads` by
@@ -375,7 +377,7 @@ Name | Description
 `INVITATION_EMAIL_SENDER` | Invitation email sender
 `RESEND_API_KEY` | Resend email key
 `FCM_SERVER_KEY` | (optional) Legacy FCM server key; leave empty if you use FCM HTTP v1 with `service-account.json`
-`FCM_SERVICE_ACCOUNT_JSON_B64` | (optional but recommended) Single-line base64 content of `service-account.json`, materialized as `~/apps/fiestaaa/data/service-account.json`
+`FCM_SERVICE_ACCOUNT_JSON_B64` | Required for production FCM HTTP v1; single-line base64 content of `service-account.json`, materialized as `~/apps/fiestaaa/data/service-account.json`
 `FIESTAAA_FCM_VAPID_KEY` | VAPID public key (web push), reused by the frontend
 `FCM_SERVICE_ACCOUNT_PATH` | Service key path (for example `/app/service-account.json`)
 `FCM_PROJECT_ID` | Firebase project ID

@@ -85,12 +85,17 @@ already exist in `~/apps/fiestaaa/.env`. To initialize a blank machine:
 3. In `fiestaaa_back`, run `Bootstrap VPS Stack` with `front_image_tag=<sha_front>`. This workflow builds/pushes the API, then starts the whole Compose stack.
 4. Then use the normal back/front deployment workflows.
 
-If you use FCM HTTP v1, also store the Firebase service key as base64 in
-`FCM_SERVICE_ACCOUNT_JSON_B64` on the backend GitHub `production` environment:
+The production stack uses FCM HTTP v1. Store the Firebase service key as base64
+in `FCM_SERVICE_ACCOUNT_JSON_B64` on the backend GitHub `production`
+environment before running the deploy workflows:
 
 ```bash
 base64 < service-account.json | tr -d '\n' | gh secret set FCM_SERVICE_ACCOUNT_JSON_B64 --repo theopeuchlestrade/fiestaaa_back --env production
 ```
+
+The workflows refuse to deploy if this secret is missing or does not decode to a
+Firebase service account containing `private_key`, `client_email`, and
+`project_id`.
 
 ## What the Playbook Manages
 
