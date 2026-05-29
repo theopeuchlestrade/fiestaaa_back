@@ -1,6 +1,5 @@
-# Pinned Rust builder base. Docker Hub does not yet publish rust:1.96.0-bookworm,
-# so rustup installs the exact project toolchain below.
-FROM rust:1.95.0-bookworm@sha256:6258907abe69656e41cd992e0b705cdcfabcbbe3db374f92ed2d47121282d4a1 AS builder
+# Pinned Rust builder base. Rustup keeps the exact project toolchain selected.
+FROM rust:1.96.0-bookworm@sha256:13c186980fa33cc12759b429662a1322939dbe697484b7c33b47dd2698d28460 AS builder
 
 ARG RUST_VERSION=1.96.0
 
