@@ -304,20 +304,20 @@ pub async fn refresh_user_metrics(pool: &Pool<Postgres>) -> Result<(), sqlx::Err
             WHERE created_at >= NOW() - INTERVAL '30 days'
         ),
         per_source AS (
-            SELECT w.label AS window, a.source, COUNT(DISTINCT a.user_id)::BIGINT AS users
+            SELECT w.label AS window_label, a.source, COUNT(DISTINCT a.user_id)::BIGINT AS users
             FROM windows w
             JOIN activity a ON a.occurred_at >= w.since_at
             GROUP BY w.label, a.source
         ),
         any_source AS (
-            SELECT w.label AS window, 'any' AS source, COUNT(DISTINCT a.user_id)::BIGINT AS users
+            SELECT w.label AS window_label, 'any' AS source, COUNT(DISTINCT a.user_id)::BIGINT AS users
             FROM windows w
             JOIN activity a ON a.occurred_at >= w.since_at
             GROUP BY w.label
         )
-        SELECT window, source, users FROM per_source
+        SELECT window_label, source, users FROM per_source
         UNION ALL
-        SELECT window, source, users FROM any_source
+        SELECT window_label, source, users FROM any_source
         "#,
     )
     .fetch_all(pool)
