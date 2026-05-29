@@ -8,6 +8,7 @@ use actix_web::{
 };
 use fiestaaa_back::{
     cleanup, config, db, docs, notifications, observability, rate_limit, routes, state,
+    user_metrics,
 };
 use redis::Client as RedisClient;
 use std::collections::HashSet;
@@ -46,6 +47,10 @@ async fn main() -> std::io::Result<()> {
     cleanup::CleanupService::new(pool.clone())
         .with_cleanup_days(cfg.event_cleanup_days)
         .with_interval_hours(cfg.event_cleanup_interval_hours)
+        .start();
+
+    user_metrics::UserMetricsService::new(pool.clone())
+        .with_refresh_seconds(cfg.user_metrics_refresh_seconds)
         .start();
 
     let admin_emails = cfg.admin_emails.iter().cloned().collect::<HashSet<_>>();

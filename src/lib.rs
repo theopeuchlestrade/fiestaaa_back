@@ -12,6 +12,7 @@ pub mod realtime;
 pub mod routes;
 pub mod security;
 pub mod state;
+pub mod user_metrics;
 
 use dotenvy::from_path;
 use std::path::Path;

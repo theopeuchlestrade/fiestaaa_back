@@ -162,6 +162,7 @@ pub fn render_prometheus() -> Result<String, prometheus::Error> {
     Lazy::force(&INVITATION_ERRORS_TOTAL);
     Lazy::force(&EMAIL_ERRORS_TOTAL);
     Lazy::force(&PUSH_ERRORS_TOTAL);
+    crate::user_metrics::force_registered();
 
     let metric_families = prometheus::gather();
     let encoder = TextEncoder::new();
