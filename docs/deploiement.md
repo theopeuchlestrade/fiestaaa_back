@@ -557,7 +557,8 @@ The dashboard tracks:
 - recent warnings/errors from API, frontend, Traefik, and backup logs.
 
 API metrics are protected by `METRICS_BEARER_TOKEN`; Prometheus reads the token
-from `~/apps/fiestaaa/secrets/metrics_token`.
+from `~/apps/fiestaaa/secrets/metrics_token`, owned by UID/GID `65534` because
+the Prometheus container runs as `nobody`.
 
 ### External Uptime Checks
 

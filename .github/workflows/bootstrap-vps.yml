@@ -186,8 +186,10 @@ jobs:
             sudo chown 65534:65534 data/prometheus
             sudo chown 10001:10001 data/loki
             sudo chown 472:472 data/grafana
-            printf '%s' "${METRICS_BEARER_TOKEN}" > secrets/metrics_token
-            chmod 600 secrets/metrics_token
+            tmp_metrics_token="$(mktemp)"
+            printf '%s' "${METRICS_BEARER_TOKEN}" > "${tmp_metrics_token}"
+            sudo install -m 400 -o 65534 -g 65534 "${tmp_metrics_token}" secrets/metrics_token
+            rm -f "${tmp_metrics_token}"
             sudo install -d -m 700 -o root -g root traefik/letsencrypt
             sudo touch traefik/letsencrypt/acme.json
             sudo chown root:root traefik/letsencrypt/acme.json
