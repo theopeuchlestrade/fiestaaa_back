@@ -1,0 +1,46 @@
+name: Uptime Monitor
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  uptime:
+    name: External uptime checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check public endpoints
+        env:
+          UPTIME_ALERT_WEBHOOK_URL: ${{ secrets.UPTIME_ALERT_WEBHOOK_URL }}
+        run: |
+          set -euo pipefail
+          failed=""
+
+          check_url() {
+            local url="$1"
+            if ! curl --fail --silent --show-error --max-time 15 --retry 2 --retry-delay 5 --retry-all-errors "$url" >/dev/null; then
+              failed="${failed}${url} "
+            fi
+          }
+
+          check_url "https://fiestaaa.app"
+          check_url "https://api.fiestaaa.app/health"
+
+          if [ -n "$failed" ]; then
+            echo "::error::Uptime check failed for: ${failed}"
+            if [ -n "${UPTIME_ALERT_WEBHOOK_URL:-}" ]; then
+              payload="$(printf '{"text":"Fiestaaa uptime check failed for: %s"}' "$failed")"
+              curl --fail --silent --show-error \
+                -H "Content-Type: application/json" \
+                -d "$payload" \
+                "$UPTIME_ALERT_WEBHOOK_URL" || true
+            fi
+            exit 1
+          fi
+
+          echo "Uptime checks passed."

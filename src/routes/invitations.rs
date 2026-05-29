@@ -12,6 +12,7 @@ use crate::{
         ErrorResponse, Invitation, InvitationPatchPayload, InvitationPayload, StatusResponse,
     },
     notifications::{NotificationRequest, find_user_id_by_email, notify_users},
+    observability,
     realtime::{event_types, publish_event, publish_event_type, publish_global_type},
     routes::event_access::ensure_event_writable,
     security::sha256_hex,
@@ -363,6 +364,8 @@ async fn send_invitation_email(
         Some(value) => value,
         None => {
             warn!("Invitation email not sent: INVITATION_EMAIL_SENDER missing");
+            observability::record_email_error("invitation_sender_missing");
+            observability::record_invitation_error("email_not_configured");
             return Err(HttpResponse::ServiceUnavailable().json(ErrorResponse {
                 error: "email_not_configured".into(),
                 details: Some("INVITATION_EMAIL_SENDER manquant".into()),
@@ -374,6 +377,8 @@ async fn send_invitation_email(
         Some(value) => value,
         None => {
             warn!("Invitation email not sent: RESEND_API_KEY missing");
+            observability::record_email_error("invitation_api_key_missing");
+            observability::record_invitation_error("email_not_configured");
             return Err(HttpResponse::ServiceUnavailable().json(ErrorResponse {
                 error: "email_not_configured".into(),
                 details: Some("RESEND_API_KEY manquant".into()),
@@ -471,6 +476,8 @@ async fn send_invitation_email(
         Ok(resp) => {
             let status = resp.status();
             warn!("Invitation email provider failure: status {status}");
+            observability::record_email_error("invitation_provider_failure");
+            observability::record_invitation_error("email_send_failed");
             Err(HttpResponse::BadGateway().json(ErrorResponse {
                 error: "email_send_failed".into(),
                 details: Some(format!("provider status {status}")),
@@ -478,6 +485,12 @@ async fn send_invitation_email(
         }
         Err(e) => {
             error!("Invitation email send failed: transport error: {e}");
+            observability::record_email_error("invitation_transport_failure");
+            observability::record_invitation_error("email_send_failed");
+            observability::capture_message(
+                sentry::Level::Error,
+                &format!("invitation email transport failure: {e}"),
+            );
             Err(HttpResponse::BadGateway().json(ErrorResponse {
                 error: "email_send_failed".into(),
                 details: Some("transport_error".into()),

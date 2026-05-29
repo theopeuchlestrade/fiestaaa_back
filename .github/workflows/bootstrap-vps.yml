@@ -36,6 +36,7 @@ jobs:
           APP_BASE_URL: ${{ secrets.APP_BASE_URL }}
           AVATAR_BASE_URL: ${{ secrets.AVATAR_BASE_URL }}
           AVATAR_UPLOAD_DIR: ${{ secrets.AVATAR_UPLOAD_DIR }}
+          BACKUP_INCLUDE_SECRETS: ${{ vars.BACKUP_INCLUDE_SECRETS || 'false' }}
           CORS_ALLOWED_ORIGINS: ${{ secrets.CORS_ALLOWED_ORIGINS }}
           DATA_ENCRYPTION_KEY: ${{ secrets.DATA_ENCRYPTION_KEY }}
           DATA_LOOKUP_KEY: ${{ secrets.DATA_LOOKUP_KEY }}
@@ -50,12 +51,15 @@ jobs:
           GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
           INVITATION_EMAIL_SENDER: ${{ secrets.INVITATION_EMAIL_SENDER }}
           JWT_SECRET: ${{ secrets.JWT_SECRET }}
+          METRICS_BEARER_TOKEN: ${{ secrets.METRICS_BEARER_TOKEN }}
           NOTIFICATION_DEDUP_TTL_SECONDS: ${{ secrets.NOTIFICATION_DEDUP_TTL_SECONDS }}
           POSTGRES_DB: ${{ secrets.POSTGRES_DB }}
           POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
           POSTGRES_USER: ${{ secrets.POSTGRES_USER }}
           REDIS_URL: ${{ secrets.REDIS_URL }}
           RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          GRAFANA_ADMIN_PASSWORD: ${{ secrets.GRAFANA_ADMIN_PASSWORD }}
+          SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
           VPS_HOST: ${{ secrets.VPS_HOST }}
           VPS_PORT: ${{ secrets.VPS_PORT }}
           VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
@@ -65,7 +69,7 @@ jobs:
           for var in VPS_HOST VPS_PORT VPS_USER VPS_SSH_KEY GHCR_TOKEN; do
             if [ -z "${!var}" ]; then echo "::error::$var manquant"; missing=1; fi
           done
-          for var in APP_BASE_URL AVATAR_BASE_URL AVATAR_UPLOAD_DIR CORS_ALLOWED_ORIGINS DATA_ENCRYPTION_KEY DATA_LOOKUP_KEY DATABASE_URL FCM_PROJECT_ID FCM_SERVICE_ACCOUNT_PATH FIESTAAA_APPLE_REDIRECT_URI FIESTAAA_APPLE_SERVICE_ID FIESTAAA_FCM_VAPID_KEY FIESTAAA_GOOGLE_WEB_CLIENT_ID FIESTAAA_GOOGLE_IOS_CLIENT_ID RESEND_API_KEY INVITATION_EMAIL_SENDER JWT_SECRET NOTIFICATION_DEDUP_TTL_SECONDS POSTGRES_DB POSTGRES_PASSWORD POSTGRES_USER REDIS_URL; do
+          for var in APP_BASE_URL AVATAR_BASE_URL AVATAR_UPLOAD_DIR CORS_ALLOWED_ORIGINS DATA_ENCRYPTION_KEY DATA_LOOKUP_KEY DATABASE_URL FCM_PROJECT_ID FCM_SERVICE_ACCOUNT_PATH FIESTAAA_APPLE_REDIRECT_URI FIESTAAA_APPLE_SERVICE_ID FIESTAAA_FCM_VAPID_KEY FIESTAAA_GOOGLE_WEB_CLIENT_ID FIESTAAA_GOOGLE_IOS_CLIENT_ID RESEND_API_KEY INVITATION_EMAIL_SENDER JWT_SECRET METRICS_BEARER_TOKEN NOTIFICATION_DEDUP_TTL_SECONDS POSTGRES_DB POSTGRES_PASSWORD POSTGRES_USER REDIS_URL GRAFANA_ADMIN_PASSWORD SENTRY_DSN; do
             if [ -z "${!var}" ]; then echo "::error::$var manquant pour .env"; missing=1; fi
           done
           if [ -z "${{ inputs.front_image_tag }}" ]; then echo "::error::front_image_tag manquant"; missing=1; fi
@@ -108,7 +112,7 @@ jobs:
           subject-digest: ${{ steps.push.outputs.digest }}
           push-to-registry: true
 
-      - name: Sync production compose file
+      - name: Sync production runtime files
         env:
           VPS_HOST: ${{ secrets.VPS_HOST }}
           VPS_PORT: ${{ secrets.VPS_PORT }}
@@ -119,12 +123,30 @@ jobs:
           key_path="${RUNNER_TEMP}/fiestaaa_deploy"
           printf '%s\n' "${VPS_SSH_KEY}" > "${key_path}"
           chmod 600 "${key_path}"
+          ssh -i "${key_path}" \
+            -p "${VPS_PORT}" \
+            -o BatchMode=yes \
+            -o StrictHostKeyChecking=accept-new \
+            "${VPS_USER}@${VPS_HOST}" \
+            "mkdir -p ~/apps/fiestaaa"
           scp -i "${key_path}" \
             -P "${VPS_PORT}" \
             -o BatchMode=yes \
             -o StrictHostKeyChecking=accept-new \
             docker-compose.prod.yml \
             "${VPS_USER}@${VPS_HOST}:~/apps/fiestaaa/docker-compose.yml"
+          scp -i "${key_path}" \
+            -P "${VPS_PORT}" \
+            -o BatchMode=yes \
+            -o StrictHostKeyChecking=accept-new \
+            -r observability scripts \
+            "${VPS_USER}@${VPS_HOST}:~/apps/fiestaaa/"
+          ssh -i "${key_path}" \
+            -p "${VPS_PORT}" \
+            -o BatchMode=yes \
+            -o StrictHostKeyChecking=accept-new \
+            "${VPS_USER}@${VPS_HOST}" \
+            "chmod +x ~/apps/fiestaaa/scripts/backup_runtime.sh ~/apps/fiestaaa/scripts/restore_drill_postgres.sh"
           rm -f "${key_path}"
 
       - name: Bootstrap stack on VPS
@@ -134,7 +156,7 @@ jobs:
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
           port: ${{ secrets.VPS_PORT || 22 }}
-          envs: ADMIN_EMAILS,APP_BASE_URL,AVATAR_BASE_URL,AVATAR_UPLOAD_DIR,CORS_ALLOWED_ORIGINS,DATA_ENCRYPTION_KEY,DATA_LOOKUP_KEY,DATABASE_URL,FCM_PROJECT_ID,FCM_SERVICE_ACCOUNT_JSON_B64,FCM_SERVICE_ACCOUNT_PATH,FCM_SERVER_KEY,FIESTAAA_APPLE_APP_ID,FIESTAAA_APPLE_REDIRECT_URI,FIESTAAA_APPLE_SERVICE_ID,FIESTAAA_FCM_VAPID_KEY,FIESTAAA_GOOGLE_ANDROID_CLIENT_ID,FIESTAAA_GOOGLE_WEB_CLIENT_ID,FIESTAAA_GOOGLE_IOS_CLIENT_ID,RESEND_API_KEY,INVITATION_EMAIL_SENDER,JWT_SECRET,NOTIFICATION_DEDUP_TTL_SECONDS,POSTGRES_DB,POSTGRES_PASSWORD,POSTGRES_USER,REDIS_URL,GHCR_USERNAME,GHCR_TOKEN,VPS_USER,TAG,FRONT_IMAGE_TAG
+          envs: ADMIN_EMAILS,APP_BASE_URL,AVATAR_BASE_URL,AVATAR_UPLOAD_DIR,BACKUP_INCLUDE_SECRETS,CORS_ALLOWED_ORIGINS,DATA_ENCRYPTION_KEY,DATA_LOOKUP_KEY,DATABASE_URL,FCM_PROJECT_ID,FCM_SERVICE_ACCOUNT_JSON_B64,FCM_SERVICE_ACCOUNT_PATH,FCM_SERVER_KEY,FIESTAAA_APPLE_APP_ID,FIESTAAA_APPLE_REDIRECT_URI,FIESTAAA_APPLE_SERVICE_ID,FIESTAAA_FCM_VAPID_KEY,FIESTAAA_GOOGLE_ANDROID_CLIENT_ID,FIESTAAA_GOOGLE_WEB_CLIENT_ID,FIESTAAA_GOOGLE_IOS_CLIENT_ID,GRAFANA_ADMIN_PASSWORD,GRAFANA_ADMIN_USER,METRICS_BEARER_TOKEN,POSTGRES_BACKUP_INTERVAL_SECONDS,POSTGRES_BACKUP_RETENTION_DAYS,RESEND_API_KEY,INVITATION_EMAIL_SENDER,JWT_SECRET,NOTIFICATION_DEDUP_TTL_SECONDS,POSTGRES_DB,POSTGRES_PASSWORD,POSTGRES_USER,REDIS_URL,SENTRY_DSN,SENTRY_ENVIRONMENT,SENTRY_TRACES_SAMPLE_RATE,GHCR_USERNAME,GHCR_TOKEN,VPS_USER,TAG,FRONT_IMAGE_TAG
           script: |
             set -euo pipefail
             cd ~/apps/fiestaaa
@@ -147,6 +169,13 @@ jobs:
             sudo install -d -m 700 data/postgres
             sudo chown 999:999 data/postgres
             sudo chmod 700 data/postgres
+            sudo install -d -m 750 -o "${VPS_USER}" -g "${VPS_USER}" data/backups data/backups/postgres data/backups/files secrets
+            sudo install -d -m 750 data/prometheus data/loki data/grafana
+            sudo chown 65534:65534 data/prometheus
+            sudo chown 10001:10001 data/loki
+            sudo chown 472:472 data/grafana
+            printf '%s' "${METRICS_BEARER_TOKEN}" > secrets/metrics_token
+            chmod 600 secrets/metrics_token
             sudo install -d -m 700 -o root -g root traefik/letsencrypt
             sudo touch traefik/letsencrypt/acme.json
             sudo chown root:root traefik/letsencrypt/acme.json
@@ -187,12 +216,21 @@ jobs:
             RESEND_API_KEY=${RESEND_API_KEY}
             INVITATION_EMAIL_SENDER=${INVITATION_EMAIL_SENDER}
             JWT_SECRET=${JWT_SECRET}
+            METRICS_BEARER_TOKEN=${METRICS_BEARER_TOKEN}
             NOTIFICATION_DEDUP_TTL_SECONDS=${NOTIFICATION_DEDUP_TTL_SECONDS}
             POSTGRES_DB=${POSTGRES_DB}
             POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
             POSTGRES_USER=${POSTGRES_USER}
             REDIS_URL=${REDIS_URL}
             ADMIN_EMAILS=${ADMIN_EMAILS}
+            GRAFANA_ADMIN_USER=${GRAFANA_ADMIN_USER}
+            GRAFANA_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD}
+            SENTRY_DSN=${SENTRY_DSN}
+            SENTRY_ENVIRONMENT=${SENTRY_ENVIRONMENT}
+            SENTRY_TRACES_SAMPLE_RATE=${SENTRY_TRACES_SAMPLE_RATE}
+            POSTGRES_BACKUP_RETENTION_DAYS=${POSTGRES_BACKUP_RETENTION_DAYS}
+            POSTGRES_BACKUP_INTERVAL_SECONDS=${POSTGRES_BACKUP_INTERVAL_SECONDS}
+            BACKUP_INCLUDE_SECRETS=${BACKUP_INCLUDE_SECRETS}
             EOF
             chmod 600 .env
             echo "${GHCR_TOKEN}" | docker login ghcr.io -u "${GHCR_USERNAME}" --password-stdin
@@ -222,14 +260,22 @@ jobs:
           FRONT_IMAGE_TAG: ${{ inputs.front_image_tag }}
           GHCR_USERNAME: ${{ secrets.GHCR_USERNAME || github.repository_owner }}
           GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
+          GRAFANA_ADMIN_USER: ${{ secrets.GRAFANA_ADMIN_USER || 'admin' }}
+          GRAFANA_ADMIN_PASSWORD: ${{ secrets.GRAFANA_ADMIN_PASSWORD }}
           INVITATION_EMAIL_SENDER: ${{ secrets.INVITATION_EMAIL_SENDER }}
           JWT_SECRET: ${{ secrets.JWT_SECRET }}
+          METRICS_BEARER_TOKEN: ${{ secrets.METRICS_BEARER_TOKEN }}
           NOTIFICATION_DEDUP_TTL_SECONDS: ${{ secrets.NOTIFICATION_DEDUP_TTL_SECONDS }}
+          POSTGRES_BACKUP_INTERVAL_SECONDS: ${{ vars.POSTGRES_BACKUP_INTERVAL_SECONDS || '86400' }}
+          POSTGRES_BACKUP_RETENTION_DAYS: ${{ vars.POSTGRES_BACKUP_RETENTION_DAYS || '14' }}
           POSTGRES_DB: ${{ secrets.POSTGRES_DB }}
           POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
           POSTGRES_USER: ${{ secrets.POSTGRES_USER }}
           REDIS_URL: ${{ secrets.REDIS_URL }}
           RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
+          SENTRY_ENVIRONMENT: ${{ vars.SENTRY_ENVIRONMENT || 'production' }}
+          SENTRY_TRACES_SAMPLE_RATE: ${{ vars.SENTRY_TRACES_SAMPLE_RATE || '0' }}
           TAG: ${{ github.sha }}
           VPS_USER: ${{ secrets.VPS_USER }}
 

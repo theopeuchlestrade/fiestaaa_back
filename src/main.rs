@@ -6,7 +6,9 @@ use actix_web::{
     middleware::{DefaultHeaders, Logger},
     web,
 };
-use fiestaaa_back::{cleanup, config, db, docs, notifications, rate_limit, routes, state};
+use fiestaaa_back::{
+    cleanup, config, db, docs, notifications, observability, rate_limit, routes, state,
+};
 use redis::Client as RedisClient;
 use std::collections::HashSet;
 use std::time::Duration;
@@ -23,6 +25,17 @@ async fn main() -> std::io::Result<()> {
 
     // Config + DB
     let cfg = config::AppConfig::from_env();
+    let _sentry_guard = cfg.sentry_dsn.as_ref().map(|dsn| {
+        sentry::init((
+            dsn.as_str(),
+            sentry::ClientOptions {
+                release: sentry::release_name!(),
+                environment: Some(cfg.sentry_environment.clone().into()),
+                traces_sample_rate: cfg.sentry_traces_sample_rate,
+                ..Default::default()
+            },
+        ))
+    });
     let pool = db::connect_and_migrate(
         &cfg.database_url,
         &cfg.data_encryption_key,
@@ -84,6 +97,7 @@ async fn main() -> std::io::Result<()> {
             Duration::from_secs(cfg.invitation_rate_limit_window_seconds),
             redis_client.clone(),
         ),
+        metrics_bearer_token: cfg.metrics_bearer_token.clone(),
     });
 
     // Server
@@ -116,6 +130,7 @@ async fn main() -> std::io::Result<()> {
 
         App::new()
             .app_data(state.clone())
+            .wrap(observability::MetricsMiddleware)
             .wrap(Logger::new(r#"%a "%m %U" %s %b %T"#))
             .wrap(default_headers)
             .wrap(cors)

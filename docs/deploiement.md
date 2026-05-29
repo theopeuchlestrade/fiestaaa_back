@@ -355,6 +355,9 @@ Workflow: `fiestaaa_back/.github/workflows/deploy.yml`
 Name | Description
 --- | ---
 `JWT_SECRET` | JWT secret (32+ chars)
+`METRICS_BEARER_TOKEN` | Bearer token used by Prometheus to scrape `/metrics`
+`GRAFANA_ADMIN_PASSWORD` | Grafana admin password; Grafana is bound to VPS localhost only
+`SENTRY_DSN` | Backend Sentry DSN for crash/error reporting
 `VPS_HOST` | VPS IP or hostname
 `VPS_PORT` | VPS SSH port (set the value configured in `sshd`, for example `1969`)
 `VPS_USER` | Deployment user (for example `deploy`)
@@ -383,6 +386,16 @@ Name | Description
 `FIESTAAA_APPLE_APP_ID` | (optional) iOS/macOS bundle ID to verify native Apple tokens
 `FIESTAAA_APPLE_SERVICE_ID` / `FIESTAAA_APPLE_REDIRECT_URI` | Apple OAuth (web), required if you want to display the Apple button (passed into generated `.env`)
 `ADMIN_EMAILS` | (optional) Comma-separated admin email list
+
+Optional variables:
+
+- `SENTRY_ENVIRONMENT` (default `production`)
+- `SENTRY_TRACES_SAMPLE_RATE` (default `0`)
+- `GRAFANA_ADMIN_USER` (default `admin`)
+- `POSTGRES_BACKUP_RETENTION_DAYS` (default `14`)
+- `POSTGRES_BACKUP_INTERVAL_SECONDS` (default `86400`)
+- `BACKUP_INCLUDE_SECRETS` (default `false`; set only if the VPS backup
+  location is protected enough to also store `.env` and `service-account.json`)
 
 > Frontend values (VAPID, FCM project, Google client) are shared: set the same
 > secrets in the `fiestaaa_front` repository to build the web bundle.
@@ -470,11 +483,14 @@ therefore goes through the manual `Bootstrap VPS Stack` workflow.
   - Dart defines / Firebase / OAuth:
     `FIESTAAA_API_BASE_URL`, `FIESTAAA_GOOGLE_WEB_CLIENT_ID`,
     `FIESTAAA_APPLE_SERVICE_ID`, `FIESTAAA_APPLE_REDIRECT_URI`,
-    `FIESTAAA_FCM_VAPID_KEY`, `FIREBASE_PROJECT_ID`,
+    `FIESTAAA_FCM_VAPID_KEY`, `FIESTAAA_SENTRY_DSN`, `FIREBASE_PROJECT_ID`,
     `FIREBASE_STORAGE_BUCKET`, `FIREBASE_MESSAGING_SENDER_ID`,
     `FIREBASE_WEB_API_KEY`, `FIREBASE_WEB_APP_ID`, optional
     `FIREBASE_WEB_MEASUREMENT_ID`, `FIREBASE_AUTH_DOMAIN` (otherwise
     `${project}.firebaseapp.com`).
+  - Optional frontend variables:
+    `FIESTAAA_SENTRY_ENVIRONMENT` (default `production`) and
+    `FIESTAAA_SENTRY_TRACES_SAMPLE_RATE` (default `0`).
   - Secrets shared with the backend: `FIESTAAA_FCM_VAPID_KEY`,
     `FIESTAAA_GOOGLE_WEB_CLIENT_ID`, `FIREBASE_*`/`FCM_PROJECT_ID` must match
     backend values for notifications and OAuth to work.
@@ -493,7 +509,7 @@ therefore goes through the manual `Bootstrap VPS Stack` workflow.
   suite) and `fiestaaa_front/.github/workflows/ci.yml` for the frontend
   (`flutter gen-l10n`, `dart format`, `flutter analyze`, `flutter test`).
 
-## 6) Runtime Checks
+## 6) Runtime Checks and Observability
 
 - API health: `curl -vk https://api.fiestaaa.app/health` (through Traefik).
 - Database healthcheck: `docker compose exec db pg_isready -U ${POSTGRES_USER}`.
@@ -511,24 +527,82 @@ therefore goes through the manual `Bootstrap VPS Stack` workflow.
 - Logs: `docker compose logs -f api`, `docker compose logs -f front`,
   `docker compose logs -f traefik`.
 
+### Metrics and Dashboards
+
+The production stack includes:
+
+- Prometheus scraping the API `/metrics`, node-exporter, cAdvisor, and
+  postgres-exporter.
+- Loki + Promtail for searchable Docker logs with 14-day retention.
+- Grafana provisioned with Prometheus/Loki datasources and the
+  `Fiestaaa Overview` dashboard.
+
+Grafana is deliberately bound to `127.0.0.1:3000` on the VPS, not exposed
+through Traefik. Access it through an SSH tunnel:
+
+```bash
+ssh -L 3000:127.0.0.1:3000 deploy@<vps-host> -p <ssh-port>
+```
+
+Then open `http://127.0.0.1:3000` and sign in with
+`GRAFANA_ADMIN_USER` / `GRAFANA_ADMIN_PASSWORD`.
+
+The dashboard tracks:
+
+- request volume, 5xx rate, and p95 API latency;
+- auth, invitation, email, and push errors;
+- disk availability, Postgres status/connections, and container restarts;
+- recent warnings/errors from API, frontend, Traefik, and backup logs.
+
+API metrics are protected by `METRICS_BEARER_TOKEN`; Prometheus reads the token
+from `~/apps/fiestaaa/secrets/metrics_token`.
+
+### External Uptime Checks
+
+`fiestaaa_back/.github/workflows/uptime-monitor.yml` runs every 5 minutes from a
+GitHub-hosted runner and checks:
+
+- `https://fiestaaa.app`
+- `https://api.fiestaaa.app/health`
+
+GitHub workflow failures provide the basic alert. For push notifications to an
+external channel, add `UPTIME_ALERT_WEBHOOK_URL` as a backend repository secret.
+
+### Sentry
+
+Backend Sentry is enabled by `SENTRY_DSN` in the backend production environment.
+The API captures panics through the Sentry SDK and reports 5xx responses plus
+selected email/push transport failures.
+
+Frontend Sentry is enabled by `FIESTAAA_SENTRY_DSN` in the frontend production
+environment and is injected at build time. The DSN is visible in the web bundle,
+which is normal for Sentry browser clients.
+
 ## 7) Backups and Recovery
 
-- Database: set up regular `pg_dump` or a snapshot of `data/postgres`, with
-  retention and restore testing.
-- Uploads: back up `data/uploads`.
-- Certificates: back up `traefik/letsencrypt/acme.json`.
+- Database: the `backup` container runs `scripts/backup_runtime.sh` every
+  `POSTGRES_BACKUP_INTERVAL_SECONDS` seconds and writes custom-format dumps to
+  `data/backups/postgres`.
+- Uploads and certificates: the same script archives `data/uploads` and
+  `traefik/letsencrypt/acme.json` to `data/backups/files`.
 - Secrets: keep an off-VPS copy of GitHub Actions values, `service-account.json`,
-  mobile keystores, and Apple/Google/Resend credentials in a secret vault.
+  mobile keystores, and Apple/Google/Resend credentials in a secret vault. The
+  local VPS backup can include `.env` and `service-account.json` only when
+  `BACKUP_INCLUDE_SECRETS=true`.
+- Restore drill: `fiestaaa_back/.github/workflows/backup-restore-drill.yml`
+  runs weekly and executes `scripts/restore_drill_postgres.sh` on the VPS. It
+  restores the latest dump into a disposable Postgres container and fails if no
+  public tables are restored.
 - Recovery: periodically test a full redeployment on a blank machine or a new
-  VPS; a backup that has not been restored is not a reliable backup.
+  VPS; the restore drill validates the DB dump, not the whole infrastructure.
 
-### Minimum Monitoring
+Manual backup and restore commands from the VPS:
 
-- Add at least two external checks with alerts:
-  - `https://fiestaaa.app`
-  - `https://api.fiestaaa.app/health`
-- After each deployment, verify these checks pass from outside; workflows already
-  run blocking `curl` checks on these two URLs.
+```bash
+cd ~/apps/fiestaaa
+./scripts/backup_runtime.sh
+./scripts/restore_drill_postgres.sh
+```
 
 ## 8) Migration Plan to Docker Secrets
 
@@ -598,7 +672,10 @@ The script loads `.env`, builds the Postgres URL (`DATABASE_URL` or
 - [ ] Dedicated SSH key created, public key in `authorized_keys`
 - [ ] UFW opened on `<ssh_port>`/80/443
 - [ ] `~/apps/fiestaaa` ready with `docker-compose.yml`, `.env`,
-  `data/service-account.json`, `data/`, `traefik/`
+  `data/service-account.json`, `data/`, `traefik/`, `observability/`,
+  `scripts/`, `secrets/metrics_token`
+- [ ] `data/backups`, `data/prometheus`, `data/loki`, and `data/grafana`
+  directories created with the expected service ownership
 
 ### GitHub Actions Go-Live (CI)
 
@@ -615,3 +692,5 @@ The script loads `.env`, builds the Postgres URL (`DATABASE_URL` or
 - [ ] Manual verification: `docker compose ps` on the VPS + public URLs reachable
 - [ ] Front workflow active (`fiestaaa_front/.github/workflows/deploy.yml`) +
   frontend secrets filled
+- [ ] Uptime monitor workflow active and alert destination configured if used
+- [ ] Backup restore drill workflow green at least once

@@ -232,6 +232,9 @@
         - "{{ fiestaaa_app_dir }}"
         - "{{ fiestaaa_app_dir }}/data"
         - "{{ fiestaaa_app_dir }}/traefik"
+        - "{{ fiestaaa_app_dir }}/scripts"
+        - "{{ fiestaaa_app_dir }}/observability"
+        - "{{ fiestaaa_app_dir }}/secrets"
       when: not ansible_check_mode
 
     - name: Create upload directories for backend container uid
@@ -253,6 +256,40 @@
         owner: "999"
         group: "999"
         mode: "0700"
+      when: not ansible_check_mode
+
+    - name: Create backup and observability data directories
+      ansible.builtin.file:
+        path: "{{ item.path }}"
+        state: directory
+        owner: "{{ item.owner }}"
+        group: "{{ item.group }}"
+        mode: "{{ item.mode }}"
+      loop:
+        - path: "{{ fiestaaa_app_dir }}/data/backups"
+          owner: "{{ fiestaaa_deploy_user }}"
+          group: "{{ fiestaaa_deploy_user }}"
+          mode: "0750"
+        - path: "{{ fiestaaa_app_dir }}/data/backups/postgres"
+          owner: "{{ fiestaaa_deploy_user }}"
+          group: "{{ fiestaaa_deploy_user }}"
+          mode: "0750"
+        - path: "{{ fiestaaa_app_dir }}/data/backups/files"
+          owner: "{{ fiestaaa_deploy_user }}"
+          group: "{{ fiestaaa_deploy_user }}"
+          mode: "0750"
+        - path: "{{ fiestaaa_app_dir }}/data/prometheus"
+          owner: "65534"
+          group: "65534"
+          mode: "0750"
+        - path: "{{ fiestaaa_app_dir }}/data/loki"
+          owner: "10001"
+          group: "10001"
+          mode: "0750"
+        - path: "{{ fiestaaa_app_dir }}/data/grafana"
+          owner: "472"
+          group: "472"
+          mode: "0750"
       when: not ansible_check_mode
 
     - name: Create Traefik ACME directory for container root without DAC capabilities

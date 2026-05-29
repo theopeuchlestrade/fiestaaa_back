@@ -65,8 +65,14 @@ runcmd:
   - usermod -aG docker deploy
   - install -d -o deploy -g deploy -m 0750 /home/deploy/apps/fiestaaa
   - install -d -o deploy -g deploy -m 0755 /home/deploy/apps/fiestaaa/data
+  - install -d -o deploy -g deploy -m 0750 /home/deploy/apps/fiestaaa/scripts /home/deploy/apps/fiestaaa/observability /home/deploy/apps/fiestaaa/secrets
   - install -d -m 0700 /home/deploy/apps/fiestaaa/data/postgres
   - chown 999:999 /home/deploy/apps/fiestaaa/data/postgres
+  - install -d -o deploy -g deploy -m 0750 /home/deploy/apps/fiestaaa/data/backups /home/deploy/apps/fiestaaa/data/backups/postgres /home/deploy/apps/fiestaaa/data/backups/files
+  - install -d -m 0750 /home/deploy/apps/fiestaaa/data/prometheus /home/deploy/apps/fiestaaa/data/loki /home/deploy/apps/fiestaaa/data/grafana
+  - chown 65534:65534 /home/deploy/apps/fiestaaa/data/prometheus
+  - chown 10001:10001 /home/deploy/apps/fiestaaa/data/loki
+  - chown 472:472 /home/deploy/apps/fiestaaa/data/grafana
   - install -d -m 0750 /home/deploy/apps/fiestaaa/data/uploads /home/deploy/apps/fiestaaa/data/uploads/avatars
   - chown 10001:10001 /home/deploy/apps/fiestaaa/data/uploads /home/deploy/apps/fiestaaa/data/uploads/avatars
   - install -d -o root -g root -m 0700 /home/deploy/apps/fiestaaa/traefik/letsencrypt

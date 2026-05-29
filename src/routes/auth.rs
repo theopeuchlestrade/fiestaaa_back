@@ -18,6 +18,7 @@ use crate::{
         AppleClaims, Claims, CompleteRegistrationPayload, ErrorResponse, LoginPayload,
         OAuthPayload, RegisterPayload, StatusResponse, TokenResponse, VerifyEmailPayload,
     },
+    observability,
     security::{normalize_email, sha256_hex},
     state::AppState,
 };
@@ -59,6 +60,7 @@ async fn enforce_auth_rate_limit(
     if state.auth_rate_limiter.allow(&key).await {
         Ok(())
     } else {
+        observability::record_auth_error("rate_limited");
         Err(HttpResponse::TooManyRequests().json(ErrorResponse {
             error: "rate_limited".into(),
             details: Some("too many authentication attempts".into()),
@@ -222,10 +224,12 @@ async fn send_verification_email(
 ) -> Result<bool, HttpResponse> {
     let Some(sender) = state.invitation_email_sender.as_ref() else {
         warn!("Registration kept pending because INVITATION_EMAIL_SENDER is missing");
+        observability::record_email_error("verification_sender_missing");
         return Ok(false);
     };
     let Some(api_key) = state.invitation_email_api_key.as_ref() else {
         warn!("Registration kept pending because RESEND_API_KEY is missing");
+        observability::record_email_error("verification_api_key_missing");
         return Ok(false);
     };
 
@@ -279,6 +283,7 @@ async fn send_verification_email(
         Ok(resp) => {
             let status = resp.status();
             warn!("verification email provider failure: status {status}");
+            observability::record_email_error("verification_provider_failure");
             Err(HttpResponse::BadGateway().json(ErrorResponse {
                 error: "email_send_failed".into(),
                 details: Some(format!("provider status {status}")),
@@ -286,6 +291,11 @@ async fn send_verification_email(
         }
         Err(err) => {
             error!("verification email transport failure: {err}");
+            observability::record_email_error("verification_transport_failure");
+            observability::capture_message(
+                sentry::Level::Error,
+                &format!("verification email transport failure: {err}"),
+            );
             Err(HttpResponse::BadGateway().json(ErrorResponse {
                 error: "email_send_failed".into(),
                 details: Some("transport_error".into()),
@@ -860,10 +870,13 @@ pub async fn oauth_login(
     match provider.as_str() {
         "google" => oauth_google(req, state, payload.into_inner()).await,
         "apple" => oauth_apple(req, state, payload.into_inner()).await,
-        _ => HttpResponse::BadRequest().json(ErrorResponse {
-            error: "unsupported_provider".into(),
-            details: Some("provider must be 'google' ou 'apple'".into()),
-        }),
+        _ => {
+            observability::record_auth_error("unsupported_oauth_provider");
+            HttpResponse::BadRequest().json(ErrorResponse {
+                error: "unsupported_provider".into(),
+                details: Some("provider must be 'google' ou 'apple'".into()),
+            })
+        }
     }
 }
 
@@ -1443,12 +1456,14 @@ pub async fn login(
     let auth_row = match fetch_user_auth(&state.db, &payload.identifier).await {
         Ok(Some(row)) => row,
         Ok(None) => {
+            observability::record_auth_error("invalid_credentials");
             return HttpResponse::Unauthorized().json(ErrorResponse {
                 error: "invalid_credentials".into(),
                 details: None,
             });
         }
         Err(_) => {
+            observability::record_auth_error("login_db_error");
             return HttpResponse::InternalServerError().json(ErrorResponse {
                 error: "db_error".into(),
                 details: None,
@@ -1457,6 +1472,7 @@ pub async fn login(
     };
 
     if !verify_password(&auth_row.password_hash, &payload.password) {
+        observability::record_auth_error("invalid_credentials");
         return HttpResponse::Unauthorized().json(ErrorResponse {
             error: "invalid_credentials".into(),
             details: None,
@@ -1480,10 +1496,13 @@ pub async fn login(
             secure_cookie,
             auth_response_includes_body_token(&req),
         ),
-        Err(_) => HttpResponse::InternalServerError().json(ErrorResponse {
-            error: "token_creation_failed".into(),
-            details: None,
-        }),
+        Err(_) => {
+            observability::record_auth_error("token_creation_failed");
+            HttpResponse::InternalServerError().json(ErrorResponse {
+                error: "token_creation_failed".into(),
+                details: None,
+            })
+        }
     }
 }
 

@@ -19,6 +19,7 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
     cfg.service(root::hello)
         .service(root::me)
         .service(health::health)
+        .service(health::metrics)
         .service(auth::register)
         .service(auth::verify_email)
         .service(auth::complete_registration)

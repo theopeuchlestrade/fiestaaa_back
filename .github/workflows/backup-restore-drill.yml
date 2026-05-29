@@ -1,0 +1,47 @@
+name: Backup Restore Drill
+
+on:
+  schedule:
+    - cron: "17 3 * * 0"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  restore-drill:
+    name: Verify latest backup can restore
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment:
+      name: production
+    env:
+      VPS_HOST: ${{ secrets.VPS_HOST }}
+      VPS_PORT: ${{ secrets.VPS_PORT }}
+      VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+      VPS_USER: ${{ secrets.VPS_USER }}
+    steps:
+      - name: Check required secrets
+        run: |
+          missing=0
+          for var in VPS_HOST VPS_PORT VPS_USER VPS_SSH_KEY; do
+            if [ -z "${!var}" ]; then
+              echo "::error::$var manquant"
+              missing=1
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then exit 1; fi
+
+      - name: Run backup and restore drill on VPS
+        run: |
+          set -euo pipefail
+          key_path="${RUNNER_TEMP}/fiestaaa_deploy"
+          printf '%s\n' "${VPS_SSH_KEY}" > "${key_path}"
+          chmod 600 "${key_path}"
+          ssh -i "${key_path}" \
+            -p "${VPS_PORT}" \
+            -o BatchMode=yes \
+            -o StrictHostKeyChecking=accept-new \
+            "${VPS_USER}@${VPS_HOST}" \
+            "cd ~/apps/fiestaaa && ./scripts/backup_runtime.sh && ./scripts/restore_drill_postgres.sh"
+          rm -f "${key_path}"

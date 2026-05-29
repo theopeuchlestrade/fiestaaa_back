@@ -37,6 +37,7 @@ Important variables:
 - `APP_BASE_URL`: frontend URL for invitation links
 - `RESEND_API_KEY` and `INVITATION_EMAIL_SENDER`: invitation email sending
 - `FCM_*` and `FIESTAAA_FCM_VAPID_KEY`: push notifications
+- `METRICS_BEARER_TOKEN` and `SENTRY_DSN`: production observability
 
 ## Local Development
 
@@ -124,6 +125,9 @@ TEST_DATABASE_URL=postgres://postgres:postgres@127.0.0.1:5432/fiestaaa_test carg
 
 Deployment and operations documentation is in
 `docs/deploiement.md`.
+
+The production compose stack includes Prometheus/Grafana/Loki observability,
+external uptime checks, and automated backup/restore-drill scripts.
 
 The transition from private to public repositories is documented in
 `docs/passage-public-open-source.md`.

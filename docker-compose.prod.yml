@@ -87,6 +87,10 @@ services:
       PORT: 8080
       DATABASE_URL: ${DATABASE_URL}
       REDIS_URL: ${REDIS_URL}
+      METRICS_BEARER_TOKEN: ${METRICS_BEARER_TOKEN}
+      SENTRY_DSN: ${SENTRY_DSN:-}
+      SENTRY_ENVIRONMENT: ${SENTRY_ENVIRONMENT:-production}
+      SENTRY_TRACES_SAMPLE_RATE: ${SENTRY_TRACES_SAMPLE_RATE:-0}
       TRUST_PROXY_HEADERS: ${TRUST_PROXY_HEADERS:-true}
       AVATAR_UPLOAD_DIR: /data/uploads/avatars
       AVATAR_BASE_URL: https://api.fiestaaa.app/media/avatars
@@ -140,6 +144,146 @@ services:
       - no-new-privileges:true
     cap_drop:
       - ALL
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:v3.0.0
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=15d
+      - --web.enable-lifecycle
+    depends_on:
+      - api
+      - node-exporter
+      - cadvisor
+      - postgres-exporter
+    volumes:
+      - ./observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./secrets/metrics_token:/run/secrets/metrics_token:ro
+      - ./data/prometheus:/prometheus
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+
+  loki:
+    image: grafana/loki:3.0.0
+    command: ["-config.file=/etc/loki/loki.yml"]
+    volumes:
+      - ./observability/loki/loki.yml:/etc/loki/loki.yml:ro
+      - ./data/loki:/loki
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+
+  promtail:
+    image: grafana/promtail:3.0.0
+    command: ["-config.file=/etc/promtail/promtail.yml"]
+    depends_on:
+      - loki
+      - socket-proxy
+    volumes:
+      - ./observability/promtail/promtail.yml:/etc/promtail/promtail.yml:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - default
+      - docker-api
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:11.0.0
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD}
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+    depends_on:
+      - prometheus
+      - loki
+    ports:
+      - "127.0.0.1:3000:3000"
+    volumes:
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - ./data/grafana:/var/lib/grafana
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+
+  node-exporter:
+    image: prom/node-exporter:v1.8.2
+    command:
+      - --path.procfs=/host/proc
+      - --path.sysfs=/host/sys
+      - --path.rootfs=/rootfs
+      - --collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)
+    pid: host
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.49.1
+    privileged: true
+    devices:
+      - /dev/kmsg
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker:/var/lib/docker:ro
+      - /dev/disk:/dev/disk:ro
+    restart: unless-stopped
+
+  postgres-exporter:
+    image: quay.io/prometheuscommunity/postgres-exporter:v0.15.0
+    environment:
+      DATA_SOURCE_NAME: ${DATABASE_URL}
+    depends_on:
+      db:
+        condition: service_healthy
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+
+  backup:
+    image: postgres:18
+    user: "0:0"
+    working_dir: /app
+    env_file: .env
+    environment:
+      POSTGRES_BACKUP_ROOT: /app/data/backups
+      POSTGRES_BACKUP_RETENTION_DAYS: ${POSTGRES_BACKUP_RETENTION_DAYS:-14}
+      POSTGRES_BACKUP_INTERVAL_SECONDS: ${POSTGRES_BACKUP_INTERVAL_SECONDS:-86400}
+      BACKUP_INCLUDE_SECRETS: ${BACKUP_INCLUDE_SECRETS:-false}
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - ./scripts:/app/scripts:ro
+      - ./data/backups:/app/data/backups
+      - ./data/uploads:/app/data/uploads:ro
+      - ./traefik:/app/traefik:ro
+      - ./.env:/app/.env:ro
+      - ./data/service-account.json:/app/data/service-account.json:ro
+    entrypoint:
+      - /bin/bash
+      - -lc
+      - |
+        while true; do
+          /app/scripts/backup_runtime.sh || true;
+          sleep "$${POSTGRES_BACKUP_INTERVAL_SECONDS:-86400}";
+        done
+    security_opt:
+      - no-new-privileges:true
     restart: unless-stopped
 
 networks:
