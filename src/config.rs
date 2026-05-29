@@ -96,6 +96,7 @@ pub struct AppConfig {
     pub invitation_rate_limit_window_seconds: u64,
     pub enable_swagger_ui: bool,
     pub metrics_bearer_token: Option<String>,
+    pub user_metrics_refresh_seconds: u64,
     pub sentry_dsn: Option<String>,
     pub sentry_environment: String,
     pub sentry_traces_sample_rate: f32,
@@ -222,6 +223,10 @@ impl AppConfig {
         let metrics_bearer_token = std::env::var("METRICS_BEARER_TOKEN")
             .ok()
             .filter(|v| !v.trim().is_empty());
+        let user_metrics_refresh_seconds = std::env::var("USER_METRICS_REFRESH_SECONDS")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(300);
         let sentry_dsn = std::env::var("SENTRY_DSN")
             .ok()
             .filter(|v| !v.trim().is_empty());
@@ -268,6 +273,7 @@ impl AppConfig {
             invitation_rate_limit_window_seconds,
             enable_swagger_ui,
             metrics_bearer_token,
+            user_metrics_refresh_seconds,
             sentry_dsn,
             sentry_environment,
             sentry_traces_sample_rate,

@@ -553,12 +553,20 @@ The dashboard tracks:
 
 - request volume, 5xx rate, and p95 API latency;
 - auth, invitation, email, and push errors;
+- registered users, pending registrations, new users over 24h/7d/30d,
+  active users over 24h/7d/30d, active devices by platform, and linked OAuth
+  accounts;
 - disk availability, Postgres status/connections, and container restarts;
 - recent warnings/errors from API, frontend, Traefik, and backup logs.
 
 API metrics are protected by `METRICS_BEARER_TOKEN`; Prometheus reads the token
 from `~/apps/fiestaaa/secrets/metrics_token`, owned by UID/GID `65534` because
 the Prometheus container runs as `nobody`.
+
+User metrics are refreshed in the API process every
+`USER_METRICS_REFRESH_SECONDS` seconds (`300` by default). The `/metrics`
+endpoint only exposes the last computed gauges, so Prometheus scrapes do not run
+the user aggregation queries.
 
 ### External Uptime Checks
 

@@ -11,7 +11,7 @@ use common::{DB_LOCK, build_state, build_state_with_avatar_storage, obtain_pool,
 use fiestaaa_back::{
     auth::{encode_jwt, hash_password, now_ts},
     models::{Claims, HandleAvailabilityResponse, HandleUpdatePayload},
-    routes,
+    routes, user_metrics,
 };
 use serde::Deserialize;
 use sqlx::PgPool;
@@ -124,6 +124,97 @@ async fn metrics_endpoint_requires_bearer_token() -> Result<(), Box<dyn Error>> 
     assert_eq!(authorized.status(), StatusCode::OK);
     let body = test::read_body(authorized).await;
     assert!(String::from_utf8_lossy(&body).contains("fiestaaa_http_requests_total"));
+    Ok(())
+}
+
+#[tokio::test]
+async fn metrics_endpoint_exposes_user_metrics() -> Result<(), Box<dyn Error>> {
+    let Some(pool) = obtain_pool().await else {
+        eprintln!("Skipping user metrics test: DATABASE_URL or TEST_DATABASE_URL not set");
+        return Ok(());
+    };
+    let _guard = DB_LOCK.lock().await;
+    reset_tables(
+        &pool,
+        &[
+            "user_devices",
+            "oauth_identities",
+            "pending_registrations",
+            "users",
+        ],
+    )
+    .await?;
+
+    let user_id = seed_user(&pool, "metrics-owner@example.com", "metrics_owner").await?;
+    sqlx::query(
+        "INSERT INTO user_devices (user_id, fcm_token_ciphertext, fcm_token_lookup_hash, platform)
+         VALUES ($1, fiestaaa_encrypt_text($2), fiestaaa_lookup_text($2), 'ios')",
+    )
+    .bind(user_id)
+    .bind("metrics-device-token")
+    .execute(&pool)
+    .await?;
+    sqlx::query(
+        "INSERT INTO oauth_identities (
+            provider,
+            provider_subject_ciphertext,
+            provider_subject_lookup_hash,
+            user_id
+         )
+         VALUES ('google', fiestaaa_encrypt_text($1), fiestaaa_lookup_text($1), $2)",
+    )
+    .bind("metrics-google-subject")
+    .bind(user_id)
+    .execute(&pool)
+    .await?;
+    sqlx::query(
+        "INSERT INTO pending_registrations (
+            email_ciphertext,
+            email_lookup_hash,
+            password_hash,
+            handle,
+            verification_token_hash,
+            verification_expires_at
+         )
+         VALUES (
+            fiestaaa_encrypt_text($1),
+            fiestaaa_email_lookup($1),
+            $2,
+            $3,
+            $4,
+            NOW() + INTERVAL '1 day'
+         )",
+    )
+    .bind("metrics-pending@example.com")
+    .bind(hash_password("StrongPassw0rd!").expect("hash"))
+    .bind("metrics_pending")
+    .bind("metrics-verification-token")
+    .execute(&pool)
+    .await?;
+
+    user_metrics::refresh_user_metrics(&pool).await?;
+
+    let state = build_state(pool, "secret", &[]);
+    let app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
+    let resp = test::call_service(
+        &app,
+        test::TestRequest::get()
+            .uri("/metrics")
+            .insert_header(("Authorization", "Bearer test-metrics-token"))
+            .to_request(),
+    )
+    .await;
+
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = String::from_utf8_lossy(&test::read_body(resp).await).into_owned();
+    assert!(body.contains("fiestaaa_users_registered 1"));
+    assert!(body.contains("fiestaaa_pending_registrations 1"));
+    assert!(body.contains("fiestaaa_users_active_window"));
+    assert!(body.contains("source=\"any\""));
+    assert!(body.contains("fiestaaa_users_with_active_device"));
+    assert!(body.contains("platform=\"ios\""));
+    assert!(body.contains("fiestaaa_users_oauth_linked"));
+    assert!(body.contains("provider=\"google\""));
     Ok(())
 }
 
