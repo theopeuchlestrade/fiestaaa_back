@@ -119,6 +119,7 @@ pub struct RealtimeTicketResponse {
 pub struct HealthResponse {
     pub status: String,
     pub db: Option<String>,
+    pub redis: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema, FromRow)]

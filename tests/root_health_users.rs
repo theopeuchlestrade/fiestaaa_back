@@ -98,6 +98,36 @@ async fn health_returns_ok_when_database_is_reachable() -> Result<(), Box<dyn Er
 }
 
 #[tokio::test]
+async fn metrics_endpoint_requires_bearer_token() -> Result<(), Box<dyn Error>> {
+    let Some(pool) = obtain_pool().await else {
+        eprintln!("Skipping metrics test: DATABASE_URL or TEST_DATABASE_URL not set");
+        return Ok(());
+    };
+    let _guard = DB_LOCK.lock().await;
+    reset_tables(&pool, &["users"]).await?;
+
+    let state = build_state(pool, "secret", &[]);
+    let app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
+
+    let unauthorized =
+        test::call_service(&app, test::TestRequest::get().uri("/metrics").to_request()).await;
+    assert_eq!(unauthorized.status(), StatusCode::UNAUTHORIZED);
+
+    let authorized = test::call_service(
+        &app,
+        test::TestRequest::get()
+            .uri("/metrics")
+            .insert_header(("Authorization", "Bearer test-metrics-token"))
+            .to_request(),
+    )
+    .await;
+    assert_eq!(authorized.status(), StatusCode::OK);
+    let body = test::read_body(authorized).await;
+    assert!(String::from_utf8_lossy(&body).contains("fiestaaa_http_requests_total"));
+    Ok(())
+}
+
+#[tokio::test]
 async fn me_returns_authenticated_profile() -> Result<(), Box<dyn Error>> {
     let Some(pool) = obtain_pool().await else {
         eprintln!("Skipping root/health/users tests: DATABASE_URL or TEST_DATABASE_URL not set");

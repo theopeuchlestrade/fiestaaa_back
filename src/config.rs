@@ -95,6 +95,10 @@ pub struct AppConfig {
     pub invitation_rate_limit_max_attempts: usize,
     pub invitation_rate_limit_window_seconds: u64,
     pub enable_swagger_ui: bool,
+    pub metrics_bearer_token: Option<String>,
+    pub sentry_dsn: Option<String>,
+    pub sentry_environment: String,
+    pub sentry_traces_sample_rate: f32,
 }
 
 impl AppConfig {
@@ -215,6 +219,18 @@ impl AppConfig {
                 .and_then(|v| v.parse().ok())
                 .unwrap_or(300);
         let enable_swagger_ui = read_bool_env("ENABLE_SWAGGER_UI", false);
+        let metrics_bearer_token = std::env::var("METRICS_BEARER_TOKEN")
+            .ok()
+            .filter(|v| !v.trim().is_empty());
+        let sentry_dsn = std::env::var("SENTRY_DSN")
+            .ok()
+            .filter(|v| !v.trim().is_empty());
+        let sentry_environment =
+            std::env::var("SENTRY_ENVIRONMENT").unwrap_or_else(|_| "development".into());
+        let sentry_traces_sample_rate = std::env::var("SENTRY_TRACES_SAMPLE_RATE")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(0.0);
         Self {
             host,
             port,
@@ -251,6 +267,10 @@ impl AppConfig {
             invitation_rate_limit_max_attempts,
             invitation_rate_limit_window_seconds,
             enable_swagger_ui,
+            metrics_bearer_token,
+            sentry_dsn,
+            sentry_environment,
+            sentry_traces_sample_rate,
         }
     }
 }

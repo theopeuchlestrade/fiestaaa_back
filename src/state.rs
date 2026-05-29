@@ -32,4 +32,5 @@ pub struct AppState {
     pub apple_jwks_url: String,
     pub auth_rate_limiter: AuthRateLimiter,
     pub invitation_rate_limiter: AuthRateLimiter,
+    pub metrics_bearer_token: Option<String>,
 }

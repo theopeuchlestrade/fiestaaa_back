@@ -140,5 +140,6 @@ fn build_state_with_avatar_storage_and_oauth_config(
             std::time::Duration::from_secs(60),
             None,
         ),
+        metrics_bearer_token: Some("test-metrics-token".into()),
     })
 }

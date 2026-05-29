@@ -9,6 +9,8 @@ use serde::Deserialize;
 use serde_json::Value;
 use sqlx::{Pool, Postgres, Row};
 
+use crate::observability;
+
 const FCM_ENDPOINT: &str = "https://fcm.googleapis.com/fcm/send";
 const FCM_V1_BASE: &str = "https://fcm.googleapis.com/v1";
 const FCM_SCOPE: &str = "https://www.googleapis.com/auth/firebase.messaging";
@@ -68,6 +70,11 @@ impl NotificationService {
                 Ok(sa) => Some(Arc::new(sa) as Arc<dyn gcp_auth::TokenProvider + Send + Sync>),
                 Err(err) => {
                     warn!("failed to load FCM service account: {err}");
+                    observability::record_push_error("service_account_load_failed");
+                    observability::capture_message(
+                        sentry::Level::Error,
+                        &format!("failed to load FCM service account: {err}"),
+                    );
                     None
                 }
             }
@@ -157,6 +164,11 @@ impl NotificationService {
             Ok(resp) => resp,
             Err(err) => {
                 warn!("failed to send FCM request: {err}");
+                observability::record_push_error("legacy_transport_failure");
+                observability::capture_message(
+                    sentry::Level::Error,
+                    &format!("failed to send FCM request: {err}"),
+                );
                 return;
             }
         };
@@ -171,6 +183,7 @@ impl NotificationService {
                         "FCM responded with status {} (success {:?}, failure {:?})",
                         status, body.success, body.failure
                     );
+                    observability::record_push_error("legacy_provider_failure");
                 } else {
                     debug!(
                         "FCM responded with status {} (success {:?}, failure {:?})",
@@ -180,6 +193,7 @@ impl NotificationService {
 
                 if let Err(err) = handle_invalid_tokens(db, &target.tokens, &body).await {
                     warn!("failed to prune invalid FCM tokens: {err}");
+                    observability::record_push_error("legacy_invalid_token_prune_failed");
                 }
             }
             Err(err) => {
@@ -188,6 +202,7 @@ impl NotificationService {
                     "failed to parse FCM response (status {}): {} body_snippet='{}'",
                     status, err, snippet
                 );
+                observability::record_push_error("legacy_response_parse_failure");
             }
         }
     }
@@ -203,6 +218,11 @@ impl NotificationService {
             Ok(tok) => tok.as_str().to_string(),
             Err(err) => {
                 warn!("fcm v1 auth token error: {err}");
+                observability::record_push_error("v1_auth_token_failure");
+                observability::capture_message(
+                    sentry::Level::Error,
+                    &format!("fcm v1 auth token error: {err}"),
+                );
                 return;
             }
         };
@@ -228,6 +248,11 @@ impl NotificationService {
             Ok(r) => r,
             Err(err) => {
                 warn!("failed to send FCM v1 request: {err}");
+                observability::record_push_error("v1_transport_failure");
+                observability::capture_message(
+                    sentry::Level::Error,
+                    &format!("failed to send FCM v1 request: {err}"),
+                );
                 return;
             }
         };
@@ -240,6 +265,7 @@ impl NotificationService {
                 status,
                 body_txt.chars().take(200).collect::<String>()
             );
+            observability::record_push_error("v1_provider_failure");
         } else {
             debug!(
                 "FCM v1 status {} body_snippet='{}'",
@@ -284,6 +310,7 @@ impl NotificationService {
                 Ok(_) => return true,
                 Err(err) => {
                     warn!("redis throttle error: {err}");
+                    observability::record_push_error("throttle_redis_error");
                     return false;
                 }
             }
@@ -418,6 +445,7 @@ pub async fn notify_users(
         Ok(map) => map,
         Err(err) => {
             warn!("failed to load device tokens: {err}");
+            observability::record_push_error("device_token_load_failed");
             return;
         }
     };
