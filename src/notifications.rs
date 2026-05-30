@@ -141,15 +141,7 @@ impl NotificationService {
             return;
         }
 
-        let payload = serde_json::json!({
-            "registration_ids": target.tokens,
-            "notification": {
-                "title": message.title,
-                "body": message.body,
-            },
-            "data": message.data,
-            "priority": "high"
-        });
+        let payload = legacy_payload(&target.tokens, message);
 
         let auth_header = format!("key={}", self.server_key.as_ref().unwrap());
         let response = self
@@ -227,15 +219,7 @@ impl NotificationService {
             }
         };
 
-        let data_map = data_to_string_map(&message.data);
-
-        let payload = serde_json::json!({
-            "message": {
-                "token": token,
-                "notification": { "title": message.title, "body": message.body },
-                "data": data_map
-            }
-        });
+        let payload = fcm_v1_payload(token, message);
 
         let resp = match self
             .http_client
@@ -334,6 +318,54 @@ fn data_to_string_map(data: &Value) -> HashMap<String, String> {
             .collect(),
         _ => HashMap::new(),
     }
+}
+
+fn legacy_payload(tokens: &[String], message: &NotificationMessage<'_>) -> Value {
+    serde_json::json!({
+        "registration_ids": tokens,
+        "notification": {
+            "title": message.title,
+            "body": message.body,
+            "sound": "default"
+        },
+        "data": message.data,
+        "priority": "high"
+    })
+}
+
+fn fcm_v1_payload(token: &str, message: &NotificationMessage<'_>) -> Value {
+    serde_json::json!({
+        "message": {
+            "token": token,
+            "notification": {
+                "title": message.title,
+                "body": message.body
+            },
+            "data": data_to_string_map(&message.data),
+            "android": {
+                "priority": "HIGH",
+                "notification": {
+                    "channel_id": "fiestaaa_fcm",
+                    "sound": "default"
+                }
+            },
+            "apns": {
+                "headers": {
+                    "apns-priority": "10",
+                    "apns-push-type": "alert"
+                },
+                "payload": {
+                    "aps": {
+                        "alert": {
+                            "title": message.title,
+                            "body": message.body
+                        },
+                        "sound": "default"
+                    }
+                }
+            }
+        }
+    })
 }
 
 #[derive(Debug, Deserialize)]
@@ -499,4 +531,78 @@ pub async fn event_member_user_ids(
     ids.sort();
     ids.dedup();
     Ok(ids)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn fcm_v1_payload_sets_apns_alert_delivery_options() {
+        let message = NotificationMessage {
+            title: "Nouvelle demande d'ami",
+            body: "alice souhaite t'ajouter",
+            data: json!({
+                "type": "friend_request",
+                "request_id": 42
+            }),
+        };
+
+        let payload = fcm_v1_payload("device-token", &message);
+
+        assert_eq!(
+            payload
+                .pointer("/message/apns/headers/apns-push-type")
+                .and_then(Value::as_str),
+            Some("alert")
+        );
+        assert_eq!(
+            payload
+                .pointer("/message/apns/headers/apns-priority")
+                .and_then(Value::as_str),
+            Some("10")
+        );
+        assert_eq!(
+            payload
+                .pointer("/message/apns/payload/aps/sound")
+                .and_then(Value::as_str),
+            Some("default")
+        );
+        assert_eq!(
+            payload
+                .pointer("/message/apns/payload/aps/alert/title")
+                .and_then(Value::as_str),
+            Some("Nouvelle demande d'ami")
+        );
+        assert_eq!(
+            payload
+                .pointer("/message/data/request_id")
+                .and_then(Value::as_str),
+            Some("42")
+        );
+    }
+
+    #[test]
+    fn legacy_payload_sets_default_notification_sound() {
+        let message = NotificationMessage {
+            title: "Titre",
+            body: "Corps",
+            data: json!({ "type": "friend_request" }),
+        };
+        let tokens = vec!["token-1".to_string()];
+
+        let payload = legacy_payload(&tokens, &message);
+
+        assert_eq!(
+            payload
+                .pointer("/notification/sound")
+                .and_then(Value::as_str),
+            Some("default")
+        );
+        assert_eq!(
+            payload.pointer("/priority").and_then(Value::as_str),
+            Some("high")
+        );
+    }
 }
