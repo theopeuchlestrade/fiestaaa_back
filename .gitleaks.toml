@@ -1,0 +1,10 @@
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Test-only Apple OAuth RSA fixture present in historical tests/auth.rs"
+condition = "AND"
+commits = ["56cd9b3ce44bd0900a4bc4c580d93ff2496d2591"]
+paths = ['''tests/auth\.rs''']
+regexTarget = "match"
+regexes = ['''BEGIN RSA PRIVATE KEY''']

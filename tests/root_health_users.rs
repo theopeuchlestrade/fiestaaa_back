@@ -11,7 +11,7 @@ use common::{DB_LOCK, build_state, build_state_with_avatar_storage, obtain_pool,
 use fiestaaa_back::{
     auth::{encode_jwt, hash_password, now_ts},
     models::{Claims, HandleAvailabilityResponse, HandleUpdatePayload},
-    routes, user_metrics,
+    observability, routes, user_metrics,
 };
 use serde::Deserialize;
 use sqlx::PgPool;
@@ -107,7 +107,13 @@ async fn metrics_endpoint_requires_bearer_token() -> Result<(), Box<dyn Error>> 
     reset_tables(&pool, &["users"]).await?;
 
     let state = build_state(pool, "secret", &[]);
-    let app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
+    let app = test::init_service(
+        App::new()
+            .wrap(observability::MetricsMiddleware)
+            .app_data(state)
+            .configure(routes::configure),
+    )
+    .await;
 
     let unauthorized =
         test::call_service(&app, test::TestRequest::get().uri("/metrics").to_request()).await;

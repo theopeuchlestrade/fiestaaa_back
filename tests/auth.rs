@@ -25,33 +25,33 @@ const TEST_GOOGLE_WEB_CLIENT_ID: &str = "fiestaaa-web-client.apps.googleusercont
 const TEST_APPLE_SERVICE_ID: &str = "app.fiestaaa.web";
 const TEST_APPLE_KID: &str = "fiestaaa-test-apple-key";
 const TEST_APPLE_MODULUS: &str = "zp_AAIAxF-hYotR45X6z1ZFYEAUlCixB0VcRVTq13fSyqdtuxWskRkeZQ1N0DTHZFU88On5LF5syZs7IZcP49U9DhB7AXDs1IcrsRVtBCg28omstiWb-eTGjLEmvNQf52aI6t_2gMCDnQ__NOhMAFJWMFhnDZynve99VUXnsm1m1Q50XgxPo45JW1p7eyU7zvsAr8NnB4Tg6W-Q5zYuXAXMJoKYURuqKDE5SNky1ZFLDwoj9zd86sPxWUHwZ6auhgVY29KCbJRHycirPl8AmmxT4fSflXK_192mDqOZMD898_snXG3LrvaK5Q-ZNJWdfF3_3ehs25zyjHqASrTQIAQ";
-const TEST_APPLE_PRIVATE_KEY: &str = r#"-----BEGIN RSA PRIVATE KEY-----
-MIIEpAIBAAKCAQEAzp/AAIAxF+hYotR45X6z1ZFYEAUlCixB0VcRVTq13fSyqdtu
-xWskRkeZQ1N0DTHZFU88On5LF5syZs7IZcP49U9DhB7AXDs1IcrsRVtBCg28omst
-iWb+eTGjLEmvNQf52aI6t/2gMCDnQ//NOhMAFJWMFhnDZynve99VUXnsm1m1Q50X
-gxPo45JW1p7eyU7zvsAr8NnB4Tg6W+Q5zYuXAXMJoKYURuqKDE5SNky1ZFLDwoj9
-zd86sPxWUHwZ6auhgVY29KCbJRHycirPl8AmmxT4fSflXK/192mDqOZMD898/snX
-G3LrvaK5Q+ZNJWdfF3/3ehs25zyjHqASrTQIAQIDAQABAoIBAAlMx+nN20fR8aFc
-kld0ATig2teXv6/KR6kaM+HD63kiwSLjiUQR+zc9lECjQjMw1e4/W3zff9Y/akCV
-2I+6BxvVdjq9XpeYI59SgJlrjs0ayq19yPYpAFWonglJhL0Mj5qT0nRDEmFwLbCS
-FCTjw4ppo70/6htb2BdZeT/aTsO8LHgEO/Cx7Bu3D8wKC+1mHgjuROkOEZGZC6/m
-JUXxZT8qHOgjIB4GRAvkiqUoOHuDPq8d+g8o99uzA43fjO3DDHWiZbHowe7GJSHc
-hi2p+DbG2LLK15R00QCFEqy7tQefXnnbH6iMGat71f2hYw94cbhFrLg+zXmW6+Io
-Kmu8utUCgYEA5vw5CEXmV7bQtPadiT7lUPd4lnvqnLyWWTv9JopJL5kZdkmXz3RD
-DrY3TcetwzchccbzOVgH3uDbZlMuk/q4CgkGWmLtHrr6k70+Pr0zOAaNDhH/+mlG
-MFcGocDGj6SXTBgIDM1lylCkBLaC4d8vaJNxX532hfvwkLUAv3wC6A0CgYEA5QAk
-jo/KGsODKpPXaz3+J+fR76TMjLsLxzk3L7ifysB4/HuGcl9/fQ7qux+MQMN88CRy
-oAUEB9qN4GY4ICuTAA3bwWDSjDqGdyiN4LQBFdR3TFLwV37Yc2NpcI7aIbbMTmOz
-L+VdG49y6lHc8pv8R8XqcnYwNvMHusA7RkTxzsUCgYEA1zzetDvWaZPcJVTM9ZAb
-RXhk8O0lcMo2244P1jL0AZuLY3MuOE0hE3tuS1cvLwKXcpsuGBhUtTYYm+AVPiVa
-C1ffiKg4RvN6/eJRN0s8iA9qr1rMif5BPlhJwL6PCFkZ9vlJvwxCtuSwAghEK8+6
-MJt8ANqEVtOulllkCgq39p0CgYEAzSGtnY6sSgEs8+zvIP+tNW3xnquPF9lNma5l
-AvhtGyACwJiePMHS3+GG3wxJhJIYzry3eSRFEgvy3zpxuE+QJJJFchobQMYEQaUw
-QkK8XiOuoc4BwT69Ac/hWZR9TYoDxYyFrLfXCaMcG04tj52vBVQCyXmZgv98wwsD
-jdSgjskCgYBlG8tPgcx6uvK5M76yoW79twgsWXWafVUSlKqEvrrE7l5pxGwiiSzb
-ul/DgmDWuyiZmPqXu0sY6DqWbT4RZZK888cK05BzA/bzyVFJJxPa2mC8QM4w9T2X
-hrNGoIWum5S6bDLJo9GG+CV5wNYO5gGhWzm6W28SgkdoB1dmV8YwBQ==
------END RSA PRIVATE KEY-----"#;
+const TEST_APPLE_PRIVATE_KEY_DER: &[&str] = &[
+    "MIIEpAIBAAKCAQEAzp/AAIAxF+hYotR45X6z1ZFYEAUlCixB0VcRVTq13fSyqdtu",
+    "xWskRkeZQ1N0DTHZFU88On5LF5syZs7IZcP49U9DhB7AXDs1IcrsRVtBCg28omst",
+    "iWb+eTGjLEmvNQf52aI6t/2gMCDnQ//NOhMAFJWMFhnDZynve99VUXnsm1m1Q50X",
+    "gxPo45JW1p7eyU7zvsAr8NnB4Tg6W+Q5zYuXAXMJoKYURuqKDE5SNky1ZFLDwoj9",
+    "zd86sPxWUHwZ6auhgVY29KCbJRHycirPl8AmmxT4fSflXK/192mDqOZMD898/snX",
+    "G3LrvaK5Q+ZNJWdfF3/3ehs25zyjHqASrTQIAQIDAQABAoIBAAlMx+nN20fR8aFc",
+    "kld0ATig2teXv6/KR6kaM+HD63kiwSLjiUQR+zc9lECjQjMw1e4/W3zff9Y/akCV",
+    "2I+6BxvVdjq9XpeYI59SgJlrjs0ayq19yPYpAFWonglJhL0Mj5qT0nRDEmFwLbCS",
+    "FCTjw4ppo70/6htb2BdZeT/aTsO8LHgEO/Cx7Bu3D8wKC+1mHgjuROkOEZGZC6/m",
+    "JUXxZT8qHOgjIB4GRAvkiqUoOHuDPq8d+g8o99uzA43fjO3DDHWiZbHowe7GJSHc",
+    "hi2p+DbG2LLK15R00QCFEqy7tQefXnnbH6iMGat71f2hYw94cbhFrLg+zXmW6+Io",
+    "Kmu8utUCgYEA5vw5CEXmV7bQtPadiT7lUPd4lnvqnLyWWTv9JopJL5kZdkmXz3RD",
+    "DrY3TcetwzchccbzOVgH3uDbZlMuk/q4CgkGWmLtHrr6k70+Pr0zOAaNDhH/+mlG",
+    "MFcGocDGj6SXTBgIDM1lylCkBLaC4d8vaJNxX532hfvwkLUAv3wC6A0CgYEA5QAk",
+    "jo/KGsODKpPXaz3+J+fR76TMjLsLxzk3L7ifysB4/HuGcl9/fQ7qux+MQMN88CRy",
+    "oAUEB9qN4GY4ICuTAA3bwWDSjDqGdyiN4LQBFdR3TFLwV37Yc2NpcI7aIbbMTmOz",
+    "L+VdG49y6lHc8pv8R8XqcnYwNvMHusA7RkTxzsUCgYEA1zzetDvWaZPcJVTM9ZAb",
+    "RXhk8O0lcMo2244P1jL0AZuLY3MuOE0hE3tuS1cvLwKXcpsuGBhUtTYYm+AVPiVa",
+    "C1ffiKg4RvN6/eJRN0s8iA9qr1rMif5BPlhJwL6PCFkZ9vlJvwxCtuSwAghEK8+6",
+    "MJt8ANqEVtOulllkCgq39p0CgYEAzSGtnY6sSgEs8+zvIP+tNW3xnquPF9lNma5l",
+    "AvhtGyACwJiePMHS3+GG3wxJhJIYzry3eSRFEgvy3zpxuE+QJJJFchobQMYEQaUw",
+    "QkK8XiOuoc4BwT69Ac/hWZR9TYoDxYyFrLfXCaMcG04tj52vBVQCyXmZgv98wwsD",
+    "jdSgjskCgYBlG8tPgcx6uvK5M76yoW79twgsWXWafVUSlKqEvrrE7l5pxGwiiSzb",
+    "ul/DgmDWuyiZmPqXu0sY6DqWbT4RZZK888cK05BzA/bzyVFJJxPa2mC8QM4w9T2X",
+    "hrNGoIWum5S6bDLJo9GG+CV5wNYO5gGhWzm6W28SgkdoB1dmV8YwBQ==",
+];
 
 async fn overwrite_pending_token_for(pool: &sqlx::PgPool, email: &str) -> sqlx::Result<String> {
     let token = Uuid::new_v4().to_string();
@@ -224,11 +224,9 @@ fn apple_id_token(aud: &str, sub: &str, email: Option<&str>) -> String {
         iss: "https://appleid.apple.com",
         aud,
     };
-    let key_body = TEST_APPLE_PRIVATE_KEY
-        .lines()
-        .filter(|line| !line.starts_with("-----"))
-        .collect::<String>();
-    let key_der = STANDARD.decode(key_body).expect("test apple private key");
+    let key_der = STANDARD
+        .decode(TEST_APPLE_PRIVATE_KEY_DER.join(""))
+        .expect("test apple private key");
     let key = jsonwebtoken::EncodingKey::from_rsa_der(&key_der);
     jsonwebtoken::encode(&header, &claims, &key).expect("test apple id token")
 }
