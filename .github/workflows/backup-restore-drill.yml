@@ -43,5 +43,5 @@ jobs:
             -o BatchMode=yes \
             -o StrictHostKeyChecking=accept-new \
             "${VPS_USER}@${VPS_HOST}" \
-            "cd ~/apps/fiestaaa && ./scripts/backup_runtime.sh && ./scripts/restore_drill_postgres.sh"
+            "cd ~/apps/fiestaaa && BACKUP_INCLUDE_FILES=false ./scripts/backup_runtime.sh && ./scripts/restore_drill_postgres.sh"
           rm -f "${key_path}"

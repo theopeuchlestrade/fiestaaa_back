@@ -5,8 +5,31 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ENV_FILE="${ROOT_DIR}/.env"
 BACKUP_ROOT="${POSTGRES_BACKUP_ROOT:-${ROOT_DIR}/data/backups}"
 RETENTION_DAYS="${POSTGRES_BACKUP_RETENTION_DAYS:-14}"
+INCLUDE_FILES="${BACKUP_INCLUDE_FILES:-true}"
 INCLUDE_SECRETS="${BACKUP_INCLUDE_SECRETS:-false}"
 TIMESTAMP="$(date -u +%Y%m%dT%H%M%SZ)"
+
+is_truthy() {
+  case "$1" in
+    1|true|TRUE|True|yes|YES|Yes|on|ON|On)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+is_falsy() {
+  case "$1" in
+    0|false|FALSE|False|no|NO|No|off|OFF|Off)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
 
 if [[ -f "$ENV_FILE" ]]; then
   set -a
@@ -51,15 +74,15 @@ mv "$dump_tmp" "$dump_path"
 chmod 600 "$dump_path"
 
 file_items=()
-[[ -d "${ROOT_DIR}/data/uploads" ]] && file_items+=("data/uploads")
-[[ -f "${ROOT_DIR}/traefik/letsencrypt/acme.json" ]] && file_items+=("traefik/letsencrypt/acme.json")
+if ! is_falsy "$INCLUDE_FILES"; then
+  [[ -d "${ROOT_DIR}/data/uploads" ]] && file_items+=("data/uploads")
+  [[ -f "${ROOT_DIR}/traefik/letsencrypt/acme.json" ]] && file_items+=("traefik/letsencrypt/acme.json")
 
-case "${INCLUDE_SECRETS,,}" in
-  1|true|yes|on)
+  if is_truthy "$INCLUDE_SECRETS"; then
     [[ -f "${ROOT_DIR}/.env" ]] && file_items+=(".env")
     [[ -f "${ROOT_DIR}/data/service-account.json" ]] && file_items+=("data/service-account.json")
-    ;;
-esac
+  fi
+fi
 
 if [[ "${#file_items[@]}" -gt 0 ]]; then
   files_tmp="${BACKUP_ROOT}/files/fiestaaa_files_${TIMESTAMP}.tar.gz.tmp"

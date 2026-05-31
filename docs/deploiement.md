@@ -396,6 +396,8 @@ Optional variables:
 - `GRAFANA_ADMIN_USER` (default `admin`)
 - `POSTGRES_BACKUP_RETENTION_DAYS` (default `14`)
 - `POSTGRES_BACKUP_INTERVAL_SECONDS` (default `86400`)
+- `BACKUP_INCLUDE_FILES` (default `true`; set to `false` only for DB-only
+  backup/restore drills)
 - `BACKUP_INCLUDE_SECRETS` (default `false`; set only if the VPS backup
   location is protected enough to also store `.env` and `service-account.json`)
 
