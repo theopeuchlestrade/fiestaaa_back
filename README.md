@@ -127,9 +127,11 @@ Deployment and operations documentation is in
 `docs/deploiement.md`.
 
 The manual `Backend Release` GitHub Actions workflow verifies the release
-candidate, bumps the Cargo package version from a `patch`, `minor`, `major`, or
-custom version choice, creates the `vX.Y.Z` tag, publishes the GHCR image,
-creates the GitHub Release, and can deploy the API to the VPS.
+candidate, derives the next version from the latest `vX.Y.Z` tag or from a
+custom version choice, creates a tag-only release commit with the Cargo package
+version bumped, publishes the GHCR image, creates the GitHub Release, and can
+deploy the API to the VPS. It does not push directly to `main`, so it remains
+compatible with strict branch protection.
 
 The production compose stack includes Prometheus/Grafana/Loki observability,
 external uptime checks, and automated backup/restore-drill scripts.
@@ -145,6 +147,16 @@ reporting channel and disclosure expectations.
 Before any public release of the repository, rerun a secret scan on the current
 state and the full Git history.
 
+## Project Policies
+
+- Contributions: `CONTRIBUTING.md`
+- Code of conduct: `CODE_OF_CONDUCT.md`
+- Support expectations: `SUPPORT.md`
+- Governance: `GOVERNANCE.md`
+- Brand and assets: `TRADEMARKS.md`
+
 ## License
 
 `fiestaaa_back` is distributed under the `AGPL-3.0-only` license. See `LICENSE`.
+This license covers the backend source code. Fiestaaa brand assets and
+third-party marks are handled separately in `TRADEMARKS.md`.

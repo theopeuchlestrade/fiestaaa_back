@@ -36,6 +36,13 @@ For a one-off bypass if needed: `SKIP_LINT=1 git commit ...`
 ## Migrations
 SQL migrations live in `migrations/` and are applied on startup through `sqlx::migrate!`.
 
+## Project Policies
+- Follow `CODE_OF_CONDUCT.md` in project spaces.
+- Read `SUPPORT.md` before opening support-style issues.
+- Read `GOVERNANCE.md` for the maintainer-led decision model.
+- Changes touching the Fiestaaa name, public copy, screenshots, icons, logos, or
+  third-party marks must follow `TRADEMARKS.md`.
+
 ## PR / MR
 - Describe the context, change, and impact.
 - Add/update tests if applicable.

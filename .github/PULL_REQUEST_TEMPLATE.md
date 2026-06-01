@@ -17,6 +17,7 @@ Describe the problem or goal addressed by this PR.
 
 - [ ] No secret, token, `.env` file, service account, or private key is added.
 - [ ] Changes affecting auth, permissions, personal data, or deployment are explained.
+- [ ] Brand, screenshot, icon, logo, and third-party mark changes follow `TRADEMARKS.md`.
 
 ## Release Notes
 

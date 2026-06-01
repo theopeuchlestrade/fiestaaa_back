@@ -7,7 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-No unreleased changes yet.
+### Added
+- Added brand/assets, code of conduct, support, and governance policies for
+  public contribution readiness.
+
+### Changed
+- Changed the manual release workflow to publish tag-only version commits and
+  derive version bumps from the latest `vX.Y.Z` tag, avoiding direct pushes to
+  `main` under strict branch protection.
 
 ## [0.0.0] - 2026-06-01
 
