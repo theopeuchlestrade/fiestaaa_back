@@ -259,7 +259,7 @@ jobs:
 
       - name: Generate image attestation
         if: steps.push.outputs.digest != '' && !github.event.repository.private
-        uses: actions/attest-build-provenance@v3
+        uses: actions/attest-build-provenance@v4
         with:
           subject-name: ${{ env.IMAGE }}
           subject-digest: ${{ steps.push.outputs.digest }}
