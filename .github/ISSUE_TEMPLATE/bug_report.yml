@@ -1,0 +1,57 @@
+name: Bug report
+description: Report a reproducible backend problem.
+title: "Bug: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a bug. For security issues, use the private security policy instead of a public issue.
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - API
+        - Authentication
+        - Accounts and profiles
+        - Events and items
+        - QR codes
+        - Admin and monitoring
+        - Deployment and CI
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: current
+    attributes:
+      label: What happened?
+      description: Describe the current behavior and include logs or API responses when useful.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: Describe what should have happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Reproduction steps
+      placeholder: |
+        1. Start the API with ...
+        2. Send request ...
+        3. Observe ...
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
+      description: Provide the release version, Docker image tag, or commit SHA.
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Add any relevant environment details, screenshots, or links.

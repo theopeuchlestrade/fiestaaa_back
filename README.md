@@ -126,6 +126,11 @@ TEST_DATABASE_URL=postgres://postgres:postgres@127.0.0.1:5432/fiestaaa_test carg
 Deployment and operations documentation is in
 `docs/deploiement.md`.
 
+The manual `Backend Release` GitHub Actions workflow verifies the release
+candidate, bumps the Cargo package version from a `patch`, `minor`, `major`, or
+custom version choice, creates the `vX.Y.Z` tag, publishes the GHCR image,
+creates the GitHub Release, and can deploy the API to the VPS.
+
 The production compose stack includes Prometheus/Grafana/Loki observability,
 external uptime checks, and automated backup/restore-drill scripts.
 
