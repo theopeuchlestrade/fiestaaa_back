@@ -7,34 +7,52 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+No unreleased changes yet.
+
+## [0.0.0] - 2026-06-01
+
+Initial public-readiness baseline for the Fiestaaa backend.
+
 ### Added
-- Added full email/password authentication with registration, email verification, registration completion, login, logout, and account deletion.
-- Added API support for configured OAuth providers.
-- Added user endpoints for `/me`, handle availability checks, handle updates, and avatar uploads.
-- Added event management APIs for creation, retrieval, update, deletion, address lookup, and share-link flows.
-- Added invitation flows by handle, invitation responses, personal invitation listing, and participant-list privacy protections.
-- Added email invitation flows with recipient-bound share links for guests who are not registered yet.
-- Added friend management APIs for search, friend requests, accept/decline, and removal.
-- Added carpool APIs for creation, updates, deletion, participation, leaving, and sorted listings.
-- Added global item management plus event item attachment, custom items, reservations, and contribution tracking.
+- Added full email/password authentication with registration, email verification, registration completion, login, logout, token revocation, and account deletion.
+- Added OAuth authentication support for configured Google and Apple providers.
+- Added user APIs for `/me`, handle availability checks, handle updates, avatar uploads, and avatar media serving.
+- Added event management APIs for creation, listing, retrieval, replacement, patch updates, deletion, address lookup, feature configuration, and share-link flows.
+- Added event feature support for carpools, polls, item lists, ticketing, shared playlists, payment links, and shared expenses.
+- Added invitation flows by handle or email, invitation responses, personal invitation listing, owner-side invitation management, and participant-list privacy protections.
+- Added recipient-bound email invitation links for guests who are not registered yet.
+- Added friend management APIs for search, friend requests, accept/decline actions, friend listing, and removal.
+- Added carpool APIs for creation, update, deletion, joining, leaving, duplicate-participation prevention, seat tracking, and sorted listings.
+- Added global item catalog management plus event item attachment, custom event items, reservations, and contribution tracking.
 - Added event poll creation, voting, listing, and deletion.
-- Added shared expense APIs for listing, creation, deletion, and balance/settlement summaries.
-- Added QR check-in flows for guest QR generation, owner scanning, and scan statistics.
-- Added admin CRUD for payment providers and payment-link validation.
-- Added device registration, refresh, and revocation endpoints for notifications.
+- Added shared expense APIs for listing, creation, deletion, balance summaries, and settlement suggestions.
+- Added QR check-in flows for guest QR generation, owner scanning, token validation, check-in recording, and scan statistics.
+- Added admin CRUD APIs for payment providers and payment-link validation.
+- Added device registration, refresh, and revocation endpoints for web/mobile push notifications.
+- Added realtime ticket issuance and WebSocket support for event, item, and invitation updates.
+- Added health and Prometheus metrics endpoints, including user activity metrics.
+- Added OpenAPI/Swagger documentation wiring for the public API surface.
+- Added a local user creation helper for development and support workflows.
+- Added Docker Compose support for local development with PostgreSQL and Redis.
+- Added production Docker image and Compose stack support for Traefik, PostgreSQL, Redis, observability, backups, and restore drills.
+- Added manual backend release workflow with release-type selection (`patch`, `minor`, `major`, or `custom`), version bumping, Git tag creation, GHCR publication, GitHub Release creation, provenance attestation, and optional VPS deployment.
+- Added backend CI jobs for formatting, linting, integration tests with PostgreSQL, dependency auditing, and production container builds.
 
 ### Changed
+- Changed the package version baseline to `0.0.0` before the first versioned release.
 - Changed backend CI to run the full suite with `cargo test --locked --all-targets --jobs 1 -- --test-threads=1`.
-- Changed integration test fixtures to match the current encrypted database schema.
-- Changed production deployment to use immutable image tags instead of relying on `latest`.
+- Changed release and deployment workflows to use explicit SemVer image tags while still publishing `latest` for convenience.
 - Changed deployment workflows to run public smoke checks after rollout.
 - Changed production configuration to support `TRUST_PROXY_HEADERS=true` behind Traefik or another reverse proxy.
 - Pinned the Rust builder and Debian runtime base images used for production Docker builds.
-- Removed the `latest` image publication path from the backend deployment workflow in favor of commit-SHA tags only.
 - Made `API_IMAGE_TAG` and `FRONT_IMAGE_TAG` explicit deployment prerequisites for production compose/bootstrap flows.
+- Documented open-source publication, VPS deployment, incident response, and production readiness runbooks.
 
 ### Security
 - Protected emails, addresses, coordinates, and sensitive event identifiers with database encryption.
 - Hardened payment-link and playlist validation to reject local, private, and otherwise unsafe targets.
 - Enabled trusted proxy header handling in production so rate limiting, logs, and client metadata can use forwarded values safely.
 - Fixed event patch handling so omitting a field and explicitly setting it to `null` are treated differently for clearable fields.
+- Added configurable rate limits for authentication and invitation flows.
+- Added bearer-token protection for Prometheus metrics.
+- Added secret scanning, security policy, dependency review, provenance attestation, and public-opening documentation for open-source readiness.

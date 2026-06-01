@@ -1,31 +1,306 @@
-name: Build and Deploy
+name: Backend Release
+
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
     inputs:
-      force_build:
-        description: "Ignore existing image and rebuild"
+      release_type:
+        description: "Version bump to apply"
+        required: true
+        default: patch
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+          - custom
+      custom_version:
+        description: "Required only when release_type=custom, without the v prefix"
+        required: false
+        type: string
+      deploy_to_vps:
+        description: "Deploy the released image to the production VPS"
+        required: true
         type: boolean
-        default: false
+        default: true
+
+concurrency:
+  group: backend-release
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  packages: write
+  attestations: write
+  artifact-metadata: write
+  id-token: write
+
+env:
+  CARGO_TERM_COLOR: always
+  IMAGE: ghcr.io/${{ github.repository }}
+  RUST_BACKTRACE: "1"
 
 jobs:
-  build-and-deploy:
+  verify:
+    name: Verify Release Candidate
     runs-on: ubuntu-latest
+    timeout-minutes: 45
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: fiestaaa_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d fiestaaa_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      TEST_DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/fiestaaa_test
+    steps:
+      - uses: actions/checkout@v6.0.2
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@1.96.0
+        with:
+          components: rustfmt, clippy
+
+      - name: Check formatting
+        run: cargo fmt --all --check
+
+      - name: Run clippy
+        run: cargo clippy --locked --all-targets --all-features -- -D warnings
+
+      - name: Run full test suite
+        run: cargo test --locked --all-targets --jobs 1 -- --test-threads=1
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3.11.1
+
+      - name: Build production image
+        uses: docker/build-push-action@v6.18.0
+        with:
+          context: .
+          push: false
+          tags: ${{ env.IMAGE }}:release-candidate-${{ github.sha }}
+
+  prepare-release:
+    name: Version, Commit and Tag
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: verify
+    outputs:
+      release_sha: ${{ steps.push.outputs.release_sha }}
+      tag: ${{ steps.version.outputs.tag }}
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v6.0.2
+        with:
+          fetch-depth: 0
+          ref: main
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@1.96.0
+
+      - name: Validate release version
+        id: version
+        env:
+          CUSTOM_VERSION: ${{ inputs.custom_version }}
+          RELEASE_TYPE: ${{ inputs.release_type }}
+        run: |
+          set -euo pipefail
+          release_type="${RELEASE_TYPE}"
+          custom_version="${CUSTOM_VERSION}"
+
+          if [ "${release_type}" = "custom" ]; then
+            version="${custom_version}"
+            if [ -z "${version}" ]; then
+              echo "::error::custom_version is required when release_type=custom"
+              exit 1
+            fi
+          else
+            if [ -n "${custom_version}" ]; then
+              echo "::error::custom_version can only be set when release_type=custom"
+              exit 1
+            fi
+            current_version="$(sed -nE 's/^version = "([0-9]+)\.([0-9]+)\.([0-9]+)".*/\1.\2.\3/p' Cargo.toml | head -n 1)"
+            if [ -z "${current_version}" ]; then
+              echo "::error::Cargo.toml version must use MAJOR.MINOR.PATCH"
+              exit 1
+            fi
+            IFS=. read -r major minor patch <<< "${current_version}"
+            case "${release_type}" in
+              patch)
+                patch=$((patch + 1))
+                ;;
+              minor)
+                minor=$((minor + 1))
+                patch=0
+                ;;
+              major)
+                major=$((major + 1))
+                minor=0
+                patch=0
+                ;;
+              *)
+                echo "::error::Unsupported release_type: ${release_type}"
+                exit 1
+                ;;
+            esac
+            version="${major}.${minor}.${patch}"
+          fi
+
+          if ! [[ "${version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::version must use MAJOR.MINOR.PATCH, for example 1.2.3"
+            exit 1
+          fi
+          tag="v${version}"
+          git fetch origin main --tags
+          if git ls-remote --exit-code --tags origin "refs/tags/${tag}" >/dev/null 2>&1; then
+            echo "::error::Tag ${tag} already exists"
+            exit 1
+          fi
+          {
+            echo "tag=${tag}"
+            echo "version=${version}"
+          } >> "${GITHUB_OUTPUT}"
+          echo "::notice::Preparing ${release_type} release ${tag}"
+
+      - name: Update Cargo version
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          # shellcheck disable=SC2016
+          ruby -e '
+            version = ENV.fetch("VERSION")
+            manifest_path = "Cargo.toml"
+            lock_path = "Cargo.lock"
+
+            manifest = File.read(manifest_path)
+            raise "Cargo.toml version not found" unless manifest.sub!(/^version = "[^"]+"/, "version = \"#{version}\"")
+            File.write(manifest_path, manifest)
+
+            lock = File.read(lock_path)
+            pattern = /(\[\[package\]\]\nname = "fiestaaa_back"\nversion = ")[^"]+(")/
+            raise "fiestaaa_back package not found in Cargo.lock" unless lock.sub!(pattern) { "#{$1}#{version}#{$2}" }
+            File.write(lock_path, lock)
+          '
+          cargo metadata --locked --format-version 1 >/dev/null
+
+      - name: Commit and tag release
+        id: push
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if ! git diff --quiet -- Cargo.toml Cargo.lock; then
+            git add Cargo.toml Cargo.lock
+            git commit -m "chore(release): ${TAG}"
+          fi
+          release_sha="$(git rev-parse HEAD)"
+          git tag -a "${TAG}" -m "Release ${TAG}" "${release_sha}"
+          git push origin HEAD:main
+          git push origin "${TAG}"
+          echo "release_sha=${release_sha}" >> "${GITHUB_OUTPUT}"
+
+  publish-image:
+    name: Publish Container Image
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    needs: prepare-release
+    outputs:
+      digest: ${{ steps.push.outputs.digest }}
+    steps:
+      - uses: actions/checkout@v6.0.2
+        with:
+          ref: ${{ needs.prepare-release.outputs.tag }}
+
+      - name: Login to GHCR
+        uses: docker/login-action@v4.0.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3.11.1
+
+      - name: Prepare image tags
+        id: image-tags
+        env:
+          TAG: ${{ needs.prepare-release.outputs.tag }}
+          VERSION: ${{ needs.prepare-release.outputs.version }}
+        run: |
+          {
+            echo "tags<<EOF"
+            echo "${IMAGE}:${TAG}"
+            echo "${IMAGE}:${VERSION}"
+            echo "${IMAGE}:latest"
+            echo "EOF"
+          } >> "${GITHUB_OUTPUT}"
+
+      - name: Build and push image
+        id: push
+        uses: docker/build-push-action@v6.18.0
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.image-tags.outputs.tags }}
+          labels: |
+            org.opencontainers.image.version=${{ needs.prepare-release.outputs.tag }}
+            org.opencontainers.image.revision=${{ needs.prepare-release.outputs.release_sha }}
+
+      - name: Generate image attestation
+        if: steps.push.outputs.digest != '' && !github.event.repository.private
+        uses: actions/attest-build-provenance@v3
+        with:
+          subject-name: ${{ env.IMAGE }}
+          subject-digest: ${{ steps.push.outputs.digest }}
+          push-to-registry: true
+
+  github-release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: [prepare-release, publish-image]
+    steps:
+      - name: Publish release notes
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.prepare-release.outputs.tag }}
+          name: Fiestaaa Backend ${{ needs.prepare-release.outputs.tag }}
+          target_commitish: ${{ needs.prepare-release.outputs.release_sha }}
+          generate_release_notes: true
+          make_latest: true
+          body: |
+            Container image:
+            `${{ env.IMAGE }}:${{ needs.prepare-release.outputs.tag }}`
+
+            Digest:
+            `${{ needs.publish-image.outputs.digest }}`
+
+  deploy:
+    name: Deploy to VPS
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: [prepare-release, publish-image, github-release]
+    if: ${{ inputs.deploy_to_vps }}
     environment:
       name: production
       url: https://api.fiestaaa.app
-    permissions:
-      contents: read
-      attestations: write
-      artifact-metadata: write
-      id-token: write
-      packages: write
     env:
-      IMAGE: ghcr.io/theopeuchlestrade/fiestaaa_back
-      TAG: ${{ github.sha }}
+      TAG: ${{ needs.prepare-release.outputs.tag }}
     steps:
       - uses: actions/checkout@v6.0.2
+        with:
+          ref: ${{ needs.prepare-release.outputs.tag }}
 
       - name: Check required secrets
         env:
@@ -84,43 +359,6 @@ jobs:
             rm -f "${tmp_service_account}"
           fi
           if [ "$missing" -ne 0 ]; then exit 1; fi
-
-      - name: Login to GHCR for push
-        uses: docker/login-action@v4.0.0
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3.11.1
-
-      - name: Check if image exists
-        id: image_exists
-        run: |
-          if docker manifest inspect "$IMAGE:$TAG" >/dev/null 2>&1; then
-            echo "exists=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "exists=false" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Build and push image
-        id: push
-        if: steps.image_exists.outputs.exists == 'false' || (github.event_name == 'workflow_dispatch' && github.event.inputs.force_build == 'true')
-        uses: docker/build-push-action@v6.18.0
-        with:
-          context: .
-          push: true
-          tags: |
-            ${{ env.IMAGE }}:${{ env.TAG }}
-
-      - name: Generate image attestation
-        if: steps.push.outputs.digest != '' && !github.event.repository.private
-        uses: actions/attest-build-provenance@v3
-        with:
-          subject-name: ${{ env.IMAGE }}
-          subject-digest: ${{ steps.push.outputs.digest }}
-          push-to-registry: true
 
       - name: Check VPS bootstrap state
         id: bootstrap
@@ -242,8 +480,6 @@ jobs:
             sudo install -m 400 -o 65534 -g 65534 "${tmp_metrics_token}" secrets/metrics_token
             rm -f "${tmp_metrics_token}"
             install -m 600 /dev/null .env
-            # Generate a .env from GitHub secrets for the docker compose runtime
-            # Do not quote EOF so variables expand on the runner side and avoid literal ${VAR} values
             cat > .env <<EOF
             API_IMAGE_TAG=${TAG}
             FRONT_IMAGE_TAG=${current_front_image_tag}
@@ -298,16 +534,14 @@ jobs:
             docker container prune -f >/dev/null 2>&1 || true
             docker image prune -af >/dev/null 2>&1 || true
             ${compose_cmd} pull api
-            # Leave stateful dependencies (db/redis) untouched while allowing
-            # Traefik/front to pick up compose command and label changes.
             ${compose_cmd} up -d --no-deps traefik front api
             ${compose_cmd} ps
         env:
           ADMIN_EMAILS: ${{ secrets.ADMIN_EMAILS }}
           BACKUP_INCLUDE_SECRETS: ${{ vars.BACKUP_INCLUDE_SECRETS || 'false' }}
           GHCR_USERNAME: ${{ secrets.GHCR_USERNAME || github.repository_owner }}
-          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}  # read:packages PAT for pull
-          TAG: ${{ github.sha }}
+          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
+          TAG: ${{ needs.prepare-release.outputs.tag }}
           APP_BASE_URL: ${{ secrets.APP_BASE_URL }}
           AVATAR_BASE_URL: ${{ secrets.AVATAR_BASE_URL }}
           AVATAR_UPLOAD_DIR: ${{ secrets.AVATAR_UPLOAD_DIR }}

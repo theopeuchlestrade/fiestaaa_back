@@ -20,8 +20,11 @@ Workflows and documentation have already been prepared for the target state:
 
 - Both repositories now use `main` as the default branch.
 - `fiestaaa_back/.github/workflows/deploy.yml` references the GitHub
-  `production` environment.
-- `fiestaaa_front/.github/workflows/deploy.yml` also references `production`.
+  `production` environment and runs as a manual versioned release.
+- `fiestaaa_front/.github/workflows/deploy.yml` also references `production`
+  and runs as a manual versioned release, including Android/iOS artifacts.
+- CI on both repositories runs on PRs and pushes to `main`, without deploying
+  production automatically.
 - Both repositories have a `Dependency Review` workflow, currently configured to
   skip cleanly while the repositories are `private + GitHub Free`.
 - Deployment workflows are ready to publish provenance attestations.
@@ -264,8 +267,8 @@ Then configure:
 
 ### Step 4. Move Production Secrets
 
-Move production secrets used by deployment workflows from `repo secrets` to
-`production` `environment secrets`.
+Move production secrets used by release/deployment workflows from `repo
+secrets` to `production` `environment secrets`.
 
 Keep separate, if needed, some pure build or release secrets that do not depend
 directly on the production environment, for example:
@@ -319,7 +322,7 @@ type or organization settings.
 
 After going public, verify that already committed elements become operational:
 
-- `environment: production` in deployment workflows;
+- `environment: production` in release/deployment workflows;
 - `Dependency Review` on PRs;
 - provenance attestations on GHCR builds;
 - deployment and branch rules visible in GitHub.

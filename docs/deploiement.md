@@ -6,9 +6,14 @@ GitHub Actions (GHCR).
 
 - Production stack described in `fiestaaa_back/docker-compose.prod.yml`
   (Traefik + socket-proxy + Postgres + Redis + API + Front).
-- Existing backend CI pipeline: `fiestaaa_back/.github/workflows/deploy.yml`.
+- CI workflows: `fiestaaa_back/.github/workflows/ci.yml` and
+  `fiestaaa_front/.github/workflows/ci.yml`.
+- Manual release workflows: `fiestaaa_back/.github/workflows/deploy.yml` and
+  `fiestaaa_front/.github/workflows/deploy.yml`.
 - Image registry: `ghcr.io/theopeuchlestrade/{fiestaaa_back,fiestaaa_front}`.
-  Frontend and backend are deployed with immutable SHA tags.
+  Frontend and backend are deployed with explicit SemVer tags (`vX.Y.Z`).
+  The workflows also publish `latest`, but production compose should keep using
+  explicit tags.
 - In case of compromise or doubt about the VPS / secrets, also follow
   `fiestaaa_back/docs/incident-securite.md`.
 - In case of a future move to `public + GitHub Free`, follow
@@ -87,8 +92,9 @@ graph TD
 - Avatar uploads: `data/uploads` volume mounted in the API container (exposed via
   `AVATAR_BASE_URL`, served by the API).
 - Traefik certificates: `traefik/letsencrypt/acme.json` (chmod 600).
-- CI/CD: GitHub Actions workflows (back/front) build and push images to GHCR,
-  then deploy through SSH (`docker compose pull/up`). Image push uses
+- CI/CD: GitHub Actions workflows (back/front) verify PRs and pushes to `main`.
+  Manual release workflows version, tag, publish GHCR images, create GitHub
+  releases, then deploy through SSH (`docker compose pull/up`). Image push uses
   `GITHUB_TOKEN`; the VPS only needs a read-only `GHCR_TOKEN`.
 - VPS tree: `~/apps/fiestaaa` with `docker-compose.yml`, `data/`, `traefik/`,
   `data/service-account.json`, and optional `frontend/` for possible overrides.
@@ -124,11 +130,11 @@ secrets out of Git. GitHub Actions workflows remain responsible for generating
 For a blank machine without local Ansible:
 
 1. Run the manual `Provision VPS` workflow.
-2. Run `Build and Deploy Front` in `fiestaaa_front` with `skip_deploy=true` to
-   publish the frontend image without attempting SSH.
-3. Run `Bootstrap VPS Stack` in `fiestaaa_back` with the frontend commit SHA as
-   `front_image_tag`.
-4. Then use normal deployment workflows.
+2. Run `Frontend Release` in `fiestaaa_front` with `deploy_to_vps=false`
+   (and `build_ios=false` if you only need the first web image).
+3. Run `Bootstrap VPS Stack` in `fiestaaa_back` with the frontend release tag
+   (for example `v1.0.0`) as `front_image_tag`.
+4. Then use the normal manual release workflows.
 
 See `infra/vps/README.md` for the short usage guide.
 
@@ -263,8 +269,8 @@ touch ~/apps/fiestaaa/traefik/letsencrypt/acme.json && chmod 600 ~/apps/fiestaaa
   ```bash
   cat > ~/apps/fiestaaa/.env <<'EOF'
   # Immutable image tags required by docker-compose.yml
-  API_IMAGE_TAG=<backend_image_sha_tag>
-  FRONT_IMAGE_TAG=<front_image_sha_tag>
+  API_IMAGE_TAG=<backend_image_tag>
+  FRONT_IMAGE_TAG=<front_image_tag>
   # Database and cache
   POSTGRES_USER=...
   POSTGRES_PASSWORD=...
@@ -298,10 +304,10 @@ touch ~/apps/fiestaaa/traefik/letsencrypt/acme.json && chmod 600 ~/apps/fiestaaa
   EOF
   ```
 
-  Replace `<backend_image_sha_tag>` and `<front_image_sha_tag>` with tags that
-  were actually published to GHCR, usually the Git SHAs of commits already built
-  by GitHub Actions workflows. Without both values, the production compose now
-  refuses to start to avoid any implicit fallback to `latest`.
+  Replace `<backend_image_tag>` and `<front_image_tag>` with tags that
+  were actually published to GHCR, preferably release tags such as `v1.2.3`.
+  Without both values, the production compose refuses to start to avoid any
+  implicit fallback to `latest`.
 
 - **Firebase service file**: GitHub Actions materializes
   `~/apps/fiestaaa/data/service-account.json` from
@@ -328,23 +334,28 @@ docker compose logs -f api # debug if needed
 
 Workflow: `fiestaaa_back/.github/workflows/deploy.yml`
 
-- Triggers: push to `main`, or `workflow_dispatch`.
+- Trigger: manual `workflow_dispatch`.
+- Inputs: `release_type` (`patch`, `minor`, `major`, or `custom`),
+  `custom_version` when using `custom`, and `deploy_to_vps`.
 - Recommended GitHub environment: `production`
 - Jobs:
-  1. Checks required secrets are present.
-  2. `docker login` to GHCR (`ghcr.io`) with runner-side `GITHUB_TOKEN`.
-  3. Builds and pushes image
-     `ghcr.io/theopeuchlestrade/fiestaaa_back:${{ github.sha }}` (unless already
-     present).
-  4. Generates a GitHub provenance attestation linked to the published GHCR
+  1. Verifies the release candidate (`cargo fmt`, `clippy`, full test suite,
+     and a production Docker image build).
+  2. Computes the next version from `Cargo.toml`, updates `Cargo.toml` /
+     `Cargo.lock`, commits the version bump, and creates the annotated tag
+     `vX.Y.Z`.
+  3. Builds and pushes images
+     `ghcr.io/theopeuchlestrade/fiestaaa_back:vX.Y.Z`,
+     `ghcr.io/theopeuchlestrade/fiestaaa_back:X.Y.Z`, and `latest`.
+  4. Creates the GitHub Release and provenance attestation linked to the GHCR
      image.
   5. Connects to the VPS over SSH (appleboy/ssh-action), then:
      - Generates `.env` on the server with GitHub secrets for the Docker Compose
-       runtime, `TRUST_PROXY_HEADERS=true`, and `API_IMAGE_TAG=${{ github.sha }}`.
+       runtime, `TRUST_PROXY_HEADERS=true`, and `API_IMAGE_TAG=vX.Y.Z`.
      - Preserves the already deployed `FRONT_IMAGE_TAG`; the workflow fails
        explicitly if this tag has never been seeded on the VPS.
-     - `docker compose pull api && docker compose up -d --no-deps api && docker compose ps`
-       (the rest of the stack must already exist thanks to production compose).
+     - `docker compose pull api && docker compose up -d --no-deps traefik front api && docker compose ps`
+       (stateful dependencies stay untouched).
   6. Runs blocking public smoke checks on `https://api.fiestaaa.app/health` and
      `https://fiestaaa.app`.
 - Recommended PR workflow: `fiestaaa_back/.github/workflows/dependency-review.yml`.
@@ -446,36 +457,47 @@ therefore goes through the manual `Bootstrap VPS Stack` workflow.
 1. Provision the VPS with `Provision VPS` or local Ansible.
 2. Publish a frontend image without deploying:
    - repo `fiestaaa_front`;
-   - workflow `Build and Deploy Front`;
-   - `skip_deploy=true`.
-3. Note the published frontend commit SHA.
+   - workflow `Frontend Release`;
+   - `deploy_to_vps=false`;
+   - `build_ios=false` if you only need the initial web image.
+3. Note the published frontend release tag.
 4. Repo `fiestaaa_back` -> workflow `Bootstrap VPS Stack` ->
-   `front_image_tag=<sha_front>`.
+   `front_image_tag=<frontend_release_tag>`.
 5. Verify `docker compose ps`, `https://api.fiestaaa.app/health`, and
    `https://fiestaaa.app`.
 
 ### Validation
 
-- Push to `main` -> verify the "Build and Deploy" job is green.
+- Push to `main` -> verify the CI workflow is green.
+- Manual release -> verify the release workflow is green and the tag/GitHub
+  Release were created.
 - On the VPS: run `docker compose ps`, then test `https://fiestaaa.app` and
   `https://api.fiestaaa.app/health` after deployment. If something goes wrong,
   use `docker compose logs -f api` and `docker compose logs -f front`.
 
 ## 5) Frontend (fiestaaa_front)
 
-- Production compose expects immutable images:
+- Production compose expects explicit image tags:
   - `ghcr.io/theopeuchlestrade/fiestaaa_back:${API_IMAGE_TAG}` for the API
   - `ghcr.io/theopeuchlestrade/fiestaaa_front:${FRONT_IMAGE_TAG}` for the frontend
-  Front and back workflows no longer use `latest` or implicit fallback:
+  Front and back workflows publish `latest` for convenience, but do not deploy
+  through an implicit fallback:
   `API_IMAGE_TAG` and `FRONT_IMAGE_TAG` must be present in
-  `~/apps/fiestaaa/.env`. Each workflow updates its own SHA tag while preserving
-  the other service tag so deployments and rollbacks remain auditable.
+  `~/apps/fiestaaa/.env`. Each release workflow updates its own release tag
+  while preserving the other service tag so deployments and rollbacks remain
+  auditable.
 - GitHub workflow: `fiestaaa_front/.github/workflows/deploy.yml`
   - Recommended GitHub environment: `production`
-  - Steps: checks secrets -> GHCR login -> build + push image (tag
-    `${{ github.sha }}` only) -> GHCR provenance attestation -> SSH VPS ->
-    update `FRONT_IMAGE_TAG` in `~/apps/fiestaaa/.env` while preserving the
-    already seeded `API_IMAGE_TAG` -> `docker compose pull front && docker compose up -d --no-deps front && docker compose ps` -> public smoke checks.
+  - Inputs: `release_type` (`patch`, `minor`, `major`, or `custom`),
+    `custom_version` when using `custom`, optional `build_number`,
+    `deploy_to_vps`, `build_ios`, and `ios_export_method`.
+  - Steps: verify Flutter tests and web container build -> compute the next
+    version from `pubspec.yaml` -> update `pubspec.yaml` -> commit and tag
+    `vX.Y.Z` -> build + push web image (`vX.Y.Z`, `X.Y.Z`, `latest`) -> build
+    signed Android APK and optional iOS IPA -> create the GitHub Release with
+    mobile artifacts -> SSH VPS -> update
+    `FRONT_IMAGE_TAG` in `~/apps/fiestaaa/.env` while preserving the already
+    seeded `API_IMAGE_TAG` -> `docker compose pull front && docker compose up -d --no-deps front && docker compose ps` -> public smoke checks.
   - `~/apps/fiestaaa/frontend`: optional directory (no mounted volume). You can
     create it to host possible Nginx overrides or archives, but the frontend
     container is autonomous.
@@ -509,9 +531,12 @@ therefore goes through the manual `Bootstrap VPS Stack` workflow.
   action is really available only once the repository is public or the GitHub
   plan is upgraded.
 - PR CI workflow: `fiestaaa_back/.github/workflows/ci.yml` for the backend
-  (`cargo fmt`, `clippy`, full `cargo test --locked --all-targets --jobs 1 -- --test-threads=1`
-  suite) and `fiestaaa_front/.github/workflows/ci.yml` for the frontend
-  (`flutter gen-l10n`, `dart format`, `flutter analyze`, `flutter test`).
+  (`cargo fmt`, `clippy`, dependency audit, full
+  `cargo test --locked --all-targets --jobs 1 -- --test-threads=1`, and
+  production container build) and `fiestaaa_front/.github/workflows/ci.yml` for
+  the frontend (`flutter gen-l10n`, `dart format`, `flutter analyze`,
+  `flutter test`, web container build, Android compile, and iOS compile on
+  non-PR runs).
 
 ## 6) Runtime Checks and Observability
 
@@ -700,8 +725,10 @@ The script loads `.env`, builds the Postgres URL (`DATABASE_URL` or
 - [ ] Back/front `ci.yml` workflows active on PRs
 - [ ] `dependency-review.yml` workflows present; in `private + Free`, they must
   skip cleanly, then become active once repositories are public
-- [ ] Provenance attestations enabled on deployment workflows
-- [ ] Push to `main` triggers the pipeline and deployment
+- [ ] Provenance attestations enabled on release workflows
+- [ ] Push to `main` triggers CI but not production deployment
+- [ ] Manual Backend Release / Frontend Release workflows tested with a version
+  tag and production environment approval
 - [ ] Manual verification: `docker compose ps` on the VPS + public URLs reachable
 - [ ] Front workflow active (`fiestaaa_front/.github/workflows/deploy.yml`) +
   frontend secrets filled
