@@ -1,169 +1,216 @@
-# Fiestaaa Back
+# 🎉 Fiestaaa Back
 
-Fiestaaa's Rust backend, an app for organizing private events.
+[![Fiestaaa Logo](.github/assets/fiestaaa_logo.png)](https://github.com/theopeuchlestrade/fiestaaa_back)
 
-The API handles authentication, events, invitations, item lists, carpools,
-shared expenses, access QR codes, notifications, and realtime streams.
+[![Backend Release](https://github.com/theopeuchlestrade/fiestaaa_back/actions/workflows/deploy.yml/badge.svg)](https://github.com/theopeuchlestrade/fiestaaa_back/actions/workflows/deploy.yml)
+[![CI](https://github.com/theopeuchlestrade/fiestaaa_back/actions/workflows/ci.yml/badge.svg)](https://github.com/theopeuchlestrade/fiestaaa_back/actions/workflows/ci.yml)
+[![Rust 1.96+](https://img.shields.io/badge/rust-1.96+-000000.svg?logo=rust)](https://www.rust-lang.org)
+[![AGPL-3.0 License](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](LICENSE)
+[![Docker](https://img.shields.io/badge/docker-ready-2496ED.svg?logo=docker)](https://www.docker.com)
+[![PostgreSQL](https://img.shields.io/badge/postgresql-ready-336791.svg?logo=postgresql)](https://www.postgresql.org)
 
-## Stack
+**Fiestaaa Backend** — The Rust-powered API for organizing private events with friends and family.
 
-- Rust 1.96
-- Actix Web
-- PostgreSQL via SQLx
-- Redis for some ephemeral state
-- Docker Compose for local development
+---
 
-## Prerequisites
+## 📖 Table of Contents
+
+- [✨ Features](#-features)
+- [🚀 Getting Started](#-getting-started)
+- [🔧 Development](#-development)
+- [📦 Build & Deployment](#-build--deployment)
+- [🔒 Security](#-security)
+- [📜 License](#-license)
+- [🤝 Contributing](#-contributing)
+
+---
+
+## ✨ Features
+
+- **Authentication**: JWT-based sessions with Argon2 password hashing
+- **Event Management**: Create, update, and manage private events
+- **Invitations**: Email-based invites with customizable messages
+- **Item Lists**: Shared shopping lists for events
+- **Carpools**: Coordinate rides with participants
+- **Shared Expenses**: Track and split costs among attendees
+- **Access Control**: QR code-based entry management
+- **Notifications**: Push notifications for important updates
+- **Realtime Streams**: Live updates via SSE (Server-Sent Events)
+
+---
+
+## 🚀 Getting Started
+
+### Prerequisites
 
 - Docker CLI + Docker Compose v2
-- Rust, if you run the API outside Docker
-- A local copy of `.env.example` as `.env`
+- Rust 1.96+ (if running the API outside Docker)
 
-## Configuration
+### Quick Start
 
-```bash
-cp .env.example .env
-```
+1. Clone the repository and copy the environment file:
+   ```bash
+   git clone https://github.com/theopeuchlestrade/fiestaaa_back.git
+   cd fiestaaa_back
+   cp .env.example .env
+   ```
 
-The values in `.env.example` are placeholders or local development values. Real
-secrets must never be committed.
+2. Configure your environment variables in `.env`. Required variables include:
+   - `DATABASE_URL`: PostgreSQL connection string
+   - `JWT_SECRET`: Session signing secret
+   - `DATA_ENCRYPTION_KEY`: Application encryption key (at least 32 characters)
+   - `DATA_LOOKUP_KEY`: Application lookup key (at least 32 characters)
+   - `CORS_ALLOWED_ORIGINS`: Allowed frontend origins
+   - `APP_BASE_URL`: Frontend URL for invitation links
 
-Important variables:
+3. Start the full stack with Docker:
+   ```bash
+   docker compose up --build
+   ```
 
-- `DATABASE_URL`: PostgreSQL connection
-- `JWT_SECRET`: session signing secret
-- `DATA_ENCRYPTION_KEY` and `DATA_LOOKUP_KEY`: application keys, at least 32 characters
-- `CORS_ALLOWED_ORIGINS`: allowed frontend origins
-- `APP_BASE_URL`: frontend URL for invitation links
-- `RESEND_API_KEY` and `INVITATION_EMAIL_SENDER`: invitation email sending
-- `FCM_*` and `FIESTAAA_FCM_VAPID_KEY`: push notifications
-- `METRICS_BEARER_TOKEN` and `SENTRY_DSN`: production observability
+4. Access the API at:
+   ```
+   http://127.0.0.1:8080
+   ```
 
-## Local Development
+---
 
-Full startup with Postgres:
+## 🔧 Development
 
-```bash
-docker compose up --build
-```
+### Local Development
 
-Local API:
+To run the API with `cargo`:
 
-```text
-http://127.0.0.1:8080
-```
+1. Start only the database:
+   ```bash
+   docker compose up -d db
+   ```
 
-To run the API with `cargo`, start only the database:
+2. Run the API:
+   ```bash
+   cargo run
+   ```
 
-```bash
-docker compose up -d db
-cargo run
-```
-
-In this mode, keep a local URL like:
-
+Use a local database URL like:
 ```bash
 DATABASE_URL=postgres://postgres:postgres@localhost:5432/fiestaaa
 ```
 
-## Local User
+### Local User Creation
 
 To create or update a local user directly in the database:
-
 ```bash
 cargo run --bin create_local_user -- --email test@local.dev --password changeme --handle test_local
 ```
 
-The command hashes the password with Argon2 and removes any pending registration
-for the same email.
+The command hashes the password with Argon2 and removes any pending registration for the same email.
 
-## Database
+### Database
 
-SQL migrations live in `migrations/` and are applied on startup through
-`sqlx::migrate!`.
+SQL migrations live in `migrations/` and are applied on startup through `sqlx::migrate!`.
 
-Local reset:
-
+**Local reset:**
 ```bash
 docker compose down -v
 docker compose up --build
 ```
 
-Or rebuild directly from the current schema:
-
+**Rebuild from current schema:**
 ```bash
 ./scripts/rebuild_db_from_schema.sh
 ```
 
-## Quality and Tests
+### Quality and Tests
 
-Format:
-
+**Format:**
 ```bash
 cargo fmt --all --check
 ```
 
-Lint:
-
+**Lint:**
 ```bash
 cargo clippy --all-targets --all-features -- -D warnings
 ```
 
-Tests with Docker:
-
+**Tests with Docker:**
 ```bash
-docker compose run --rm api cargo test
+cargo test
 ```
 
-Equivalent CI suite, with an available test database:
-
+**CI suite with test database:**
 ```bash
-TEST_DATABASE_URL=postgres://postgres:postgres@127.0.0.1:5432/fiestaaa_test cargo test --locked --all-targets --jobs 1 -- --test-threads=1
+TEST_DATABASE_URL=postgres://postgres:postgres@127.0.0.1:5432/fiestaaa_test \
+  cargo test --locked --all-targets --jobs 1 -- --test-threads=1
 ```
 
-## Deployment
+---
 
-Deployment and operations documentation is in
-`docs/deploiement.md`.
+## 📦 Build & Deployment
 
-The manual `Backend Release` GitHub Actions workflow verifies the release
-candidate, derives the next version from the latest `vX.Y.Z` tag or from a
-custom version choice, creates a tag-only release commit with the Cargo package
-version bumped, publishes the GHCR image, creates the GitHub Release, and can
-deploy the API to the VPS. It does not push directly to `main`, so it remains
-compatible with strict branch protection.
+### Deployment Documentation
 
-Release changelogs are generated automatically from commits on `main` between
-SemVer tags. New PRs should use clear Gitmoji or Conventional Commit-style
-titles so the generated `CHANGELOG.md` and GitHub Release notes are useful.
+Full deployment and operations documentation is available in [`docs/deploiement.md`](docs/deploiement.md).
 
-The production compose stack includes Prometheus/Grafana/Loki observability,
-external uptime checks, and automated backup/restore-drill scripts.
+### Release Workflow
 
-The transition from private to public repositories is documented in
-`docs/passage-public-open-source.md`.
+The **Backend Release** GitHub Actions workflow:
+- ✅ Verifies the release candidate
+- 📦 Derives the next version from the latest `vX.Y.Z` tag or custom version
+- 🔖 Creates a tag-only release commit with Cargo package version bumped
+- 🐳 Publishes the GHCR image
+- 📝 Creates the GitHub Release
+- 🚀 Can deploy the API to the VPS
 
-## Security
+It does **not** push directly to `main`, so it remains compatible with strict branch protection.
 
-Do not report vulnerabilities through a public issue. See `SECURITY.md` for the
-reporting channel and disclosure expectations.
+### Release Changelogs
 
-Before any public release of the repository, rerun a secret scan on the current
-state and the full Git history.
+Release changelogs are generated automatically from commits on `main` between SemVer tags. Use clear Gitmoji or Conventional Commit-style PR titles for useful `CHANGELOG.md` and GitHub Release notes.
 
-CI also runs workflow linting, a Dockerfile check, and a full-history Gitleaks
-scan on pull requests and pushes to `main`.
+### Production Stack
 
-## Project Policies
+The production compose stack includes:
+- Prometheus/Grafana/Loki observability
+- External uptime checks
+- Automated backup/restore-drill scripts
 
-- Contributions: `CONTRIBUTING.md`
-- Code of conduct: `CODE_OF_CONDUCT.md`
-- Support expectations: `SUPPORT.md`
-- Governance: `GOVERNANCE.md`
-- Brand and assets: `TRADEMARKS.md`
+---
 
-## License
+## 🔒 Security
 
-`fiestaaa_back` is distributed under the `AGPL-3.0-only` license. See `LICENSE`.
-This license covers the backend source code. Fiestaaa brand assets and
-third-party marks are handled separately in `TRADEMARKS.md`.
+⚠️ **Do not report vulnerabilities through public issues.**
+
+See [`SECURITY.md`](SECURITY.md) for the reporting channel and disclosure expectations.
+
+### Security Scans
+
+Before any public release, rerun a secret scan on the current state and full Git history.
+
+CI runs:
+- Workflow linting
+- Dockerfile checks
+- Full-history Gitleaks scan on pull requests and pushes to `main`
+
+---
+
+## 📜 License
+
+`fiestaaa_back` is distributed under the **[AGPL-3.0-only](LICENSE)** license.
+
+This license covers the backend source code. Fiestaaa brand assets and third-party marks are handled separately in [`TRADEMARKS.md`](TRADEMARKS.md).
+
+---
+
+## 🤝 Contributing
+
+We welcome contributions! Please see:
+
+- **Contributions**: [`CONTRIBUTING.md`](CONTRIBUTING.md)
+- **Code of Conduct**: [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md)
+- **Support**: [`SUPPORT.md`](SUPPORT.md)
+- **Governance**: [`GOVERNANCE.md`](GOVERNANCE.md)
+- **Brand & Assets**: [`TRADEMARKS.md`](TRADEMARKS.md)
+
+### Companion Repository
+
+- 🔗 [Fiestaaa Frontend](https://github.com/theopeuchlestrade/fiestaaa_front) — Flutter mobile/web application
