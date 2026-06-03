@@ -147,6 +147,9 @@ reporting channel and disclosure expectations.
 Before any public release of the repository, rerun a secret scan on the current
 state and the full Git history.
 
+CI also runs workflow linting, a Dockerfile check, and a full-history Gitleaks
+scan on pull requests and pushes to `main`.
+
 ## Project Policies
 
 - Contributions: `CONTRIBUTING.md`
