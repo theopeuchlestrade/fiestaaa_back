@@ -1,0 +1,48 @@
+# git-cliff configuration for release changelogs.
+# The parser accepts Gitmoji and Conventional Commit styles during the
+# progressive migration to Gitmoji-based release notes.
+
+[changelog]
+header = ""
+body = """
+{% if version -%}
+## [{{ version | trim_start_matches(pat="v") }}] - {{ timestamp | date(format="%Y-%m-%d") }}
+{% else -%}
+## [Unreleased]
+{% endif -%}
+{% if commits | length == 0 %}
+
+No notable changes.
+{% else %}
+{% for group, commits in commits | group_by(attribute="group") %}
+
+### {{ group | striptags | trim | upper_first }}
+{% for commit in commits %}
+- {% if commit.scope %}*({{ commit.scope }})* {% endif %}{% if commit.breaking %}**BREAKING** {% endif %}{{ commit.message | split(pat="\n") | first | upper_first }}
+{% endfor %}
+{% endfor %}
+{% endif %}
+"""
+footer = ""
+trim = true
+
+[git]
+conventional_commits = true
+filter_unconventional = false
+require_conventional = false
+filter_commits = false
+tag_pattern = "v[0-9]+\\.[0-9]+\\.[0-9]+"
+sort_commits = "oldest"
+commit_parsers = [
+  { message = '^chore\(release\):', skip = true },
+  { message = '^Merge pull request', skip = true },
+  { message = '^Merge branch', skip = true },
+  { message = '^(✨|:sparkles:|🎉|:tada:|feat(\(.+\))?!?:)', group = 'Added' },
+  { message = '^(🐛|:bug:|🚑️|:ambulance:|fix(\(.+\))?!?:)', group = 'Fixed' },
+  { message = '^(🔒|🔐|:lock:|:closed_lock_with_key:|security(\(.+\))?!?:)', group = 'Security' },
+  { message = '^(⬆️|⬇️|📦|:arrow_up:|:arrow_down:|:package:|chore\(deps.*\):|fix\(deps.*\):|build\(deps.*\):|Bump |bump )', group = 'Dependencies' },
+  { message = '^(📝|:memo:|docs(\(.+\))?!?:)', group = 'Documentation' },
+  { message = '^(♻️|⚡️|🎨|💄|🚀|:recycle:|:zap:|:art:|:lipstick:|:rocket:|refactor(\(.+\))?!?:|perf(\(.+\))?!?:|style(\(.+\))?!?:|ci(\(.+\))?!?:|build(\(.+\))?!?:)', group = 'Changed' },
+  { message = '^(✅|🧪|🔧|🚧|:white_check_mark:|:test_tube:|:wrench:|:construction:|test(\(.+\))?!?:|chore(\(.+\))?!?:)', group = 'Internal' },
+  { message = '.*', group = 'Internal' },
+]

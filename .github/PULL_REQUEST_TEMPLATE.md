@@ -22,5 +22,6 @@ Describe the problem or goal addressed by this PR.
 
 ## Release Notes
 
-- [ ] `CHANGELOG.md` updated, or this change is not user-facing/releasable.
+- [ ] PR title or squash commit is suitable for generated release notes.
+- [ ] Prefer Gitmoji style such as `✨ (events): Add item reservations`; Conventional Commit style remains accepted.
 - [ ] Documentation, configuration, and required secrets are updated if needed.

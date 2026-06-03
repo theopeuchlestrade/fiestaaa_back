@@ -133,6 +133,10 @@ version bumped, publishes the GHCR image, creates the GitHub Release, and can
 deploy the API to the VPS. It does not push directly to `main`, so it remains
 compatible with strict branch protection.
 
+Release changelogs are generated automatically from commits on `main` between
+SemVer tags. New PRs should use clear Gitmoji or Conventional Commit-style
+titles so the generated `CHANGELOG.md` and GitHub Release notes are useful.
+
 The production compose stack includes Prometheus/Grafana/Loki observability,
 external uptime checks, and automated backup/restore-drill scripts.
 
