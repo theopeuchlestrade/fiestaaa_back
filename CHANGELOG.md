@@ -11,11 +11,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added brand/assets, code of conduct, support, and governance policies for
   public contribution readiness.
 
-### Changed
-- Changed the manual release workflow to publish tag-only version commits and
-  derive version bumps from the latest `vX.Y.Z` tag, avoiding direct pushes to
-  `main` under strict branch protection.
-
 ## [0.0.0] - 2026-06-01
 
 Initial public-readiness baseline for the Fiestaaa backend.
@@ -41,19 +36,14 @@ Initial public-readiness baseline for the Fiestaaa backend.
 - Added OpenAPI/Swagger documentation wiring for the public API surface.
 - Added a local user creation helper for development and support workflows.
 - Added Docker Compose support for local development with PostgreSQL and Redis.
-- Added production Docker image and Compose stack support for Traefik, PostgreSQL, Redis, observability, backups, and restore drills.
-- Added manual backend release workflow with release-type selection (`patch`, `minor`, `major`, or `custom`), version bumping, Git tag creation, GHCR publication, GitHub Release creation, provenance attestation, and optional VPS deployment.
+- Added Dockerfile support for public API image builds.
 - Added backend CI jobs for formatting, linting, integration tests with PostgreSQL, dependency auditing, and production container builds.
 
 ### Changed
 - Changed the package version baseline to `0.0.0` before the first versioned release.
 - Changed backend CI to run the full suite with `cargo test --locked --all-targets --jobs 1 -- --test-threads=1`.
-- Changed release and deployment workflows to use explicit SemVer image tags while still publishing `latest` for convenience.
-- Changed deployment workflows to run public smoke checks after rollout.
 - Changed production configuration to support `TRUST_PROXY_HEADERS=true` behind Traefik or another reverse proxy.
 - Pinned the Rust builder and Debian runtime base images used for production Docker builds.
-- Made `API_IMAGE_TAG` and `FRONT_IMAGE_TAG` explicit deployment prerequisites for production compose/bootstrap flows.
-- Documented open-source publication, VPS deployment, incident response, and production readiness runbooks.
 
 ### Security
 - Protected emails, addresses, coordinates, and sensitive event identifiers with database encryption.
