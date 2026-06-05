@@ -155,9 +155,8 @@ locally:
 docker build -t fiestaaa_back:local .
 ```
 
-Official production release, VPS deployment, backup, observability, and incident
-runbooks are maintained in a private operations repository. They are not part of
-the public source distribution.
+Official production operations, release, backup, observability, and incident
+runbooks are maintained outside the public source distribution.
 
 ### Public Releases
 
