@@ -2,7 +2,6 @@
 
 <img src=".github/assets/fiestaaa_logo.png" alt="Fiestaaa Logo" width="120">
 
-[![Backend Release](https://github.com/theopeuchlestrade/fiestaaa_back/actions/workflows/deploy.yml/badge.svg)](https://github.com/theopeuchlestrade/fiestaaa_back/actions/workflows/deploy.yml)
 [![CI](https://github.com/theopeuchlestrade/fiestaaa_back/actions/workflows/ci.yml/badge.svg)](https://github.com/theopeuchlestrade/fiestaaa_back/actions/workflows/ci.yml)
 [![Rust 1.96+](https://img.shields.io/badge/rust-1.96+-000000.svg?logo=rust)](https://www.rust-lang.org)
 [![AGPL-3.0 License](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](LICENSE)
@@ -145,34 +144,25 @@ TEST_DATABASE_URL=postgres://postgres:postgres@127.0.0.1:5432/fiestaaa_test \
 
 ---
 
-## 📦 Build & Deployment
+## 📦 Build & Operations
 
-### Deployment Documentation
+### Local Container Build
 
-Full deployment and operations documentation is available in [`docs/deploiement.md`](docs/deploiement.md).
+The public repository includes a production-style Dockerfile that can be built
+locally:
 
-### Release Workflow
+```bash
+docker build -t fiestaaa_back:local .
+```
 
-The **Backend Release** GitHub Actions workflow:
-- ✅ Verifies the release candidate
-- 📦 Derives the next version from the latest `vX.Y.Z` tag or custom version
-- 🔖 Creates a tag-only release commit with Cargo package version bumped
-- 🐳 Publishes the GHCR image
-- 📝 Creates the GitHub Release
-- 🚀 Can deploy the API to the VPS
+Official production release, VPS deployment, backup, observability, and incident
+runbooks are maintained in a private operations repository. They are not part of
+the public source distribution.
 
-It does **not** push directly to `main`, so it remains compatible with strict branch protection.
+### Public Releases
 
-### Release Changelogs
-
-Release changelogs are generated automatically from commits on `main` between SemVer tags. Use clear Gitmoji or Conventional Commit-style PR titles for useful `CHANGELOG.md` and GitHub Release notes.
-
-### Production Stack
-
-The production compose stack includes:
-- Prometheus/Grafana/Loki observability
-- External uptime checks
-- Automated backup/restore-drill scripts
+Public releases and container image metadata may be published from the private
+operations repository. The application source, tests, and public CI remain here.
 
 ---
 
@@ -183,8 +173,6 @@ The production compose stack includes:
 See [`SECURITY.md`](SECURITY.md) for the reporting channel and disclosure expectations.
 
 ### Security Scans
-
-Before any public release, rerun a secret scan on the current state and full Git history.
 
 CI runs:
 - Workflow linting

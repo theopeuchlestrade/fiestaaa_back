@@ -1328,6 +1328,7 @@ dependencies = [
  "redis",
  "regex",
  "reqwest",
+ "rsa",
  "rustls",
  "sentry",
  "serde",

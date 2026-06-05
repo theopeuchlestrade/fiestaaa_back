@@ -5,8 +5,10 @@
 Security fixes primarily target:
 
 - the `main` branch;
-- the version currently deployed to production;
-- the secrets and infrastructure associated with the deployment documented in `docs/deploiement.md`.
+- the version currently deployed to the official service, when applicable.
+
+Official production infrastructure and secret handling are maintained outside
+this public repository.
 
 Older branches, unmaintained forks, and derived deployments are not guaranteed.
 
@@ -44,6 +46,5 @@ Maintenance goals:
 - prepare a fix or mitigation;
 - coordinate disclosure once the risk is reduced.
 
-Before the public release and GitHub Private Vulnerability Reporting activation,
-read this policy together with `docs/incident-securite.md` and
-`docs/passage-public-open-source.md`.
+Once GitHub Private Vulnerability Reporting is enabled, use it as the preferred
+reporting channel.
