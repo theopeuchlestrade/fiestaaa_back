@@ -1,6 +1,6 @@
 # 🎉 Fiestaaa Back
 
-[![Fiestaaa Logo](.github/assets/fiestaaa_logo.png)](https://github.com/theopeuchlestrade/fiestaaa_back)
+<img src=".github/assets/fiestaaa_logo.png" alt="Fiestaaa Logo" width="120">
 
 [![Backend Release](https://github.com/theopeuchlestrade/fiestaaa_back/actions/workflows/deploy.yml/badge.svg)](https://github.com/theopeuchlestrade/fiestaaa_back/actions/workflows/deploy.yml)
 [![CI](https://github.com/theopeuchlestrade/fiestaaa_back/actions/workflows/ci.yml/badge.svg)](https://github.com/theopeuchlestrade/fiestaaa_back/actions/workflows/ci.yml)
