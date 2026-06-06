@@ -1,6 +1,9 @@
 name: Feature request
 description: Suggest a backend improvement or capability.
 title: "Feature: "
+labels:
+  - feature
+  - backend
 body:
   - type: textarea
     id: problem
