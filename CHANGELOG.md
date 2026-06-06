@@ -7,15 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added
-- Added brand/assets, code of conduct, support, and governance policies for
-  public contribution readiness.
-
-## [0.0.0] - 2026-06-01
+## [0.1.0] - 2026-06-05
 
 Initial public-readiness baseline for the Fiestaaa backend.
 
 ### Added
+- Added brand/assets, code of conduct, support, and governance policies for
+  public contribution readiness.
 - Added full email/password authentication with registration, email verification, registration completion, login, logout, token revocation, and account deletion.
 - Added OAuth authentication support for configured Google and Apple providers.
 - Added user APIs for `/me`, handle availability checks, handle updates, avatar uploads, and avatar media serving.
@@ -40,7 +38,7 @@ Initial public-readiness baseline for the Fiestaaa backend.
 - Added backend CI jobs for formatting, linting, integration tests with PostgreSQL, dependency auditing, and production container builds.
 
 ### Changed
-- Changed the package version baseline to `0.0.0` before the first versioned release.
+- Changed the package version baseline to `0.1.0` for the first public release.
 - Changed backend CI to run the full suite with `cargo test --locked --all-targets --jobs 1 -- --test-threads=1`.
 - Changed production configuration to support `TRUST_PROXY_HEADERS=true` behind Traefik or another reverse proxy.
 - Pinned the Rust builder and Debian runtime base images used for production Docker builds.
