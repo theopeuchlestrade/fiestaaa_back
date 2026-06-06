@@ -1,0 +1,29 @@
+name: Chore
+description: Track backend maintenance, documentation, or refactor work.
+title: "Chore: "
+labels:
+  - chore
+  - backend
+body:
+  - type: textarea
+    id: objective
+    attributes:
+      label: Objective
+      description: Describe the maintenance goal.
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Context
+      description: Explain why this work is needed now.
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope
+      description: List what is included and excluded.
+  - type: textarea
+    id: verification
+    attributes:
+      label: Verification
+      description: List the checks, tests, or review steps that should pass.

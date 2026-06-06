@@ -1,0 +1,22 @@
+name: Markdown Links
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  local-markdown-links:
+    name: Local Markdown Links
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6.0.2
+
+      - name: Check local Markdown links
+        run: ruby scripts/check_markdown_links.rb

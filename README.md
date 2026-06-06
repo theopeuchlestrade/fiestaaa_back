@@ -142,6 +142,19 @@ TEST_DATABASE_URL=postgres://postgres:postgres@127.0.0.1:5432/fiestaaa_test \
   cargo test --locked --all-targets --jobs 1 -- --test-threads=1
 ```
 
+### OpenAPI Documentation
+
+The API can expose Swagger UI and the generated OpenAPI document locally:
+
+```bash
+ENABLE_SWAGGER_UI=true cargo run
+```
+
+Then open:
+
+- Swagger UI: `http://127.0.0.1:8080/docs/`
+- OpenAPI JSON: `http://127.0.0.1:8080/docs/openapi.json`
+
 ---
 
 ## 📦 Build & Operations
@@ -197,6 +210,10 @@ We welcome contributions! Please see:
 - **Support**: [`SUPPORT.md`](SUPPORT.md)
 - **Governance**: [`GOVERNANCE.md`](GOVERNANCE.md)
 - **Brand & Assets**: [`TRADEMARKS.md`](TRADEMARKS.md)
+- **Architecture**: [`docs/architecture.md`](docs/architecture.md)
+- **First contribution**: [`docs/first-contribution.md`](docs/first-contribution.md)
+- **Roadmap**: [`ROADMAP.md`](ROADMAP.md)
+- **Third-party notices**: [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md)
 
 ### Companion Repository
 
