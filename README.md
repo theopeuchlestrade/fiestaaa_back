@@ -189,6 +189,8 @@ See [`SECURITY.md`](SECURITY.md) for the reporting channel and disclosure expect
 CI runs:
 - Workflow linting
 - Dockerfile checks
+- Production image vulnerability scanning with Trivy
+- Rust dependency auditing with cargo-audit
 - Full-history Gitleaks scan on pull requests and pushes to `main`
 
 ---
