@@ -33,7 +33,7 @@ FROM debian:bookworm-slim@sha256:0104b334637a5f19aa9c983a91b54c89887c0984081f206
 LABEL org.opencontainers.image.source="https://github.com/theopeuchlestrade/fiestaaa_back"
 
 RUN apt-get update \
- && apt-get install -y --no-install-recommends ca-certificates curl libssl3 \
+ && apt-get install -y --no-install-recommends ca-certificates curl libgnutls30 libssl3 \
  && rm -rf /var/lib/apt/lists/* \
  && groupadd --system --gid 10001 fiestaaa \
  && useradd --system --uid 10001 --gid fiestaaa --home-dir /app --shell /usr/sbin/nologin fiestaaa

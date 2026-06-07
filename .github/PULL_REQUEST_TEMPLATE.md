@@ -13,7 +13,7 @@ Describe the problem or goal addressed by this PR.
 - [ ] `cargo test --locked --all-targets --jobs 1 -- --test-threads=1`
 - [ ] `docker build --check .`
 - [ ] `ruby scripts/check_markdown_links.rb`
-- [ ] CI `Workflow Lint`, `Secret Scan`, and `Dockerfile Check` passed.
+- [ ] CI `Workflow Lint`, `Secret Scan`, `Dockerfile Check`, and `Container Build & Scan` passed.
 
 ## Security
 

@@ -132,7 +132,7 @@ jobs:
         run: cargo audit -D warnings
 
   container-build:
-    name: Container Build
+    name: Container Build & Scan
     runs-on: ubuntu-latest
     timeout-minutes: 35
     steps:
@@ -145,8 +145,22 @@ jobs:
         uses: docker/build-push-action@v7.2.0
         with:
           context: .
+          load: true
           push: false
           tags: ghcr.io/${{ github.repository }}:ci-${{ github.sha }}
+
+      - name: Scan production image
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: image
+          scan-ref: ghcr.io/${{ github.repository }}:ci-${{ github.sha }}
+          version: v0.71.0
+          scanners: vuln
+          vuln-type: os,library
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          format: table
+          exit-code: "1"
 
   ci:
     name: Backend CI
