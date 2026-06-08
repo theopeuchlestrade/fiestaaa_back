@@ -1,4 +1,5 @@
 /target
+coverage/
 .idea/
 .release/
 .docker-config/

@@ -142,6 +142,15 @@ TEST_DATABASE_URL=postgres://postgres:postgres@127.0.0.1:5432/fiestaaa_test \
   cargo test --locked --all-targets --jobs 1 -- --test-threads=1
 ```
 
+**Coverage with test database:**
+```bash
+mkdir -p coverage
+TEST_DATABASE_URL=postgres://postgres:postgres@127.0.0.1:5432/fiestaaa_test \
+  cargo llvm-cov --locked --all-targets --lcov --output-path coverage/lcov.info -- --test-threads=1
+```
+
+CI uploads the generated `coverage/lcov.info` report as a workflow artifact.
+
 ### OpenAPI Documentation
 
 The API can expose Swagger UI and the generated OpenAPI document locally:
