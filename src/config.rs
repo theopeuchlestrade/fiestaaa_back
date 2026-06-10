@@ -280,3 +280,38 @@ impl AppConfig {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::default_cors_allowed_origins;
+
+    #[test]
+    fn default_cors_allowed_origins_trims_and_deduplicates_app_base_url() {
+        let origins = default_cors_allowed_origins("  http://localhost:5001/  ");
+
+        assert_eq!(
+            origins.first().map(String::as_str),
+            Some("http://localhost:5001")
+        );
+        assert_eq!(
+            origins
+                .iter()
+                .filter(|origin| origin.as_str() == "http://localhost:5001")
+                .count(),
+            1
+        );
+        assert!(origins.contains(&"http://127.0.0.1:5001".to_string()));
+        assert!(origins.contains(&"http://localhost:3000".to_string()));
+    }
+
+    #[test]
+    fn default_cors_allowed_origins_skips_blank_app_base_url() {
+        let origins = default_cors_allowed_origins("   ");
+
+        assert_eq!(
+            origins.first().map(String::as_str),
+            Some("http://localhost:3000")
+        );
+        assert!(!origins.iter().any(|origin| origin.is_empty()));
+    }
+}

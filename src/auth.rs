@@ -444,7 +444,11 @@ pub async fn extract_active_claims_from_auth(
 
 #[cfg(test)]
 mod tests {
-    use super::{hash_password, validate_password_strength, verify_password};
+    use super::{
+        build_cleared_session_cookie, build_session_cookie, hash_password, session_cookie_name,
+        should_secure_cookie, validate_password_strength, verify_password,
+    };
+    use actix_web::{cookie::SameSite, test::TestRequest};
 
     #[test]
     fn password_hash_round_trip_verifies_plaintext() {
@@ -461,5 +465,62 @@ mod tests {
         assert!(validate_password_strength("short").is_err());
         assert!(validate_password_strength("longbutnouppercase1!").is_err());
         assert!(validate_password_strength("LongButNoDigit!").is_err());
+    }
+
+    #[test]
+    fn secure_cookie_detection_respects_app_url_and_trusted_proxy_headers() {
+        let plain_req = TestRequest::default().to_http_request();
+        assert!(should_secure_cookie(
+            &plain_req,
+            "https://fiestaaa.app",
+            false
+        ));
+        assert!(!should_secure_cookie(
+            &plain_req,
+            "http://localhost:8080",
+            false
+        ));
+
+        let forwarded_req = TestRequest::default()
+            .insert_header(("X-Forwarded-Proto", "https"))
+            .to_http_request();
+        assert!(!should_secure_cookie(
+            &forwarded_req,
+            "http://localhost:8080",
+            false
+        ));
+        assert!(should_secure_cookie(
+            &forwarded_req,
+            "http://localhost:8080",
+            true
+        ));
+
+        let forwarded_header_req = TestRequest::default()
+            .insert_header(("Forwarded", r#"for="127.0.0.1"; proto="https""#))
+            .to_http_request();
+        assert!(should_secure_cookie(
+            &forwarded_header_req,
+            "http://localhost:8080",
+            true
+        ));
+    }
+
+    #[test]
+    fn session_cookies_use_http_only_lax_site_defaults() {
+        let cookie = build_session_cookie("session-token", true);
+
+        assert_eq!(cookie.name(), session_cookie_name());
+        assert_eq!(cookie.value(), "session-token");
+        assert_eq!(cookie.http_only(), Some(true));
+        assert_eq!(cookie.secure(), Some(true));
+        assert_eq!(cookie.same_site(), Some(SameSite::Lax));
+        assert_eq!(cookie.path(), Some("/"));
+
+        let cleared = build_cleared_session_cookie(false);
+        assert_eq!(cleared.name(), session_cookie_name());
+        assert_eq!(cleared.value(), "");
+        assert_eq!(cleared.http_only(), Some(true));
+        assert_eq!(cleared.secure(), Some(false));
+        assert!(cleared.max_age().is_some());
     }
 }
