@@ -185,7 +185,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .unwrap_or_else(|_| "postgres://postgres:postgres@localhost:5432/fiestaaa".to_string());
     let data_encryption_key = required_secret_env("DATA_ENCRYPTION_KEY");
     let data_lookup_key = required_secret_env("DATA_LOOKUP_KEY");
-    let pool = db::connect_and_migrate(&database_url, &data_encryption_key, &data_lookup_key).await;
+    let pool =
+        db::connect_and_migrate(&database_url, 5, &data_encryption_key, &data_lookup_key).await;
     let existing_user = match fetch_existing_user(&pool, &args.email).await {
         Ok(value) => value,
         Err(err) => {

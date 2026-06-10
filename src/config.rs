@@ -63,6 +63,7 @@ pub struct AppConfig {
     pub host: String,
     pub port: u16,
     pub database_url: String,
+    pub database_max_connections: u32,
     pub jwt_secret: String,
     pub data_encryption_key: String,
     pub data_lookup_key: String,
@@ -112,6 +113,11 @@ impl AppConfig {
             .unwrap_or(8080);
         let database_url = std::env::var("DATABASE_URL")
             .unwrap_or_else(|_| "postgres://postgres:postgres@localhost:5432/fiestaaa".into());
+        let database_max_connections = std::env::var("DATABASE_MAX_CONNECTIONS")
+            .ok()
+            .and_then(|v| v.parse::<u32>().ok())
+            .filter(|value| *value > 0)
+            .unwrap_or(5);
         let jwt_secret = required_secret_env("JWT_SECRET", 32);
         let data_encryption_key = required_secret_env("DATA_ENCRYPTION_KEY", 32);
         let data_lookup_key = required_secret_env("DATA_LOOKUP_KEY", 32);
@@ -240,6 +246,7 @@ impl AppConfig {
             host,
             port,
             database_url,
+            database_max_connections,
             jwt_secret,
             data_encryption_key,
             data_lookup_key,

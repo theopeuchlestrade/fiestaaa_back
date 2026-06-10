@@ -29,7 +29,7 @@ pub async fn obtain_pool() -> Option<PgPool> {
         .or_else(|_| std::env::var("DATABASE_URL"))
         .ok()?;
 
-    Some(db::connect_and_migrate(&url, TEST_DATA_ENCRYPTION_KEY, TEST_DATA_LOOKUP_KEY).await)
+    Some(db::connect_and_migrate(&url, 5, TEST_DATA_ENCRYPTION_KEY, TEST_DATA_LOOKUP_KEY).await)
 }
 
 pub async fn reset_tables(pool: &PgPool, tables: &[&str]) -> sqlx::Result<()> {
