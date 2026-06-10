@@ -144,7 +144,7 @@ async fn seed_invitation(
 #[tokio::test]
 async fn list_events_initially_empty() -> Result<(), Box<dyn Error>> {
     let Some(pool) = obtain_pool().await else {
-        eprintln!("Skipping events tests: DATABASE_URL or TEST_DATABASE_URL not set");
+        eprintln!("Skipping events tests: FIESTAAA_SKIP_DB_TESTS=1");
         return Ok(());
     };
     let _guard = DB_LOCK.lock().await;
@@ -175,7 +175,7 @@ async fn list_events_initially_empty() -> Result<(), Box<dyn Error>> {
 #[tokio::test]
 async fn create_event_requires_authentication() -> Result<(), Box<dyn Error>> {
     let Some(pool) = obtain_pool().await else {
-        eprintln!("Skipping events tests: DATABASE_URL or TEST_DATABASE_URL not set");
+        eprintln!("Skipping events tests: FIESTAAA_SKIP_DB_TESTS=1");
         return Ok(());
     };
     let _guard = DB_LOCK.lock().await;
@@ -219,7 +219,7 @@ async fn create_event_requires_authentication() -> Result<(), Box<dyn Error>> {
 #[tokio::test]
 async fn create_event_allows_authenticated_user() -> Result<(), Box<dyn Error>> {
     let Some(pool) = obtain_pool().await else {
-        eprintln!("Skipping events tests: DATABASE_URL or TEST_DATABASE_URL not set");
+        eprintln!("Skipping events tests: FIESTAAA_SKIP_DB_TESTS=1");
         return Ok(());
     };
     let _guard = DB_LOCK.lock().await;
@@ -268,7 +268,7 @@ async fn create_event_allows_authenticated_user() -> Result<(), Box<dyn Error>> 
 #[tokio::test]
 async fn create_event_accepts_ticketing_feature() -> Result<(), Box<dyn Error>> {
     let Some(pool) = obtain_pool().await else {
-        eprintln!("Skipping events tests: DATABASE_URL or TEST_DATABASE_URL not set");
+        eprintln!("Skipping events tests: FIESTAAA_SKIP_DB_TESTS=1");
         return Ok(());
     };
     let _guard = DB_LOCK.lock().await;
@@ -319,7 +319,7 @@ async fn create_event_accepts_ticketing_feature() -> Result<(), Box<dyn Error>> 
 #[tokio::test]
 async fn ticketing_migration_backfills_existing_events() -> Result<(), Box<dyn Error>> {
     let Some(pool) = obtain_pool().await else {
-        eprintln!("Skipping events tests: DATABASE_URL or TEST_DATABASE_URL not set");
+        eprintln!("Skipping events tests: FIESTAAA_SKIP_DB_TESTS=1");
         return Ok(());
     };
     let _guard = DB_LOCK.lock().await;
@@ -384,7 +384,7 @@ async fn ticketing_migration_backfills_existing_events() -> Result<(), Box<dyn E
 #[tokio::test]
 async fn events_crud_flow() -> Result<(), Box<dyn Error>> {
     let Some(pool) = obtain_pool().await else {
-        eprintln!("Skipping events tests: DATABASE_URL or TEST_DATABASE_URL not set");
+        eprintln!("Skipping events tests: FIESTAAA_SKIP_DB_TESTS=1");
         return Ok(());
     };
     let _guard = DB_LOCK.lock().await;
@@ -538,7 +538,7 @@ async fn events_crud_flow() -> Result<(), Box<dyn Error>> {
 #[tokio::test]
 async fn update_event_playlist_requires_creator_or_admin() -> Result<(), Box<dyn Error>> {
     let Some(pool) = obtain_pool().await else {
-        eprintln!("Skipping events tests: DATABASE_URL or TEST_DATABASE_URL not set");
+        eprintln!("Skipping events tests: FIESTAAA_SKIP_DB_TESTS=1");
         return Ok(());
     };
     let _guard = DB_LOCK.lock().await;
@@ -623,7 +623,7 @@ async fn update_event_playlist_requires_creator_or_admin() -> Result<(), Box<dyn
 async fn update_event_playlist_rejects_non_owner_when_admins_are_unset()
 -> Result<(), Box<dyn Error>> {
     let Some(pool) = obtain_pool().await else {
-        eprintln!("Skipping events tests: DATABASE_URL or TEST_DATABASE_URL not set");
+        eprintln!("Skipping events tests: FIESTAAA_SKIP_DB_TESTS=1");
         return Ok(());
     };
     let _guard = DB_LOCK.lock().await;
@@ -706,7 +706,7 @@ async fn update_event_playlist_rejects_non_owner_when_admins_are_unset()
 #[tokio::test]
 async fn update_event_playlist_requires_valid_provider() -> Result<(), Box<dyn Error>> {
     let Some(pool) = obtain_pool().await else {
-        eprintln!("Skipping events tests: DATABASE_URL or TEST_DATABASE_URL not set");
+        eprintln!("Skipping events tests: FIESTAAA_SKIP_DB_TESTS=1");
         return Ok(());
     };
     let _guard = DB_LOCK.lock().await;
@@ -785,7 +785,7 @@ async fn update_event_playlist_requires_valid_provider() -> Result<(), Box<dyn E
 #[tokio::test]
 async fn update_event_playlist_requires_valid_url() -> Result<(), Box<dyn Error>> {
     let Some(pool) = obtain_pool().await else {
-        eprintln!("Skipping events tests: DATABASE_URL or TEST_DATABASE_URL not set");
+        eprintln!("Skipping events tests: FIESTAAA_SKIP_DB_TESTS=1");
         return Ok(());
     };
     let _guard = DB_LOCK.lock().await;
@@ -864,7 +864,7 @@ async fn update_event_playlist_requires_valid_url() -> Result<(), Box<dyn Error>
 #[tokio::test]
 async fn update_event_playlist_can_clear_fields() -> Result<(), Box<dyn Error>> {
     let Some(pool) = obtain_pool().await else {
-        eprintln!("Skipping events tests: DATABASE_URL or TEST_DATABASE_URL not set");
+        eprintln!("Skipping events tests: FIESTAAA_SKIP_DB_TESTS=1");
         return Ok(());
     };
     let _guard = DB_LOCK.lock().await;
@@ -946,7 +946,7 @@ async fn update_event_playlist_can_clear_fields() -> Result<(), Box<dyn Error>> 
 #[tokio::test]
 async fn event_items_reservation_flow() -> Result<(), Box<dyn Error>> {
     let Some(pool) = obtain_pool().await else {
-        eprintln!("Skipping events tests: DATABASE_URL or TEST_DATABASE_URL not set");
+        eprintln!("Skipping events tests: FIESTAAA_SKIP_DB_TESTS=1");
         return Ok(());
     };
     let _guard = DB_LOCK.lock().await;
@@ -1152,7 +1152,7 @@ async fn event_items_reservation_flow() -> Result<(), Box<dyn Error>> {
 #[tokio::test]
 async fn event_items_scope_filters() -> Result<(), Box<dyn Error>> {
     let Some(pool) = obtain_pool().await else {
-        eprintln!("Skipping events tests: DATABASE_URL or TEST_DATABASE_URL not set");
+        eprintln!("Skipping events tests: FIESTAAA_SKIP_DB_TESTS=1");
         return Ok(());
     };
     let _guard = DB_LOCK.lock().await;
@@ -1372,7 +1372,7 @@ async fn event_items_scope_filters() -> Result<(), Box<dyn Error>> {
 #[tokio::test]
 async fn reserve_event_item_requires_membership() -> Result<(), Box<dyn Error>> {
     let Some(pool) = obtain_pool().await else {
-        eprintln!("Skipping events tests: DATABASE_URL or TEST_DATABASE_URL not set");
+        eprintln!("Skipping events tests: FIESTAAA_SKIP_DB_TESTS=1");
         return Ok(());
     };
     let _guard = DB_LOCK.lock().await;
@@ -1465,7 +1465,7 @@ async fn reserve_event_item_requires_membership() -> Result<(), Box<dyn Error>> 
 #[tokio::test]
 async fn create_event_rejects_unknown_payment_provider() -> Result<(), Box<dyn Error>> {
     let Some(pool) = obtain_pool().await else {
-        eprintln!("Skipping events tests: DATABASE_URL or TEST_DATABASE_URL not set");
+        eprintln!("Skipping events tests: FIESTAAA_SKIP_DB_TESTS=1");
         return Ok(());
     };
     let _guard = DB_LOCK.lock().await;
@@ -1514,7 +1514,7 @@ async fn create_event_rejects_unknown_payment_provider() -> Result<(), Box<dyn E
 #[tokio::test]
 async fn create_event_rejects_unsafe_absolute_payment_link() -> Result<(), Box<dyn Error>> {
     let Some(pool) = obtain_pool().await else {
-        eprintln!("Skipping events tests: DATABASE_URL or TEST_DATABASE_URL not set");
+        eprintln!("Skipping events tests: FIESTAAA_SKIP_DB_TESTS=1");
         return Ok(());
     };
     let _guard = DB_LOCK.lock().await;
@@ -1577,7 +1577,7 @@ async fn create_event_rejects_unsafe_absolute_payment_link() -> Result<(), Box<d
 #[tokio::test]
 async fn event_validates_empty_fields() -> Result<(), Box<dyn Error>> {
     let Some(pool) = obtain_pool().await else {
-        eprintln!("Skipping events tests: DATABASE_URL or TEST_DATABASE_URL not set");
+        eprintln!("Skipping events tests: FIESTAAA_SKIP_DB_TESTS=1");
         return Ok(());
     };
     let _guard = DB_LOCK.lock().await;

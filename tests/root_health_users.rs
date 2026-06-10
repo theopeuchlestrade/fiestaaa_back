@@ -79,7 +79,7 @@ fn multipart_avatar_body(boundary: &str, avatar_bytes: &[u8]) -> Result<Vec<u8>,
 #[tokio::test]
 async fn health_returns_ok_when_database_is_reachable() -> Result<(), Box<dyn Error>> {
     let Some(pool) = obtain_pool().await else {
-        eprintln!("Skipping root/health/users tests: DATABASE_URL or TEST_DATABASE_URL not set");
+        eprintln!("Skipping root/health/users tests: FIESTAAA_SKIP_DB_TESTS=1");
         return Ok(());
     };
     let _guard = DB_LOCK.lock().await;
@@ -100,7 +100,7 @@ async fn health_returns_ok_when_database_is_reachable() -> Result<(), Box<dyn Er
 #[tokio::test]
 async fn metrics_endpoint_requires_bearer_token() -> Result<(), Box<dyn Error>> {
     let Some(pool) = obtain_pool().await else {
-        eprintln!("Skipping metrics test: DATABASE_URL or TEST_DATABASE_URL not set");
+        eprintln!("Skipping metrics test: FIESTAAA_SKIP_DB_TESTS=1");
         return Ok(());
     };
     let _guard = DB_LOCK.lock().await;
@@ -136,7 +136,7 @@ async fn metrics_endpoint_requires_bearer_token() -> Result<(), Box<dyn Error>> 
 #[tokio::test]
 async fn metrics_endpoint_exposes_user_metrics() -> Result<(), Box<dyn Error>> {
     let Some(pool) = obtain_pool().await else {
-        eprintln!("Skipping user metrics test: DATABASE_URL or TEST_DATABASE_URL not set");
+        eprintln!("Skipping user metrics test: FIESTAAA_SKIP_DB_TESTS=1");
         return Ok(());
     };
     let _guard = DB_LOCK.lock().await;
@@ -227,7 +227,7 @@ async fn metrics_endpoint_exposes_user_metrics() -> Result<(), Box<dyn Error>> {
 #[tokio::test]
 async fn me_returns_authenticated_profile() -> Result<(), Box<dyn Error>> {
     let Some(pool) = obtain_pool().await else {
-        eprintln!("Skipping root/health/users tests: DATABASE_URL or TEST_DATABASE_URL not set");
+        eprintln!("Skipping root/health/users tests: FIESTAAA_SKIP_DB_TESTS=1");
         return Ok(());
     };
     let _guard = DB_LOCK.lock().await;
@@ -272,7 +272,7 @@ async fn me_returns_authenticated_profile() -> Result<(), Box<dyn Error>> {
 async fn handle_availability_and_update_cover_validation_and_conflicts()
 -> Result<(), Box<dyn Error>> {
     let Some(pool) = obtain_pool().await else {
-        eprintln!("Skipping root/health/users tests: DATABASE_URL or TEST_DATABASE_URL not set");
+        eprintln!("Skipping root/health/users tests: FIESTAAA_SKIP_DB_TESTS=1");
         return Ok(());
     };
     let _guard = DB_LOCK.lock().await;
@@ -348,7 +348,7 @@ async fn handle_availability_and_update_cover_validation_and_conflicts()
 async fn upload_avatar_accepts_multipart_image_and_returns_public_url() -> Result<(), Box<dyn Error>>
 {
     let Some(pool) = obtain_pool().await else {
-        eprintln!("Skipping root/health/users tests: DATABASE_URL or TEST_DATABASE_URL not set");
+        eprintln!("Skipping root/health/users tests: FIESTAAA_SKIP_DB_TESTS=1");
         return Ok(());
     };
     let _guard = DB_LOCK.lock().await;

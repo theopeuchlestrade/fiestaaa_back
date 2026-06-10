@@ -94,7 +94,7 @@ async fn accept_invitation(pool: &PgPool, event_id: i64, user_id: i64) -> sqlx::
 #[tokio::test]
 async fn issue_realtime_ticket_requires_authentication() -> Result<(), Box<dyn Error>> {
     let Some(pool) = obtain_pool().await else {
-        eprintln!("Skipping realtime tests: DATABASE_URL or TEST_DATABASE_URL not set");
+        eprintln!("Skipping realtime tests: FIESTAAA_SKIP_DB_TESTS=1");
         return Ok(());
     };
     let _guard = DB_LOCK.lock().await;
@@ -120,7 +120,7 @@ async fn issue_realtime_ticket_requires_authentication() -> Result<(), Box<dyn E
 #[tokio::test]
 async fn issue_realtime_ticket_requires_event_membership() -> Result<(), Box<dyn Error>> {
     let Some(pool) = obtain_pool().await else {
-        eprintln!("Skipping realtime tests: DATABASE_URL or TEST_DATABASE_URL not set");
+        eprintln!("Skipping realtime tests: FIESTAAA_SKIP_DB_TESTS=1");
         return Ok(());
     };
     let _guard = DB_LOCK.lock().await;
@@ -189,7 +189,7 @@ async fn issue_realtime_ticket_requires_event_membership() -> Result<(), Box<dyn
 #[tokio::test]
 async fn issue_realtime_ticket_rejects_untrusted_origin() -> Result<(), Box<dyn Error>> {
     let Some(pool) = obtain_pool().await else {
-        eprintln!("Skipping realtime tests: DATABASE_URL or TEST_DATABASE_URL not set");
+        eprintln!("Skipping realtime tests: FIESTAAA_SKIP_DB_TESTS=1");
         return Ok(());
     };
     let _guard = DB_LOCK.lock().await;

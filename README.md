@@ -133,8 +133,16 @@ cargo clippy --all-targets --all-features -- -D warnings
 
 **Tests with Docker:**
 ```bash
-cargo test
+docker compose up -d db-test
+
+TEST_DATABASE_URL=postgres://postgres:postgres@127.0.0.1:5433/fiestaaa_test \
+  cargo test --locked --all-targets --jobs 1 -- --test-threads=1
 ```
+
+Database-backed integration tests require `TEST_DATABASE_URL` by default so they
+cannot accidentally truncate the local development database. To intentionally
+skip those tests, run `FIESTAAA_SKIP_DB_TESTS=1 cargo test`. To explicitly reuse
+`DATABASE_URL` for tests, set `FIESTAAA_TEST_USE_DATABASE_URL=1`.
 
 **CI suite with test database:**
 ```bash
@@ -145,7 +153,7 @@ TEST_DATABASE_URL=postgres://postgres:postgres@127.0.0.1:5432/fiestaaa_test \
 **Coverage with test database:**
 ```bash
 mkdir -p coverage
-TEST_DATABASE_URL=postgres://postgres:postgres@127.0.0.1:5432/fiestaaa_test \
+TEST_DATABASE_URL=postgres://postgres:postgres@127.0.0.1:5433/fiestaaa_test \
   cargo llvm-cov --locked --all-targets --lcov --output-path coverage/lcov.info -- --test-threads=1
 ```
 

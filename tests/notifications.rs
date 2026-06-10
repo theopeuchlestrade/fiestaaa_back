@@ -38,7 +38,7 @@ async fn seed_user(pool: &PgPool, email: &str, handle: &str) -> sqlx::Result<i64
 #[tokio::test]
 async fn device_registration_refresh_and_delete_flow() -> Result<(), Box<dyn Error>> {
     let Some(pool) = obtain_pool().await else {
-        eprintln!("Skipping notifications tests: DATABASE_URL or TEST_DATABASE_URL not set");
+        eprintln!("Skipping notifications tests: FIESTAAA_SKIP_DB_TESTS=1");
         return Ok(());
     };
     let _guard = DB_LOCK.lock().await;
@@ -161,7 +161,7 @@ async fn device_registration_refresh_and_delete_flow() -> Result<(), Box<dyn Err
 #[tokio::test]
 async fn device_registration_rejects_invalid_payloads() -> Result<(), Box<dyn Error>> {
     let Some(pool) = obtain_pool().await else {
-        eprintln!("Skipping notifications tests: DATABASE_URL or TEST_DATABASE_URL not set");
+        eprintln!("Skipping notifications tests: FIESTAAA_SKIP_DB_TESTS=1");
         return Ok(());
     };
     let _guard = DB_LOCK.lock().await;
