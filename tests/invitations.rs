@@ -133,7 +133,7 @@ async fn seed_pending_share_token(
 #[tokio::test]
 async fn invitations_crud_flow() -> Result<(), Box<dyn Error>> {
     let Some(pool) = obtain_pool().await else {
-        eprintln!("Skipping invitations tests: DATABASE_URL or TEST_DATABASE_URL not set");
+        eprintln!("Skipping invitations tests: FIESTAAA_SKIP_DB_TESTS=1");
         return Ok(());
     };
     let _guard = DB_LOCK.lock().await;
@@ -253,7 +253,7 @@ async fn invitations_crud_flow() -> Result<(), Box<dyn Error>> {
 #[tokio::test]
 async fn waiting_invitee_cannot_list_event_invitations() -> Result<(), Box<dyn Error>> {
     let Some(pool) = obtain_pool().await else {
-        eprintln!("Skipping invitations tests: DATABASE_URL or TEST_DATABASE_URL not set");
+        eprintln!("Skipping invitations tests: FIESTAAA_SKIP_DB_TESTS=1");
         return Ok(());
     };
     let _guard = DB_LOCK.lock().await;
@@ -301,7 +301,7 @@ async fn waiting_invitee_cannot_list_event_invitations() -> Result<(), Box<dyn E
 #[tokio::test]
 async fn owner_invitation_routes_keep_not_found_for_missing_events() -> Result<(), Box<dyn Error>> {
     let Some(pool) = obtain_pool().await else {
-        eprintln!("Skipping invitations tests: DATABASE_URL or TEST_DATABASE_URL not set");
+        eprintln!("Skipping invitations tests: FIESTAAA_SKIP_DB_TESTS=1");
         return Ok(());
     };
     let _guard = DB_LOCK.lock().await;
@@ -337,7 +337,7 @@ async fn owner_invitation_routes_keep_not_found_for_missing_events() -> Result<(
 #[tokio::test]
 async fn participant_list_hides_other_emails_and_pending_entries() -> Result<(), Box<dyn Error>> {
     let Some(pool) = obtain_pool().await else {
-        eprintln!("Skipping invitations tests: DATABASE_URL or TEST_DATABASE_URL not set");
+        eprintln!("Skipping invitations tests: FIESTAAA_SKIP_DB_TESTS=1");
         return Ok(());
     };
     let _guard = DB_LOCK.lock().await;
@@ -439,7 +439,7 @@ async fn participant_list_hides_other_emails_and_pending_entries() -> Result<(),
 #[tokio::test]
 async fn email_invite_share_token_is_bound_to_target_email() -> Result<(), Box<dyn Error>> {
     let Some(pool) = obtain_pool().await else {
-        eprintln!("Skipping invitations tests: DATABASE_URL or TEST_DATABASE_URL not set");
+        eprintln!("Skipping invitations tests: FIESTAAA_SKIP_DB_TESTS=1");
         return Ok(());
     };
     let _guard = DB_LOCK.lock().await;
@@ -493,7 +493,7 @@ async fn email_invite_share_token_is_bound_to_target_email() -> Result<(), Box<d
 async fn email_invites_hide_registered_state_and_appear_as_pending_entries()
 -> Result<(), Box<dyn Error>> {
     let Some(pool) = obtain_pool().await else {
-        eprintln!("Skipping invitations tests: DATABASE_URL or TEST_DATABASE_URL not set");
+        eprintln!("Skipping invitations tests: FIESTAAA_SKIP_DB_TESTS=1");
         return Ok(());
     };
     let _guard = DB_LOCK.lock().await;
@@ -570,7 +570,7 @@ async fn email_invites_hide_registered_state_and_appear_as_pending_entries()
 #[tokio::test]
 async fn share_token_claim_rejects_expired_token() -> Result<(), Box<dyn Error>> {
     let Some(pool) = obtain_pool().await else {
-        eprintln!("Skipping invitations tests: DATABASE_URL or TEST_DATABASE_URL not set");
+        eprintln!("Skipping invitations tests: FIESTAAA_SKIP_DB_TESTS=1");
         return Ok(());
     };
     let _guard = DB_LOCK.lock().await;

@@ -124,7 +124,7 @@ fn future_departure() -> chrono::DateTime<Utc> {
 #[tokio::test]
 async fn list_carpools_requires_event_membership() -> Result<(), Box<dyn Error>> {
     let Some(pool) = obtain_pool().await else {
-        eprintln!("Skipping carpools tests: DATABASE_URL or TEST_DATABASE_URL not set");
+        eprintln!("Skipping carpools tests: FIESTAAA_SKIP_DB_TESTS=1");
         return Ok(());
     };
     let _guard = DB_LOCK.lock().await;
@@ -173,7 +173,7 @@ async fn list_carpools_requires_event_membership() -> Result<(), Box<dyn Error>>
 #[tokio::test]
 async fn list_carpools_initially_empty() -> Result<(), Box<dyn Error>> {
     let Some(pool) = obtain_pool().await else {
-        eprintln!("Skipping carpools tests: DATABASE_URL or TEST_DATABASE_URL not set");
+        eprintln!("Skipping carpools tests: FIESTAAA_SKIP_DB_TESTS=1");
         return Ok(());
     };
     let _guard = DB_LOCK.lock().await;
@@ -222,7 +222,7 @@ async fn list_carpools_initially_empty() -> Result<(), Box<dyn Error>> {
 #[tokio::test]
 async fn create_carpool_requires_authentication() -> Result<(), Box<dyn Error>> {
     let Some(pool) = obtain_pool().await else {
-        eprintln!("Skipping carpools tests: DATABASE_URL or TEST_DATABASE_URL not set");
+        eprintln!("Skipping carpools tests: FIESTAAA_SKIP_DB_TESTS=1");
         return Ok(());
     };
     let _guard = DB_LOCK.lock().await;
@@ -274,7 +274,7 @@ async fn create_carpool_requires_authentication() -> Result<(), Box<dyn Error>> 
 #[tokio::test]
 async fn create_carpool_validates_payload() -> Result<(), Box<dyn Error>> {
     let Some(pool) = obtain_pool().await else {
-        eprintln!("Skipping carpools tests: DATABASE_URL or TEST_DATABASE_URL not set");
+        eprintln!("Skipping carpools tests: FIESTAAA_SKIP_DB_TESTS=1");
         return Ok(());
     };
     let _guard = DB_LOCK.lock().await;
@@ -368,7 +368,7 @@ async fn create_carpool_validates_payload() -> Result<(), Box<dyn Error>> {
 #[tokio::test]
 async fn create_carpool_success() -> Result<(), Box<dyn Error>> {
     let Some(pool) = obtain_pool().await else {
-        eprintln!("Skipping carpools tests: DATABASE_URL or TEST_DATABASE_URL not set");
+        eprintln!("Skipping carpools tests: FIESTAAA_SKIP_DB_TESTS=1");
         return Ok(());
     };
     let _guard = DB_LOCK.lock().await;
@@ -431,7 +431,7 @@ async fn create_carpool_success() -> Result<(), Box<dyn Error>> {
 #[tokio::test]
 async fn create_carpool_prevents_duplicate_participation() -> Result<(), Box<dyn Error>> {
     let Some(pool) = obtain_pool().await else {
-        eprintln!("Skipping carpools tests: DATABASE_URL or TEST_DATABASE_URL not set");
+        eprintln!("Skipping carpools tests: FIESTAAA_SKIP_DB_TESTS=1");
         return Ok(());
     };
     let _guard = DB_LOCK.lock().await;
@@ -508,7 +508,7 @@ async fn create_carpool_prevents_duplicate_participation() -> Result<(), Box<dyn
 #[tokio::test]
 async fn update_carpool_only_driver() -> Result<(), Box<dyn Error>> {
     let Some(pool) = obtain_pool().await else {
-        eprintln!("Skipping carpools tests: DATABASE_URL or TEST_DATABASE_URL not set");
+        eprintln!("Skipping carpools tests: FIESTAAA_SKIP_DB_TESTS=1");
         return Ok(());
     };
     let _guard = DB_LOCK.lock().await;
@@ -588,7 +588,7 @@ async fn update_carpool_only_driver() -> Result<(), Box<dyn Error>> {
 #[tokio::test]
 async fn update_carpool_success() -> Result<(), Box<dyn Error>> {
     let Some(pool) = obtain_pool().await else {
-        eprintln!("Skipping carpools tests: DATABASE_URL or TEST_DATABASE_URL not set");
+        eprintln!("Skipping carpools tests: FIESTAAA_SKIP_DB_TESTS=1");
         return Ok(());
     };
     let _guard = DB_LOCK.lock().await;
@@ -669,7 +669,7 @@ async fn update_carpool_success() -> Result<(), Box<dyn Error>> {
 #[tokio::test]
 async fn delete_carpool_only_driver() -> Result<(), Box<dyn Error>> {
     let Some(pool) = obtain_pool().await else {
-        eprintln!("Skipping carpools tests: DATABASE_URL or TEST_DATABASE_URL not set");
+        eprintln!("Skipping carpools tests: FIESTAAA_SKIP_DB_TESTS=1");
         return Ok(());
     };
     let _guard = DB_LOCK.lock().await;
@@ -741,7 +741,7 @@ async fn delete_carpool_only_driver() -> Result<(), Box<dyn Error>> {
 #[tokio::test]
 async fn delete_carpool_success() -> Result<(), Box<dyn Error>> {
     let Some(pool) = obtain_pool().await else {
-        eprintln!("Skipping carpools tests: DATABASE_URL or TEST_DATABASE_URL not set");
+        eprintln!("Skipping carpools tests: FIESTAAA_SKIP_DB_TESTS=1");
         return Ok(());
     };
     let _guard = DB_LOCK.lock().await;
@@ -824,7 +824,7 @@ async fn delete_carpool_success() -> Result<(), Box<dyn Error>> {
 #[tokio::test]
 async fn join_carpool_success() -> Result<(), Box<dyn Error>> {
     let Some(pool) = obtain_pool().await else {
-        eprintln!("Skipping carpools tests: DATABASE_URL or TEST_DATABASE_URL not set");
+        eprintln!("Skipping carpools tests: FIESTAAA_SKIP_DB_TESTS=1");
         return Ok(());
     };
     let _guard = DB_LOCK.lock().await;
@@ -900,7 +900,7 @@ async fn join_carpool_success() -> Result<(), Box<dyn Error>> {
 #[tokio::test]
 async fn join_carpool_fails_when_full() -> Result<(), Box<dyn Error>> {
     let Some(pool) = obtain_pool().await else {
-        eprintln!("Skipping carpools tests: DATABASE_URL or TEST_DATABASE_URL not set");
+        eprintln!("Skipping carpools tests: FIESTAAA_SKIP_DB_TESTS=1");
         return Ok(());
     };
     let _guard = DB_LOCK.lock().await;
@@ -989,7 +989,7 @@ async fn join_carpool_fails_when_full() -> Result<(), Box<dyn Error>> {
 #[tokio::test]
 async fn join_carpool_fails_if_driver() -> Result<(), Box<dyn Error>> {
     let Some(pool) = obtain_pool().await else {
-        eprintln!("Skipping carpools tests: DATABASE_URL or TEST_DATABASE_URL not set");
+        eprintln!("Skipping carpools tests: FIESTAAA_SKIP_DB_TESTS=1");
         return Ok(());
     };
     let _guard = DB_LOCK.lock().await;
@@ -1059,7 +1059,7 @@ async fn join_carpool_fails_if_driver() -> Result<(), Box<dyn Error>> {
 #[tokio::test]
 async fn join_carpool_fails_if_already_in_another() -> Result<(), Box<dyn Error>> {
     let Some(pool) = obtain_pool().await else {
-        eprintln!("Skipping carpools tests: DATABASE_URL or TEST_DATABASE_URL not set");
+        eprintln!("Skipping carpools tests: FIESTAAA_SKIP_DB_TESTS=1");
         return Ok(());
     };
     let _guard = DB_LOCK.lock().await;
@@ -1168,7 +1168,7 @@ async fn join_carpool_fails_if_already_in_another() -> Result<(), Box<dyn Error>
 #[tokio::test]
 async fn leave_carpool_success() -> Result<(), Box<dyn Error>> {
     let Some(pool) = obtain_pool().await else {
-        eprintln!("Skipping carpools tests: DATABASE_URL or TEST_DATABASE_URL not set");
+        eprintln!("Skipping carpools tests: FIESTAAA_SKIP_DB_TESTS=1");
         return Ok(());
     };
     let _guard = DB_LOCK.lock().await;
@@ -1254,7 +1254,7 @@ async fn leave_carpool_success() -> Result<(), Box<dyn Error>> {
 #[tokio::test]
 async fn leave_carpool_fails_not_joined() -> Result<(), Box<dyn Error>> {
     let Some(pool) = obtain_pool().await else {
-        eprintln!("Skipping carpools tests: DATABASE_URL or TEST_DATABASE_URL not set");
+        eprintln!("Skipping carpools tests: FIESTAAA_SKIP_DB_TESTS=1");
         return Ok(());
     };
     let _guard = DB_LOCK.lock().await;
@@ -1328,7 +1328,7 @@ async fn leave_carpool_fails_not_joined() -> Result<(), Box<dyn Error>> {
 #[tokio::test]
 async fn list_carpools_prioritizes_user_participation() -> Result<(), Box<dyn Error>> {
     let Some(pool) = obtain_pool().await else {
-        eprintln!("Skipping carpools tests: DATABASE_URL or TEST_DATABASE_URL not set");
+        eprintln!("Skipping carpools tests: FIESTAAA_SKIP_DB_TESTS=1");
         return Ok(());
     };
     let _guard = DB_LOCK.lock().await;
@@ -1436,7 +1436,7 @@ async fn list_carpools_prioritizes_user_participation() -> Result<(), Box<dyn Er
 #[tokio::test]
 async fn list_carpools_sorting_options() -> Result<(), Box<dyn Error>> {
     let Some(pool) = obtain_pool().await else {
-        eprintln!("Skipping carpools tests: DATABASE_URL or TEST_DATABASE_URL not set");
+        eprintln!("Skipping carpools tests: FIESTAAA_SKIP_DB_TESTS=1");
         return Ok(());
     };
     let _guard = DB_LOCK.lock().await;
@@ -1595,7 +1595,7 @@ async fn list_carpools_sorting_options() -> Result<(), Box<dyn Error>> {
 #[tokio::test]
 async fn list_carpools_preserves_user_priority_with_sort() -> Result<(), Box<dyn Error>> {
     let Some(pool) = obtain_pool().await else {
-        eprintln!("Skipping carpools tests: DATABASE_URL or TEST_DATABASE_URL not set");
+        eprintln!("Skipping carpools tests: FIESTAAA_SKIP_DB_TESTS=1");
         return Ok(());
     };
     let _guard = DB_LOCK.lock().await;
