@@ -109,7 +109,7 @@ fn balance_for_user(summary: &EventExpensesSummaryView, user_id: i64) -> Option<
 #[tokio::test]
 async fn create_event_expense_supports_explicit_payer_and_summary() -> Result<(), Box<dyn Error>> {
     let Some(pool) = obtain_pool().await else {
-        eprintln!("Skipping event_expenses tests: DATABASE_URL or TEST_DATABASE_URL not set");
+        eprintln!("Skipping event_expenses tests: FIESTAAA_SKIP_DB_TESTS=1");
         return Ok(());
     };
     let _guard = DB_LOCK.lock().await;
@@ -198,7 +198,7 @@ async fn create_event_expense_supports_explicit_payer_and_summary() -> Result<()
 #[tokio::test]
 async fn expense_creator_can_delete_even_if_someone_else_paid() -> Result<(), Box<dyn Error>> {
     let Some(pool) = obtain_pool().await else {
-        eprintln!("Skipping event_expenses tests: DATABASE_URL or TEST_DATABASE_URL not set");
+        eprintln!("Skipping event_expenses tests: FIESTAAA_SKIP_DB_TESTS=1");
         return Ok(());
     };
     let _guard = DB_LOCK.lock().await;
@@ -280,7 +280,7 @@ async fn expense_creator_can_delete_even_if_someone_else_paid() -> Result<(), Bo
 #[tokio::test]
 async fn finished_event_blocks_new_shared_expenses() -> Result<(), Box<dyn Error>> {
     let Some(pool) = obtain_pool().await else {
-        eprintln!("Skipping event_expenses tests: DATABASE_URL or TEST_DATABASE_URL not set");
+        eprintln!("Skipping event_expenses tests: FIESTAAA_SKIP_DB_TESTS=1");
         return Ok(());
     };
     let _guard = DB_LOCK.lock().await;

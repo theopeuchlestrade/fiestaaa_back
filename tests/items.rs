@@ -56,7 +56,7 @@ async fn seed_user(pool: &PgPool, email: &str) -> sqlx::Result<i64> {
 #[tokio::test]
 async fn list_items_initially_empty() -> Result<(), Box<dyn Error>> {
     let Some(pool) = obtain_pool().await else {
-        eprintln!("Skipping items tests: DATABASE_URL or TEST_DATABASE_URL not set");
+        eprintln!("Skipping items tests: FIESTAAA_SKIP_DB_TESTS=1");
         return Ok(());
     };
     let _guard = DB_LOCK.lock().await;
@@ -77,7 +77,7 @@ async fn list_items_initially_empty() -> Result<(), Box<dyn Error>> {
 #[tokio::test]
 async fn create_item_requires_authentication() -> Result<(), Box<dyn Error>> {
     let Some(pool) = obtain_pool().await else {
-        eprintln!("Skipping items tests: DATABASE_URL or TEST_DATABASE_URL not set");
+        eprintln!("Skipping items tests: FIESTAAA_SKIP_DB_TESTS=1");
         return Ok(());
     };
     let _guard = DB_LOCK.lock().await;
@@ -110,7 +110,7 @@ async fn create_item_requires_authentication() -> Result<(), Box<dyn Error>> {
 #[tokio::test]
 async fn create_item_rejects_non_admin() -> Result<(), Box<dyn Error>> {
     let Some(pool) = obtain_pool().await else {
-        eprintln!("Skipping items tests: DATABASE_URL or TEST_DATABASE_URL not set");
+        eprintln!("Skipping items tests: FIESTAAA_SKIP_DB_TESTS=1");
         return Ok(());
     };
     let _guard = DB_LOCK.lock().await;
@@ -148,7 +148,7 @@ async fn create_item_rejects_non_admin() -> Result<(), Box<dyn Error>> {
 #[tokio::test]
 async fn create_item_rejects_requests_when_admins_are_unset() -> Result<(), Box<dyn Error>> {
     let Some(pool) = obtain_pool().await else {
-        eprintln!("Skipping items tests: DATABASE_URL or TEST_DATABASE_URL not set");
+        eprintln!("Skipping items tests: FIESTAAA_SKIP_DB_TESTS=1");
         return Ok(());
     };
     let _guard = DB_LOCK.lock().await;
@@ -186,7 +186,7 @@ async fn create_item_rejects_requests_when_admins_are_unset() -> Result<(), Box<
 #[tokio::test]
 async fn items_crud_flow() -> Result<(), Box<dyn Error>> {
     let Some(pool) = obtain_pool().await else {
-        eprintln!("Skipping items tests: DATABASE_URL or TEST_DATABASE_URL not set");
+        eprintln!("Skipping items tests: FIESTAAA_SKIP_DB_TESTS=1");
         return Ok(());
     };
     let _guard = DB_LOCK.lock().await;
@@ -292,7 +292,7 @@ async fn items_crud_flow() -> Result<(), Box<dyn Error>> {
 #[tokio::test]
 async fn create_item_rejects_unknown_type() -> Result<(), Box<dyn Error>> {
     let Some(pool) = obtain_pool().await else {
-        eprintln!("Skipping items tests: DATABASE_URL or TEST_DATABASE_URL not set");
+        eprintln!("Skipping items tests: FIESTAAA_SKIP_DB_TESTS=1");
         return Ok(());
     };
     let _guard = DB_LOCK.lock().await;

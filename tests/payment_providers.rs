@@ -49,7 +49,7 @@ async fn seed_user(pool: &PgPool, email: &str) -> sqlx::Result<i64> {
 #[tokio::test]
 async fn list_payment_providers_initially_empty() -> Result<(), Box<dyn Error>> {
     let Some(pool) = obtain_pool().await else {
-        eprintln!("Skipping payment providers tests: DATABASE_URL or TEST_DATABASE_URL not set");
+        eprintln!("Skipping payment providers tests: FIESTAAA_SKIP_DB_TESTS=1");
         return Ok(());
     };
     let _guard = DB_LOCK.lock().await;
@@ -76,7 +76,7 @@ async fn list_payment_providers_initially_empty() -> Result<(), Box<dyn Error>> 
 #[tokio::test]
 async fn create_payment_provider_requires_authentication() -> Result<(), Box<dyn Error>> {
     let Some(pool) = obtain_pool().await else {
-        eprintln!("Skipping payment providers tests: DATABASE_URL or TEST_DATABASE_URL not set");
+        eprintln!("Skipping payment providers tests: FIESTAAA_SKIP_DB_TESTS=1");
         return Ok(());
     };
     let _guard = DB_LOCK.lock().await;
@@ -107,7 +107,7 @@ async fn create_payment_provider_requires_authentication() -> Result<(), Box<dyn
 #[tokio::test]
 async fn create_payment_provider_rejects_non_admin() -> Result<(), Box<dyn Error>> {
     let Some(pool) = obtain_pool().await else {
-        eprintln!("Skipping payment providers tests: DATABASE_URL or TEST_DATABASE_URL not set");
+        eprintln!("Skipping payment providers tests: FIESTAAA_SKIP_DB_TESTS=1");
         return Ok(());
     };
     let _guard = DB_LOCK.lock().await;
@@ -144,7 +144,7 @@ async fn create_payment_provider_rejects_non_admin() -> Result<(), Box<dyn Error
 async fn create_payment_provider_rejects_requests_when_admins_are_unset()
 -> Result<(), Box<dyn Error>> {
     let Some(pool) = obtain_pool().await else {
-        eprintln!("Skipping payment providers tests: DATABASE_URL or TEST_DATABASE_URL not set");
+        eprintln!("Skipping payment providers tests: FIESTAAA_SKIP_DB_TESTS=1");
         return Ok(());
     };
     let _guard = DB_LOCK.lock().await;
@@ -180,7 +180,7 @@ async fn create_payment_provider_rejects_requests_when_admins_are_unset()
 #[tokio::test]
 async fn payment_providers_crud_flow() -> Result<(), Box<dyn Error>> {
     let Some(pool) = obtain_pool().await else {
-        eprintln!("Skipping payment providers tests: DATABASE_URL or TEST_DATABASE_URL not set");
+        eprintln!("Skipping payment providers tests: FIESTAAA_SKIP_DB_TESTS=1");
         return Ok(());
     };
     let _guard = DB_LOCK.lock().await;
@@ -288,7 +288,7 @@ async fn payment_providers_crud_flow() -> Result<(), Box<dyn Error>> {
 #[tokio::test]
 async fn create_payment_provider_validates_url_template() -> Result<(), Box<dyn Error>> {
     let Some(pool) = obtain_pool().await else {
-        eprintln!("Skipping payment providers tests: DATABASE_URL or TEST_DATABASE_URL not set");
+        eprintln!("Skipping payment providers tests: FIESTAAA_SKIP_DB_TESTS=1");
         return Ok(());
     };
     let _guard = DB_LOCK.lock().await;
@@ -324,7 +324,7 @@ async fn create_payment_provider_validates_url_template() -> Result<(), Box<dyn 
 #[tokio::test]
 async fn create_payment_provider_prevents_duplicates() -> Result<(), Box<dyn Error>> {
     let Some(pool) = obtain_pool().await else {
-        eprintln!("Skipping payment providers tests: DATABASE_URL or TEST_DATABASE_URL not set");
+        eprintln!("Skipping payment providers tests: FIESTAAA_SKIP_DB_TESTS=1");
         return Ok(());
     };
     let _guard = DB_LOCK.lock().await;

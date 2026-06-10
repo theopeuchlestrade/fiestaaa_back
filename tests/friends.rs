@@ -81,7 +81,7 @@ async fn seed_user(pool: &PgPool, email: &str, handle: &str) -> sqlx::Result<i64
 #[tokio::test]
 async fn friend_request_flow_covers_search_acceptance_and_deletion() -> Result<(), Box<dyn Error>> {
     let Some(pool) = obtain_pool().await else {
-        eprintln!("Skipping friends tests: DATABASE_URL or TEST_DATABASE_URL not set");
+        eprintln!("Skipping friends tests: FIESTAAA_SKIP_DB_TESTS=1");
         return Ok(());
     };
     let _guard = DB_LOCK.lock().await;

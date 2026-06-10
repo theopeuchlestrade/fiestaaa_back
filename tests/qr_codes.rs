@@ -96,7 +96,7 @@ async fn seed_invitation(
 #[tokio::test]
 async fn generate_my_qr_code_rotates_existing_token() -> Result<(), Box<dyn Error>> {
     let Some(pool) = obtain_pool().await else {
-        eprintln!("Skipping QR code tests: DATABASE_URL or TEST_DATABASE_URL not set");
+        eprintln!("Skipping QR code tests: FIESTAAA_SKIP_DB_TESTS=1");
         return Ok(());
     };
     let _guard = DB_LOCK.lock().await;
@@ -143,7 +143,7 @@ async fn generate_my_qr_code_rotates_existing_token() -> Result<(), Box<dyn Erro
 #[tokio::test]
 async fn generate_my_qr_code_requires_accepted_invitation() -> Result<(), Box<dyn Error>> {
     let Some(pool) = obtain_pool().await else {
-        eprintln!("Skipping QR code tests: DATABASE_URL or TEST_DATABASE_URL not set");
+        eprintln!("Skipping QR code tests: FIESTAAA_SKIP_DB_TESTS=1");
         return Ok(());
     };
     let _guard = DB_LOCK.lock().await;
@@ -181,7 +181,7 @@ async fn generate_my_qr_code_requires_accepted_invitation() -> Result<(), Box<dy
 #[tokio::test]
 async fn scan_qr_code_updates_stats_and_rejects_duplicate_scans() -> Result<(), Box<dyn Error>> {
     let Some(pool) = obtain_pool().await else {
-        eprintln!("Skipping QR code tests: DATABASE_URL or TEST_DATABASE_URL not set");
+        eprintln!("Skipping QR code tests: FIESTAAA_SKIP_DB_TESTS=1");
         return Ok(());
     };
     let _guard = DB_LOCK.lock().await;
@@ -261,7 +261,7 @@ async fn scan_qr_code_updates_stats_and_rejects_duplicate_scans() -> Result<(), 
 #[tokio::test]
 async fn scan_qr_code_rejects_expired_tokens() -> Result<(), Box<dyn Error>> {
     let Some(pool) = obtain_pool().await else {
-        eprintln!("Skipping QR code tests: DATABASE_URL or TEST_DATABASE_URL not set");
+        eprintln!("Skipping QR code tests: FIESTAAA_SKIP_DB_TESTS=1");
         return Ok(());
     };
     let _guard = DB_LOCK.lock().await;
@@ -321,7 +321,7 @@ async fn scan_qr_code_rejects_expired_tokens() -> Result<(), Box<dyn Error>> {
 #[tokio::test]
 async fn qr_owner_routes_keep_not_found_for_missing_events() -> Result<(), Box<dyn Error>> {
     let Some(pool) = obtain_pool().await else {
-        eprintln!("Skipping QR code tests: DATABASE_URL or TEST_DATABASE_URL not set");
+        eprintln!("Skipping QR code tests: FIESTAAA_SKIP_DB_TESTS=1");
         return Ok(());
     };
     let _guard = DB_LOCK.lock().await;

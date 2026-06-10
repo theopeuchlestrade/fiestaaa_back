@@ -11,6 +11,8 @@ use tokio::sync::Mutex;
 pub static DB_LOCK: Lazy<Mutex<()>> = Lazy::new(|| Mutex::new(()));
 const TEST_DATA_ENCRYPTION_KEY: &str = "test-data-encryption-key-32-chars!!";
 const TEST_DATA_LOOKUP_KEY: &str = "test-data-lookup-key-32-chars!!!!!!";
+const SKIP_DB_TESTS_ENV: &str = "FIESTAAA_SKIP_DB_TESTS";
+const USE_DATABASE_URL_FOR_TESTS_ENV: &str = "FIESTAAA_TEST_USE_DATABASE_URL";
 
 #[derive(Default)]
 pub struct TestOAuthConfig {
@@ -25,11 +27,42 @@ pub struct TestOAuthConfig {
 }
 
 pub async fn obtain_pool() -> Option<PgPool> {
-    let url = std::env::var("TEST_DATABASE_URL")
-        .or_else(|_| std::env::var("DATABASE_URL"))
-        .ok()?;
+    let url = match required_test_database_url() {
+        Some(url) => url,
+        None if env_flag_enabled(SKIP_DB_TESTS_ENV) => return None,
+        None => panic!(
+            "database-backed tests require TEST_DATABASE_URL. Start the isolated test database \
+             with `docker compose up -d db-test`, then run \
+             `TEST_DATABASE_URL=postgres://postgres:postgres@127.0.0.1:5433/fiestaaa_test \
+             cargo test --locked --all-targets --jobs 1 -- --test-threads=1`. Set \
+             FIESTAAA_SKIP_DB_TESTS=1 only when you intentionally want to skip DB tests. If \
+             FIESTAAA_TEST_USE_DATABASE_URL=1 is set, DATABASE_URL must also be set."
+        ),
+    };
 
     Some(db::connect_and_migrate(&url, 5, TEST_DATA_ENCRYPTION_KEY, TEST_DATA_LOOKUP_KEY).await)
+}
+
+fn required_test_database_url() -> Option<String> {
+    let test_url = non_empty_env("TEST_DATABASE_URL");
+    if test_url.is_some() || !env_flag_enabled(USE_DATABASE_URL_FOR_TESTS_ENV) {
+        return test_url;
+    }
+
+    non_empty_env("DATABASE_URL")
+}
+
+fn non_empty_env(name: &str) -> Option<String> {
+    std::env::var(name)
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+}
+
+fn env_flag_enabled(name: &str) -> bool {
+    std::env::var(name)
+        .map(|value| matches!(value.as_str(), "1" | "true" | "TRUE" | "yes" | "YES"))
+        .unwrap_or(false)
 }
 
 pub async fn reset_tables(pool: &PgPool, tables: &[&str]) -> sqlx::Result<()> {

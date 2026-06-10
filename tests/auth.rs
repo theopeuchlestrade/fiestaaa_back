@@ -235,7 +235,7 @@ fn apple_id_token(aud: &str, sub: &str, email: Option<&str>) -> String {
 #[tokio::test]
 async fn register_creates_pending_registration_and_completes_user() -> Result<(), Box<dyn Error>> {
     let Some(pool) = obtain_pool().await else {
-        eprintln!("Skipping auth tests: DATABASE_URL or TEST_DATABASE_URL not set");
+        eprintln!("Skipping auth tests: FIESTAAA_SKIP_DB_TESTS=1");
         return Ok(());
     };
     let _guard = DB_LOCK.lock().await;
@@ -348,7 +348,7 @@ async fn register_creates_pending_registration_and_completes_user() -> Result<()
 #[tokio::test]
 async fn register_rejects_invalid_payload() -> Result<(), Box<dyn Error>> {
     let Some(pool) = obtain_pool().await else {
-        eprintln!("Skipping auth tests: DATABASE_URL or TEST_DATABASE_URL not set");
+        eprintln!("Skipping auth tests: FIESTAAA_SKIP_DB_TESTS=1");
         return Ok(());
     };
     let _guard = DB_LOCK.lock().await;
@@ -381,7 +381,7 @@ async fn register_rejects_invalid_payload() -> Result<(), Box<dyn Error>> {
 #[tokio::test]
 async fn oauth_google_id_token_creates_user_and_identity() -> Result<(), Box<dyn Error>> {
     let Some(pool) = obtain_pool().await else {
-        eprintln!("Skipping auth tests: DATABASE_URL or TEST_DATABASE_URL not set");
+        eprintln!("Skipping auth tests: FIESTAAA_SKIP_DB_TESTS=1");
         return Ok(());
     };
     let _guard = DB_LOCK.lock().await;
@@ -441,7 +441,7 @@ async fn oauth_google_id_token_creates_user_and_identity() -> Result<(), Box<dyn
 #[tokio::test]
 async fn oauth_google_access_token_uses_userinfo_email() -> Result<(), Box<dyn Error>> {
     let Some(pool) = obtain_pool().await else {
-        eprintln!("Skipping auth tests: DATABASE_URL or TEST_DATABASE_URL not set");
+        eprintln!("Skipping auth tests: FIESTAAA_SKIP_DB_TESTS=1");
         return Ok(());
     };
     let _guard = DB_LOCK.lock().await;
@@ -494,7 +494,7 @@ async fn oauth_google_access_token_uses_userinfo_email() -> Result<(), Box<dyn E
 #[tokio::test]
 async fn oauth_google_rejects_audience_mismatch() -> Result<(), Box<dyn Error>> {
     let Some(pool) = obtain_pool().await else {
-        eprintln!("Skipping auth tests: DATABASE_URL or TEST_DATABASE_URL not set");
+        eprintln!("Skipping auth tests: FIESTAAA_SKIP_DB_TESTS=1");
         return Ok(());
     };
     let _guard = DB_LOCK.lock().await;
@@ -540,7 +540,7 @@ async fn oauth_google_rejects_audience_mismatch() -> Result<(), Box<dyn Error>> 
 #[tokio::test]
 async fn oauth_apple_reuses_identity_without_email() -> Result<(), Box<dyn Error>> {
     let Some(pool) = obtain_pool().await else {
-        eprintln!("Skipping auth tests: DATABASE_URL or TEST_DATABASE_URL not set");
+        eprintln!("Skipping auth tests: FIESTAAA_SKIP_DB_TESTS=1");
         return Ok(());
     };
     let _guard = DB_LOCK.lock().await;
@@ -626,7 +626,7 @@ async fn oauth_apple_reuses_identity_without_email() -> Result<(), Box<dyn Error
 #[tokio::test]
 async fn oauth_apple_rejects_audience_mismatch() -> Result<(), Box<dyn Error>> {
     let Some(pool) = obtain_pool().await else {
-        eprintln!("Skipping auth tests: DATABASE_URL or TEST_DATABASE_URL not set");
+        eprintln!("Skipping auth tests: FIESTAAA_SKIP_DB_TESTS=1");
         return Ok(());
     };
     let _guard = DB_LOCK.lock().await;
@@ -677,7 +677,7 @@ async fn oauth_apple_rejects_audience_mismatch() -> Result<(), Box<dyn Error>> {
 #[tokio::test]
 async fn register_hides_duplicate_email_state() -> Result<(), Box<dyn Error>> {
     let Some(pool) = obtain_pool().await else {
-        eprintln!("Skipping auth tests: DATABASE_URL or TEST_DATABASE_URL not set");
+        eprintln!("Skipping auth tests: FIESTAAA_SKIP_DB_TESTS=1");
         return Ok(());
     };
     let _guard = DB_LOCK.lock().await;
@@ -730,7 +730,7 @@ async fn register_hides_duplicate_email_state() -> Result<(), Box<dyn Error>> {
 #[tokio::test]
 async fn register_keeps_existing_pending_registration_unchanged() -> Result<(), Box<dyn Error>> {
     let Some(pool) = obtain_pool().await else {
-        eprintln!("Skipping auth tests: DATABASE_URL or TEST_DATABASE_URL not set");
+        eprintln!("Skipping auth tests: FIESTAAA_SKIP_DB_TESTS=1");
         return Ok(());
     };
     let _guard = DB_LOCK.lock().await;
@@ -784,7 +784,7 @@ async fn register_keeps_existing_pending_registration_unchanged() -> Result<(), 
 #[tokio::test]
 async fn login_returns_token_for_valid_credentials() -> Result<(), Box<dyn Error>> {
     let Some(pool) = obtain_pool().await else {
-        eprintln!("Skipping auth tests: DATABASE_URL or TEST_DATABASE_URL not set");
+        eprintln!("Skipping auth tests: FIESTAAA_SKIP_DB_TESTS=1");
         return Ok(());
     };
     let _guard = DB_LOCK.lock().await;
@@ -865,7 +865,7 @@ async fn login_returns_token_for_valid_credentials() -> Result<(), Box<dyn Error
 #[tokio::test]
 async fn login_rejects_invalid_credentials() -> Result<(), Box<dyn Error>> {
     let Some(pool) = obtain_pool().await else {
-        eprintln!("Skipping auth tests: DATABASE_URL or TEST_DATABASE_URL not set");
+        eprintln!("Skipping auth tests: FIESTAAA_SKIP_DB_TESTS=1");
         return Ok(());
     };
     let _guard = DB_LOCK.lock().await;
@@ -937,7 +937,7 @@ async fn login_rejects_invalid_credentials() -> Result<(), Box<dyn Error>> {
 #[tokio::test]
 async fn login_keeps_pending_registrations_indistinguishable() -> Result<(), Box<dyn Error>> {
     let Some(pool) = obtain_pool().await else {
-        eprintln!("Skipping auth tests: DATABASE_URL or TEST_DATABASE_URL not set");
+        eprintln!("Skipping auth tests: FIESTAAA_SKIP_DB_TESTS=1");
         return Ok(());
     };
     let _guard = DB_LOCK.lock().await;
@@ -981,7 +981,7 @@ async fn login_keeps_pending_registrations_indistinguishable() -> Result<(), Box
 #[tokio::test]
 async fn delete_account_removes_user() -> Result<(), Box<dyn Error>> {
     let Some(pool) = obtain_pool().await else {
-        eprintln!("Skipping auth tests: DATABASE_URL or TEST_DATABASE_URL not set");
+        eprintln!("Skipping auth tests: FIESTAAA_SKIP_DB_TESTS=1");
         return Ok(());
     };
     let _guard = DB_LOCK.lock().await;
@@ -1081,7 +1081,7 @@ async fn delete_account_removes_user() -> Result<(), Box<dyn Error>> {
 #[tokio::test]
 async fn delete_account_requires_auth() -> Result<(), Box<dyn Error>> {
     let Some(pool) = obtain_pool().await else {
-        eprintln!("Skipping auth tests: DATABASE_URL or TEST_DATABASE_URL not set");
+        eprintln!("Skipping auth tests: FIESTAAA_SKIP_DB_TESTS=1");
         return Ok(());
     };
     let _guard = DB_LOCK.lock().await;
@@ -1110,7 +1110,7 @@ async fn delete_account_requires_auth() -> Result<(), Box<dyn Error>> {
 #[tokio::test]
 async fn delete_account_returns_401_for_missing_user() -> Result<(), Box<dyn Error>> {
     let Some(pool) = obtain_pool().await else {
-        eprintln!("Skipping auth tests: DATABASE_URL or TEST_DATABASE_URL not set");
+        eprintln!("Skipping auth tests: FIESTAAA_SKIP_DB_TESTS=1");
         return Ok(());
     };
     let _guard = DB_LOCK.lock().await;
@@ -1195,7 +1195,7 @@ async fn delete_account_returns_401_for_missing_user() -> Result<(), Box<dyn Err
 #[tokio::test]
 async fn browser_login_uses_cookie_without_exposing_token() -> Result<(), Box<dyn Error>> {
     let Some(pool) = obtain_pool().await else {
-        eprintln!("Skipping auth tests: DATABASE_URL or TEST_DATABASE_URL not set");
+        eprintln!("Skipping auth tests: FIESTAAA_SKIP_DB_TESTS=1");
         return Ok(());
     };
     let _guard = DB_LOCK.lock().await;
@@ -1278,7 +1278,7 @@ async fn browser_login_uses_cookie_without_exposing_token() -> Result<(), Box<dy
 #[tokio::test]
 async fn logout_revokes_current_token() -> Result<(), Box<dyn Error>> {
     let Some(pool) = obtain_pool().await else {
-        eprintln!("Skipping auth tests: DATABASE_URL or TEST_DATABASE_URL not set");
+        eprintln!("Skipping auth tests: FIESTAAA_SKIP_DB_TESTS=1");
         return Ok(());
     };
     let _guard = DB_LOCK.lock().await;
@@ -1374,7 +1374,7 @@ async fn logout_revokes_current_token() -> Result<(), Box<dyn Error>> {
 #[tokio::test]
 async fn deleted_user_token_cannot_access_events() -> Result<(), Box<dyn Error>> {
     let Some(pool) = obtain_pool().await else {
-        eprintln!("Skipping auth tests: DATABASE_URL or TEST_DATABASE_URL not set");
+        eprintln!("Skipping auth tests: FIESTAAA_SKIP_DB_TESTS=1");
         return Ok(());
     };
     let _guard = DB_LOCK.lock().await;
