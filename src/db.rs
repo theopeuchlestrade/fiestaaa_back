@@ -2,6 +2,7 @@ use sqlx::{Pool, Postgres};
 
 pub async fn connect_and_migrate(
     database_url: &str,
+    max_connections: u32,
     data_encryption_key: &str,
     data_lookup_key: &str,
 ) -> Pool<Postgres> {
@@ -9,7 +10,7 @@ pub async fn connect_and_migrate(
     let data_lookup_key = data_lookup_key.to_string();
 
     let pool = sqlx::postgres::PgPoolOptions::new()
-        .max_connections(5)
+        .max_connections(max_connections)
         .after_connect(move |conn, _meta| {
             let data_encryption_key = data_encryption_key.clone();
             let data_lookup_key = data_lookup_key.clone();

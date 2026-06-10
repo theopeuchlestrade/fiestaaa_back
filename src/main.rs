@@ -39,6 +39,7 @@ async fn main() -> std::io::Result<()> {
     });
     let pool = db::connect_and_migrate(
         &cfg.database_url,
+        cfg.database_max_connections,
         &cfg.data_encryption_key,
         &cfg.data_lookup_key,
     )
