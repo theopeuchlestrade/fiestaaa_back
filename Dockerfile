@@ -1,5 +1,5 @@
 # Pinned Rust builder base. Rustup keeps the exact project toolchain selected.
-FROM rust:1.96.0-bookworm@sha256:13c186980fa33cc12759b429662a1322939dbe697484b7c33b47dd2698d28460 AS builder
+FROM rust:1.96.0-bookworm@sha256:19817ead3289c8c631c73df281e18b59b172f6a31f4f563290f69cddd06c30e9 AS builder
 
 ARG RUST_VERSION=1.96.0
 
@@ -28,7 +28,7 @@ COPY . .
 RUN cargo build --release --locked
 
 # Pinned Debian runtime image for deterministic production serving (bookworm-slim)
-FROM debian:bookworm-slim@sha256:0104b334637a5f19aa9c983a91b54c89887c0984081f2068983107a6f6c21eeb AS runtime
+FROM debian:bookworm-slim@sha256:96e378d7e6531ac9a15ad505478fcc2e69f371b10f5cdf87857c4b8188404716 AS runtime
 
 LABEL org.opencontainers.image.source="https://github.com/theopeuchlestrade/fiestaaa_back"
 
