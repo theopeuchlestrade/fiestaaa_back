@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-06-17
+
+### Added
+- Added backend coverage reporting to CI.
+- Added invitation lookup indexes for faster invitation queries.
+- Added Docker image vulnerability scanning to the backend CI pipeline.
+
+### Changed
+- Made the database pool size configurable.
+- Required an explicit test database URL for backend integration tests.
+- Hardened backend maintenance paths and open-source maintenance automation.
+- Updated backend dependencies, CI actions, Rust, and Debian base image pins.
+
+### Fixed
+- Removed QR route row unwraps so missing rows are handled without panics.
+
 ## [0.1.0] - 2026-06-05
 
 Initial public-readiness baseline for the Fiestaaa backend.
