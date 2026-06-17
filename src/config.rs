@@ -1,6 +1,17 @@
 use crate::load_dotenv_from_repo;
 use log::warn;
 use std::collections::HashSet;
+use std::fmt;
+use std::str::FromStr;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ConfigValidationError(String);
+
+impl fmt::Display for ConfigValidationError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.0)
+    }
+}
 
 fn load_resend_api_key() -> Option<String> {
     if let Ok(value) = std::env::var("RESEND_API_KEY") {
@@ -39,15 +50,43 @@ fn default_cors_allowed_origins(app_base_url: &str) -> Vec<String> {
 }
 
 fn read_bool_env(name: &str, default: bool) -> bool {
-    std::env::var(name)
-        .ok()
-        .map(|value| {
-            matches!(
-                value.trim().to_ascii_lowercase().as_str(),
-                "1" | "true" | "yes" | "on"
-            )
-        })
-        .unwrap_or(default)
+    let Ok(value) = std::env::var(name) else {
+        return default;
+    };
+    match value.trim().to_ascii_lowercase().as_str() {
+        "1" | "true" | "yes" | "on" => true,
+        "0" | "false" | "no" | "off" => false,
+        _ => panic!("{name} doit être un booléen: true/false, yes/no, on/off ou 1/0"),
+    }
+}
+
+fn read_parsed_env<T>(name: &str, default: T) -> T
+where
+    T: FromStr,
+{
+    let Ok(value) = std::env::var(name) else {
+        return default;
+    };
+    value
+        .trim()
+        .parse::<T>()
+        .unwrap_or_else(|_| panic!("{name} a une valeur invalide: {value}"))
+}
+
+fn read_positive_u32_env(name: &str, default: u32) -> u32 {
+    let value = read_parsed_env(name, default);
+    if value == 0 {
+        panic!("{name} doit être strictement positif");
+    }
+    value
+}
+
+fn read_unit_f32_env(name: &str, default: f32) -> f32 {
+    let value = read_parsed_env(name, default);
+    if !(0.0..=1.0).contains(&value) {
+        panic!("{name} doit être compris entre 0 et 1");
+    }
+    value
 }
 
 fn required_secret_env(name: &str, min_len: usize) -> String {
@@ -59,7 +98,45 @@ fn required_secret_env(name: &str, min_len: usize) -> String {
     trimmed.to_string()
 }
 
+fn parse_cors_allowed_origins(raw: &str) -> Vec<String> {
+    raw.split(',')
+        .filter_map(|s| {
+            let normalized = s.trim().trim_end_matches('/');
+            if normalized.is_empty() {
+                None
+            } else {
+                Some(normalized.to_string())
+            }
+        })
+        .collect()
+}
+
+fn is_production_environment(environment: &str) -> bool {
+    matches!(
+        environment.trim().to_ascii_lowercase().as_str(),
+        "prod" | "production"
+    )
+}
+
+fn resolve_cors_allowed_origins(
+    raw: Option<&str>,
+    app_base_url: &str,
+    production: bool,
+) -> Result<Vec<String>, ConfigValidationError> {
+    let explicit = raw.map(parse_cors_allowed_origins).unwrap_or_default();
+    if !explicit.is_empty() {
+        return Ok(explicit);
+    }
+    if production {
+        return Err(ConfigValidationError(
+            "CORS_ALLOWED_ORIGINS doit être défini explicitement en production".into(),
+        ));
+    }
+    Ok(default_cors_allowed_origins(app_base_url))
+}
+
 pub struct AppConfig {
+    pub app_environment: String,
     pub host: String,
     pub port: u16,
     pub database_url: String,
@@ -106,18 +183,15 @@ pub struct AppConfig {
 impl AppConfig {
     pub fn from_env() -> Self {
         load_dotenv_from_repo();
+        let app_environment = std::env::var("APP_ENV")
+            .or_else(|_| std::env::var("SENTRY_ENVIRONMENT"))
+            .unwrap_or_else(|_| "development".into());
+        let is_production = is_production_environment(&app_environment);
         let host = std::env::var("HOST").unwrap_or_else(|_| "0.0.0.0".into());
-        let port = std::env::var("PORT")
-            .ok()
-            .and_then(|v| v.parse().ok())
-            .unwrap_or(8080);
+        let port = read_parsed_env("PORT", 8080);
         let database_url = std::env::var("DATABASE_URL")
             .unwrap_or_else(|_| "postgres://postgres:postgres@localhost:5432/fiestaaa".into());
-        let database_max_connections = std::env::var("DATABASE_MAX_CONNECTIONS")
-            .ok()
-            .and_then(|v| v.parse::<u32>().ok())
-            .filter(|value| *value > 0)
-            .unwrap_or(5);
+        let database_max_connections = read_positive_u32_env("DATABASE_MAX_CONNECTIONS", 5);
         let jwt_secret = required_secret_env("JWT_SECRET", 32);
         let data_encryption_key = required_secret_env("DATA_ENCRYPTION_KEY", 32);
         let data_lookup_key = required_secret_env("DATA_LOOKUP_KEY", 32);
@@ -158,24 +232,15 @@ impl AppConfig {
         let fcm_vapid_key = std::env::var("FIESTAAA_FCM_VAPID_KEY")
             .ok()
             .filter(|v| !v.trim().is_empty());
-        let notification_dedup_ttl_seconds = std::env::var("NOTIFICATION_DEDUP_TTL_SECONDS")
-            .ok()
-            .and_then(|v| v.parse().ok())
-            .unwrap_or(300);
+        let notification_dedup_ttl_seconds = read_parsed_env("NOTIFICATION_DEDUP_TTL_SECONDS", 300);
         let fcm_service_account_path = std::env::var("FCM_SERVICE_ACCOUNT_PATH")
             .ok()
             .filter(|v| !v.trim().is_empty());
         let fcm_project_id = std::env::var("FCM_PROJECT_ID")
             .ok()
             .filter(|v| !v.trim().is_empty());
-        let event_cleanup_days = std::env::var("EVENT_CLEANUP_DAYS")
-            .ok()
-            .and_then(|v| v.parse().ok())
-            .unwrap_or(7);
-        let event_cleanup_interval_hours = std::env::var("EVENT_CLEANUP_INTERVAL_HOURS")
-            .ok()
-            .and_then(|v| v.parse().ok())
-            .unwrap_or(1);
+        let event_cleanup_days = read_parsed_env("EVENT_CLEANUP_DAYS", 7);
+        let event_cleanup_interval_hours = read_parsed_env("EVENT_CLEANUP_INTERVAL_HOURS", 1);
         let google_client_id = std::env::var("FIESTAAA_GOOGLE_WEB_CLIENT_ID")
             .ok()
             .filter(|v| !v.trim().is_empty());
@@ -191,58 +256,32 @@ impl AppConfig {
         let apple_service_id = std::env::var("FIESTAAA_APPLE_SERVICE_ID")
             .ok()
             .filter(|v| !v.trim().is_empty());
-        let cors_allowed_origins = std::env::var("CORS_ALLOWED_ORIGINS")
-            .ok()
-            .map(|v| {
-                v.split(',')
-                    .filter_map(|s| {
-                        let normalized = s.trim().trim_end_matches('/');
-                        if normalized.is_empty() {
-                            None
-                        } else {
-                            Some(normalized.to_string())
-                        }
-                    })
-                    .collect()
-            })
-            .filter(|origins: &Vec<String>| !origins.is_empty())
-            .unwrap_or_else(|| default_cors_allowed_origins(&app_base_url));
-        let auth_rate_limit_max_attempts = std::env::var("AUTH_RATE_LIMIT_MAX_ATTEMPTS")
-            .ok()
-            .and_then(|v| v.parse().ok())
-            .unwrap_or(20);
-        let auth_rate_limit_window_seconds = std::env::var("AUTH_RATE_LIMIT_WINDOW_SECONDS")
-            .ok()
-            .and_then(|v| v.parse().ok())
-            .unwrap_or(60);
+        let cors_allowed_origins_raw = std::env::var("CORS_ALLOWED_ORIGINS").ok();
+        let cors_allowed_origins = resolve_cors_allowed_origins(
+            cors_allowed_origins_raw.as_deref(),
+            &app_base_url,
+            is_production,
+        )
+        .unwrap_or_else(|err| panic!("{err}"));
+        let auth_rate_limit_max_attempts = read_parsed_env("AUTH_RATE_LIMIT_MAX_ATTEMPTS", 20);
+        let auth_rate_limit_window_seconds = read_parsed_env("AUTH_RATE_LIMIT_WINDOW_SECONDS", 60);
         let invitation_rate_limit_max_attempts =
-            std::env::var("INVITATION_RATE_LIMIT_MAX_ATTEMPTS")
-                .ok()
-                .and_then(|v| v.parse().ok())
-                .unwrap_or(10);
+            read_parsed_env("INVITATION_RATE_LIMIT_MAX_ATTEMPTS", 10);
         let invitation_rate_limit_window_seconds =
-            std::env::var("INVITATION_RATE_LIMIT_WINDOW_SECONDS")
-                .ok()
-                .and_then(|v| v.parse().ok())
-                .unwrap_or(300);
+            read_parsed_env("INVITATION_RATE_LIMIT_WINDOW_SECONDS", 300);
         let enable_swagger_ui = read_bool_env("ENABLE_SWAGGER_UI", false);
         let metrics_bearer_token = std::env::var("METRICS_BEARER_TOKEN")
             .ok()
             .filter(|v| !v.trim().is_empty());
-        let user_metrics_refresh_seconds = std::env::var("USER_METRICS_REFRESH_SECONDS")
-            .ok()
-            .and_then(|v| v.parse().ok())
-            .unwrap_or(300);
+        let user_metrics_refresh_seconds = read_parsed_env("USER_METRICS_REFRESH_SECONDS", 300);
         let sentry_dsn = std::env::var("SENTRY_DSN")
             .ok()
             .filter(|v| !v.trim().is_empty());
         let sentry_environment =
-            std::env::var("SENTRY_ENVIRONMENT").unwrap_or_else(|_| "development".into());
-        let sentry_traces_sample_rate = std::env::var("SENTRY_TRACES_SAMPLE_RATE")
-            .ok()
-            .and_then(|v| v.parse().ok())
-            .unwrap_or(0.0);
+            std::env::var("SENTRY_ENVIRONMENT").unwrap_or_else(|_| app_environment.clone());
+        let sentry_traces_sample_rate = read_unit_f32_env("SENTRY_TRACES_SAMPLE_RATE", 0.0);
         Self {
+            app_environment,
             host,
             port,
             database_url,
@@ -290,7 +329,7 @@ impl AppConfig {
 
 #[cfg(test)]
 mod tests {
-    use super::default_cors_allowed_origins;
+    use super::{default_cors_allowed_origins, resolve_cors_allowed_origins};
 
     #[test]
     fn default_cors_allowed_origins_trims_and_deduplicates_app_base_url() {
@@ -320,5 +359,21 @@ mod tests {
             Some("http://localhost:3000")
         );
         assert!(!origins.iter().any(|origin| origin.is_empty()));
+    }
+
+    #[test]
+    fn cors_origins_fail_closed_in_production_without_explicit_value() {
+        let err = resolve_cors_allowed_origins(None, "https://fiestaaa.app", true)
+            .expect_err("production CORS must be explicit");
+
+        assert!(err.to_string().contains("CORS_ALLOWED_ORIGINS"));
+    }
+
+    #[test]
+    fn cors_origins_use_safe_dev_defaults_outside_production() {
+        let origins = resolve_cors_allowed_origins(None, "http://localhost:5001", false)
+            .expect("development defaults");
+
+        assert!(origins.contains(&"http://localhost:5001".to_string()));
     }
 }

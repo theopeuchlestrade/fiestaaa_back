@@ -1,9 +1,13 @@
 use actix_web::HttpResponse;
-use chrono::{NaiveDate, NaiveDateTime, NaiveTime, Utc};
+use chrono::{NaiveDateTime, Utc};
 use serde::Serialize;
-use sqlx::{PgPool, Row};
+use sqlx::PgPool;
 
-use crate::models::ErrorResponse;
+use crate::{
+    api_error::ApiError,
+    models::ErrorResponse,
+    repositories::event_repository::{self, EventTiming},
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -11,14 +15,6 @@ pub enum EventLifecycleStatus {
     Upcoming,
     Ongoing,
     Finished,
-}
-
-#[derive(Debug, Clone)]
-pub struct EventTiming {
-    pub date_event: NaiveDate,
-    pub start_time: NaiveTime,
-    pub end_date: Option<NaiveDate>,
-    pub end_time: Option<NaiveTime>,
 }
 
 impl EventTiming {
@@ -54,26 +50,9 @@ pub fn status_from_timing(timing: &EventTiming) -> EventLifecycleStatus {
 }
 
 pub async fn fetch_event_timing(db: &PgPool, event_id: i64) -> Result<EventTiming, HttpResponse> {
-    let row = sqlx::query_as::<_, (NaiveDate, NaiveTime, Option<NaiveDate>, Option<NaiveTime>)>(
-        "SELECT date_event, start_time, end_date, end_time FROM events WHERE event_id = $1",
-    )
-    .bind(event_id)
-    .fetch_optional(db)
-    .await
-    .map_err(|_| server_error())?;
-
-    match row {
-        Some((date_event, start_time, end_date, end_time)) => Ok(EventTiming {
-            date_event,
-            start_time,
-            end_date,
-            end_time,
-        }),
-        None => Err(HttpResponse::NotFound().json(ErrorResponse {
-            error: "event_not_found".into(),
-            details: None,
-        })),
-    }
+    event_repository::fetch_event_timing(db, event_id)
+        .await
+        .map_err(HttpResponse::from)
 }
 
 pub async fn ensure_event_writable(db: &PgPool, event_id: i64) -> Result<(), HttpResponse> {
@@ -95,62 +74,27 @@ pub async fn ensure_event_member_email(
     event_id: i64,
     email: &str,
 ) -> Result<(), HttpResponse> {
-    let owner_row = sqlx::query("SELECT owner_user_id FROM events WHERE event_id = $1")
-        .bind(event_id)
-        .fetch_optional(db)
+    let owner_user_id = event_repository::fetch_event_owner_id(db, event_id)
         .await
-        .map_err(|_| server_error())?;
-
-    let Some(owner_row) = owner_row else {
-        return Err(HttpResponse::NotFound().json(ErrorResponse {
-            error: "event_not_found".into(),
-            details: None,
-        }));
-    };
-
-    let owner_user_id: i64 = owner_row.get("owner_user_id");
-    let requester_id = sqlx::query_scalar::<_, i64>(
-        "SELECT id FROM users WHERE fiestaaa_email_matches(email_lookup_hash, $1)",
-    )
-    .bind(email)
-    .fetch_optional(db)
-    .await
-    .map_err(|_| server_error())?;
+        .map_err(HttpResponse::from)?;
+    let requester_id = event_repository::fetch_user_id_by_email(db, email)
+        .await
+        .map_err(HttpResponse::from)?;
 
     if requester_id.is_some_and(|id| id == owner_user_id) {
         return Ok(());
     }
 
-    let is_member = sqlx::query_scalar::<_, bool>(
-        "SELECT EXISTS(
-            SELECT 1
-            FROM invitations i
-            WHERE i.event_id = $1
-              AND i.status = 'Accepted'
-              AND i.user_id = (
-                  SELECT id FROM users WHERE fiestaaa_email_matches(email_lookup_hash, $2)
-              )
-        )",
-    )
-    .bind(event_id)
-    .bind(email)
-    .fetch_one(db)
-    .await
-    .map_err(|_| server_error())?;
+    let is_member = event_repository::is_accepted_event_member(db, event_id, email)
+        .await
+        .map_err(HttpResponse::from)?;
 
     if is_member {
         Ok(())
     } else {
-        Err(HttpResponse::Forbidden().json(ErrorResponse {
-            error: "forbidden".into(),
-            details: Some("Accès refusé à cette fiestaaa".into()),
-        }))
+        Err(HttpResponse::from(ApiError::forbidden(
+            "forbidden",
+            "Accès refusé à cette fiestaaa",
+        )))
     }
-}
-
-fn server_error() -> HttpResponse {
-    HttpResponse::InternalServerError().json(ErrorResponse {
-        error: "db_error".into(),
-        details: None,
-    })
 }

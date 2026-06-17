@@ -1,3 +1,4 @@
+pub mod api_error;
 pub mod auth;
 pub mod cleanup;
 pub mod config;
@@ -9,6 +10,7 @@ pub mod notifications;
 pub mod observability;
 pub mod rate_limit;
 pub mod realtime;
+pub mod repositories;
 pub mod routes;
 pub mod security;
 pub mod state;
