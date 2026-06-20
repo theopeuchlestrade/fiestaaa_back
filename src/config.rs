@@ -5,13 +5,15 @@ use std::fmt;
 use std::str::FromStr;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct ConfigValidationError(String);
+pub struct ConfigValidationError(String);
 
 impl fmt::Display for ConfigValidationError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(&self.0)
     }
 }
+
+impl std::error::Error for ConfigValidationError {}
 
 fn load_resend_api_key() -> Option<String> {
     if let Ok(value) = std::env::var("RESEND_API_KEY") {
@@ -49,53 +51,61 @@ fn default_cors_allowed_origins(app_base_url: &str) -> Vec<String> {
     values
 }
 
-fn read_bool_env(name: &str, default: bool) -> bool {
+fn read_bool_env(name: &str, default: bool) -> Result<bool, ConfigValidationError> {
     let Ok(value) = std::env::var(name) else {
-        return default;
+        return Ok(default);
     };
     match value.trim().to_ascii_lowercase().as_str() {
-        "1" | "true" | "yes" | "on" => true,
-        "0" | "false" | "no" | "off" => false,
-        _ => panic!("{name} doit être un booléen: true/false, yes/no, on/off ou 1/0"),
+        "1" | "true" | "yes" | "on" => Ok(true),
+        "0" | "false" | "no" | "off" => Ok(false),
+        _ => Err(ConfigValidationError(format!(
+            "{name} doit être un booléen: true/false, yes/no, on/off ou 1/0"
+        ))),
     }
 }
 
-fn read_parsed_env<T>(name: &str, default: T) -> T
+fn read_parsed_env<T>(name: &str, default: T) -> Result<T, ConfigValidationError>
 where
     T: FromStr,
 {
     let Ok(value) = std::env::var(name) else {
-        return default;
+        return Ok(default);
     };
     value
         .trim()
         .parse::<T>()
-        .unwrap_or_else(|_| panic!("{name} a une valeur invalide: {value}"))
+        .map_err(|_| ConfigValidationError(format!("{name} a une valeur invalide: {value}")))
 }
 
-fn read_positive_u32_env(name: &str, default: u32) -> u32 {
-    let value = read_parsed_env(name, default);
+fn read_positive_u32_env(name: &str, default: u32) -> Result<u32, ConfigValidationError> {
+    let value = read_parsed_env(name, default)?;
     if value == 0 {
-        panic!("{name} doit être strictement positif");
+        return Err(ConfigValidationError(format!(
+            "{name} doit être strictement positif"
+        )));
     }
-    value
+    Ok(value)
 }
 
-fn read_unit_f32_env(name: &str, default: f32) -> f32 {
-    let value = read_parsed_env(name, default);
+fn read_unit_f32_env(name: &str, default: f32) -> Result<f32, ConfigValidationError> {
+    let value = read_parsed_env(name, default)?;
     if !(0.0..=1.0).contains(&value) {
-        panic!("{name} doit être compris entre 0 et 1");
+        return Err(ConfigValidationError(format!(
+            "{name} doit être compris entre 0 et 1"
+        )));
     }
-    value
+    Ok(value)
 }
 
-fn required_secret_env(name: &str, min_len: usize) -> String {
+fn required_secret_env(name: &str, min_len: usize) -> Result<String, ConfigValidationError> {
     let value = std::env::var(name).unwrap_or_default();
     let trimmed = value.trim();
     if trimmed.len() < min_len {
-        panic!("{name} doit être défini et contenir au moins {min_len} caractères");
+        return Err(ConfigValidationError(format!(
+            "{name} doit être défini et contenir au moins {min_len} caractères"
+        )));
     }
-    trimmed.to_string()
+    Ok(trimmed.to_string())
 }
 
 fn parse_cors_allowed_origins(raw: &str) -> Vec<String> {
@@ -182,19 +192,23 @@ pub struct AppConfig {
 
 impl AppConfig {
     pub fn from_env() -> Self {
+        Self::try_from_env().unwrap_or_else(|err| panic!("{err}"))
+    }
+
+    pub fn try_from_env() -> Result<Self, ConfigValidationError> {
         load_dotenv_from_repo();
         let app_environment = std::env::var("APP_ENV")
             .or_else(|_| std::env::var("SENTRY_ENVIRONMENT"))
             .unwrap_or_else(|_| "development".into());
         let is_production = is_production_environment(&app_environment);
         let host = std::env::var("HOST").unwrap_or_else(|_| "0.0.0.0".into());
-        let port = read_parsed_env("PORT", 8080);
+        let port = read_parsed_env("PORT", 8080)?;
         let database_url = std::env::var("DATABASE_URL")
             .unwrap_or_else(|_| "postgres://postgres:postgres@localhost:5432/fiestaaa".into());
-        let database_max_connections = read_positive_u32_env("DATABASE_MAX_CONNECTIONS", 5);
-        let jwt_secret = required_secret_env("JWT_SECRET", 32);
-        let data_encryption_key = required_secret_env("DATA_ENCRYPTION_KEY", 32);
-        let data_lookup_key = required_secret_env("DATA_LOOKUP_KEY", 32);
+        let database_max_connections = read_positive_u32_env("DATABASE_MAX_CONNECTIONS", 5)?;
+        let jwt_secret = required_secret_env("JWT_SECRET", 32)?;
+        let data_encryption_key = required_secret_env("DATA_ENCRYPTION_KEY", 32)?;
+        let data_lookup_key = required_secret_env("DATA_LOOKUP_KEY", 32)?;
         let admin_emails_raw = std::env::var("ADMIN_EMAILS").unwrap_or_default();
         let admin_emails = admin_emails_raw
             .split(',')
@@ -205,7 +219,7 @@ impl AppConfig {
         if admin_emails.is_empty() {
             warn!("ADMIN_EMAILS n'est pas defini ; les endpoints admin seront desactives");
         }
-        let trust_proxy_headers = read_bool_env("TRUST_PROXY_HEADERS", false);
+        let trust_proxy_headers = read_bool_env("TRUST_PROXY_HEADERS", false)?;
         let geocoding_base_url = std::env::var("GEOCODING_BASE_URL")
             .unwrap_or_else(|_| "https://nominatim.openstreetmap.org".into());
         let geocoding_user_agent =
@@ -232,15 +246,16 @@ impl AppConfig {
         let fcm_vapid_key = std::env::var("FIESTAAA_FCM_VAPID_KEY")
             .ok()
             .filter(|v| !v.trim().is_empty());
-        let notification_dedup_ttl_seconds = read_parsed_env("NOTIFICATION_DEDUP_TTL_SECONDS", 300);
+        let notification_dedup_ttl_seconds =
+            read_parsed_env("NOTIFICATION_DEDUP_TTL_SECONDS", 300)?;
         let fcm_service_account_path = std::env::var("FCM_SERVICE_ACCOUNT_PATH")
             .ok()
             .filter(|v| !v.trim().is_empty());
         let fcm_project_id = std::env::var("FCM_PROJECT_ID")
             .ok()
             .filter(|v| !v.trim().is_empty());
-        let event_cleanup_days = read_parsed_env("EVENT_CLEANUP_DAYS", 7);
-        let event_cleanup_interval_hours = read_parsed_env("EVENT_CLEANUP_INTERVAL_HOURS", 1);
+        let event_cleanup_days = read_parsed_env("EVENT_CLEANUP_DAYS", 7)?;
+        let event_cleanup_interval_hours = read_parsed_env("EVENT_CLEANUP_INTERVAL_HOURS", 1)?;
         let google_client_id = std::env::var("FIESTAAA_GOOGLE_WEB_CLIENT_ID")
             .ok()
             .filter(|v| !v.trim().is_empty());
@@ -261,26 +276,25 @@ impl AppConfig {
             cors_allowed_origins_raw.as_deref(),
             &app_base_url,
             is_production,
-        )
-        .unwrap_or_else(|err| panic!("{err}"));
-        let auth_rate_limit_max_attempts = read_parsed_env("AUTH_RATE_LIMIT_MAX_ATTEMPTS", 20);
-        let auth_rate_limit_window_seconds = read_parsed_env("AUTH_RATE_LIMIT_WINDOW_SECONDS", 60);
+        )?;
+        let auth_rate_limit_max_attempts = read_parsed_env("AUTH_RATE_LIMIT_MAX_ATTEMPTS", 20)?;
+        let auth_rate_limit_window_seconds = read_parsed_env("AUTH_RATE_LIMIT_WINDOW_SECONDS", 60)?;
         let invitation_rate_limit_max_attempts =
-            read_parsed_env("INVITATION_RATE_LIMIT_MAX_ATTEMPTS", 10);
+            read_parsed_env("INVITATION_RATE_LIMIT_MAX_ATTEMPTS", 10)?;
         let invitation_rate_limit_window_seconds =
-            read_parsed_env("INVITATION_RATE_LIMIT_WINDOW_SECONDS", 300);
-        let enable_swagger_ui = read_bool_env("ENABLE_SWAGGER_UI", false);
+            read_parsed_env("INVITATION_RATE_LIMIT_WINDOW_SECONDS", 300)?;
+        let enable_swagger_ui = read_bool_env("ENABLE_SWAGGER_UI", false)?;
         let metrics_bearer_token = std::env::var("METRICS_BEARER_TOKEN")
             .ok()
             .filter(|v| !v.trim().is_empty());
-        let user_metrics_refresh_seconds = read_parsed_env("USER_METRICS_REFRESH_SECONDS", 300);
+        let user_metrics_refresh_seconds = read_parsed_env("USER_METRICS_REFRESH_SECONDS", 300)?;
         let sentry_dsn = std::env::var("SENTRY_DSN")
             .ok()
             .filter(|v| !v.trim().is_empty());
         let sentry_environment =
             std::env::var("SENTRY_ENVIRONMENT").unwrap_or_else(|_| app_environment.clone());
-        let sentry_traces_sample_rate = read_unit_f32_env("SENTRY_TRACES_SAMPLE_RATE", 0.0);
-        Self {
+        let sentry_traces_sample_rate = read_unit_f32_env("SENTRY_TRACES_SAMPLE_RATE", 0.0)?;
+        Ok(Self {
             app_environment,
             host,
             port,
@@ -323,7 +337,7 @@ impl AppConfig {
             sentry_dsn,
             sentry_environment,
             sentry_traces_sample_rate,
-        }
+        })
     }
 }
 
