@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-06-20
+
+### Added
+- Completed OpenAPI route coverage for the remaining backend endpoints.
+
+### Changed
+- Aligned the backend CI PostgreSQL service version with the supported test
+  matrix.
+
+### Fixed
+- Returned structured backend configuration validation errors instead of
+  discarding the underlying validation failure.
+
 ## [0.1.1] - 2026-06-17
 
 ### Added
