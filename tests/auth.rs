@@ -791,7 +791,7 @@ async fn register_hides_duplicate_email_state() -> Result<(), Box<dyn Error>> {
 }
 
 #[tokio::test]
-async fn register_keeps_existing_pending_registration_unchanged() -> Result<(), Box<dyn Error>> {
+async fn register_refreshes_existing_pending_registration_token() -> Result<(), Box<dyn Error>> {
     let Some(pool) = obtain_pool().await else {
         eprintln!("Skipping auth tests: FIESTAAA_SKIP_DB_TESTS=1");
         return Ok(());
@@ -812,7 +812,7 @@ async fn register_keeps_existing_pending_registration_unchanged() -> Result<(), 
     )
     .await;
     assert_eq!(first_resp.status(), StatusCode::CREATED);
-    let first_token_hash = pending_token_hash_for(&pool, email).await?;
+    let first_token = pending_token_for(&pool, email).await?;
 
     let second_resp = test::call_service(
         &app,
@@ -834,7 +834,22 @@ async fn register_keeps_existing_pending_registration_unchanged() -> Result<(), 
     );
 
     let second_token_hash = pending_token_hash_for(&pool, email).await?;
-    assert_eq!(second_token_hash, first_token_hash);
+    assert_ne!(second_token_hash, sha256_hex(&first_token));
+
+    let old_token_resp = test::call_service(
+        &app,
+        test::TestRequest::post()
+            .uri("/auth/verify-email")
+            .set_json(serde_json::json!({ "token": first_token }))
+            .to_request(),
+    )
+    .await;
+    assert_eq!(old_token_resp.status(), StatusCode::BAD_REQUEST);
+    let old_token_body: Value = test::read_body_json(old_token_resp).await;
+    assert_eq!(
+        old_token_body.get("error").and_then(|value| value.as_str()),
+        Some("invalid_token")
+    );
 
     let pending_count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM pending_registrations")
         .fetch_one(&pool)

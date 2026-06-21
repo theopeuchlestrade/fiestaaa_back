@@ -371,18 +371,20 @@ pub async fn register(
         }
     };
 
-    let pending_exists = match sqlx::query_scalar::<_, bool>(
-        "SELECT EXISTS(
-            SELECT 1
-            FROM pending_registrations
-            WHERE fiestaaa_email_matches(email_lookup_hash, $1)
-        )",
+    let pending_refreshed = match sqlx::query_scalar::<_, bool>(
+        "UPDATE pending_registrations
+         SET verification_token_hash = $2,
+             verification_expires_at = $3
+         WHERE fiestaaa_email_matches(email_lookup_hash, $1)
+         RETURNING TRUE",
     )
     .bind(&email)
-    .fetch_one(&mut *tx)
+    .bind(&verification_token_hash)
+    .bind(verification_expires_at)
+    .fetch_optional(&mut *tx)
     .await
     {
-        Ok(value) => value,
+        Ok(value) => value.unwrap_or(false),
         Err(_) => {
             let _ = tx.rollback().await;
             return HttpResponse::InternalServerError().json(ErrorResponse {
@@ -392,16 +394,23 @@ pub async fn register(
         }
     };
 
-    if pending_exists {
-        if tx.rollback().await.is_err() {
+    if pending_refreshed {
+        if tx.commit().await.is_err() {
             return HttpResponse::InternalServerError().json(ErrorResponse {
                 error: "db_error".into(),
                 details: None,
             });
         }
-        return HttpResponse::Created().json(StatusResponse {
-            status: "verification_pending".into(),
-        });
+        return match send_verification_email(state.get_ref(), &email, &verification_link).await {
+            Ok(email_sent) => HttpResponse::Created().json(StatusResponse {
+                status: if email_sent {
+                    "verification_email_sent".into()
+                } else {
+                    "verification_pending".into()
+                },
+            }),
+            Err(resp) => resp,
+        };
     }
 
     let handle = match generate_registration_handle(state.get_ref()).await {
