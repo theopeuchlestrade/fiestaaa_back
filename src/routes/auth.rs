@@ -1369,7 +1369,7 @@ async fn oauth_apple(
         Err(resp) => return resp,
     };
 
-    let exp = claims.exp;
+    let exp = (now_ts() + 24 * 3600) as usize;
     let claims = Claims {
         sub: user.public_id.to_string(),
         handle: user.handle.clone(),
