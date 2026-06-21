@@ -1,6 +1,5 @@
 # git-cliff configuration for release changelogs.
-# The parser accepts Gitmoji and Conventional Commit styles during the
-# progressive migration to Gitmoji-based release notes.
+# The parser accepts Conventional Commit titles and legacy emoji prefixes.
 
 [changelog]
 header = ""
