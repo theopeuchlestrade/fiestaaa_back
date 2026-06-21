@@ -24,6 +24,7 @@ use crate::{
 };
 
 const EMAIL_VERIFICATION_TTL_HOURS: i64 = 24;
+const AUTH_RESPONSE_HEADER: &str = "X-Fiestaaa-Auth-Response";
 
 #[derive(Debug, Clone, sqlx::FromRow)]
 struct PendingRegistrationRow {
@@ -94,7 +95,10 @@ fn token_response(
 }
 
 fn auth_response_includes_body_token(req: &HttpRequest) -> bool {
-    !req.headers().contains_key("Origin") && !req.headers().contains_key("Sec-Fetch-Site")
+    req.headers()
+        .get(AUTH_RESPONSE_HEADER)
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|value| value.eq_ignore_ascii_case("bearer"))
 }
 
 async fn cleanup_expired_pending_registrations(db: &PgPool) -> Result<(), HttpResponse> {
@@ -616,6 +620,9 @@ pub async fn verify_email(
     post,
     path = "/auth/complete-registration",
     tag = "auth",
+    params(
+        ("X-Fiestaaa-Auth-Response" = Option<String>, Header, description = "Set to `bearer` to include the session token in the JSON body for native clients. Omit for cookie-only web sessions.")
+    ),
     request_body = CompleteRegistrationPayload,
     responses(
         (status = 200, description = "Registration completed", body = TokenResponse),
@@ -844,7 +851,8 @@ pub async fn complete_registration(
     path = "/auth/oauth/{provider}",
     tag = "auth",
     params(
-        ("provider" = String, Path, description = "oauth provider (google)")
+        ("provider" = String, Path, description = "oauth provider (google)"),
+        ("X-Fiestaaa-Auth-Response" = Option<String>, Header, description = "Set to `bearer` to include the session token in the JSON body for native clients. Omit for cookie-only web sessions.")
     ),
     request_body = OAuthPayload,
     responses(
@@ -1437,6 +1445,9 @@ pub async fn logout(state: web::Data<AppState>, req: HttpRequest) -> impl Respon
     post,
     path = "/auth/login",
     tag = "auth",
+    params(
+        ("X-Fiestaaa-Auth-Response" = Option<String>, Header, description = "Set to `bearer` to include the session token in the JSON body for native clients. Omit for cookie-only web sessions.")
+    ),
     request_body = LoginPayload,
     responses(
         (status = 200, description = "Valid credentials", body = TokenResponse),

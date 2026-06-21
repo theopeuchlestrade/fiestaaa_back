@@ -404,6 +404,7 @@ async fn oauth_google_id_token_creates_user_and_identity() -> Result<(), Box<dyn
         &app,
         test::TestRequest::post()
             .uri("/auth/oauth/google")
+            .insert_header(("X-Fiestaaa-Auth-Response", "bearer"))
             .set_json(serde_json::json!({ "idToken": "valid-google-id-token" }))
             .to_request(),
     )
@@ -832,6 +833,7 @@ async fn login_returns_token_for_valid_credentials() -> Result<(), Box<dyn Error
         &app,
         test::TestRequest::post()
             .uri("/auth/login")
+            .insert_header(("X-Fiestaaa-Auth-Response", "bearer"))
             .set_json(serde_json::json!({ "identifier": email, "password": password }))
             .to_request(),
     )
@@ -1029,6 +1031,7 @@ async fn delete_account_removes_user() -> Result<(), Box<dyn Error>> {
         &app,
         test::TestRequest::post()
             .uri("/auth/login")
+            .insert_header(("X-Fiestaaa-Auth-Response", "bearer"))
             .set_json(serde_json::json!({ "identifier": email, "password": password }))
             .to_request(),
     )
@@ -1158,6 +1161,7 @@ async fn delete_account_returns_401_for_missing_user() -> Result<(), Box<dyn Err
         &app,
         test::TestRequest::post()
             .uri("/auth/login")
+            .insert_header(("X-Fiestaaa-Auth-Response", "bearer"))
             .set_json(serde_json::json!({ "identifier": email, "password": password }))
             .to_request(),
     )
@@ -1193,7 +1197,7 @@ async fn delete_account_returns_401_for_missing_user() -> Result<(), Box<dyn Err
 }
 
 #[tokio::test]
-async fn browser_login_uses_cookie_without_exposing_token() -> Result<(), Box<dyn Error>> {
+async fn login_omits_body_token_without_explicit_bearer_response() -> Result<(), Box<dyn Error>> {
     let Some(pool) = obtain_pool().await else {
         eprintln!("Skipping auth tests: FIESTAAA_SKIP_DB_TESTS=1");
         return Ok(());
@@ -1248,7 +1252,6 @@ async fn browser_login_uses_cookie_without_exposing_token() -> Result<(), Box<dy
         &app,
         test::TestRequest::post()
             .uri("/auth/login")
-            .insert_header(("Origin", "https://fiestaaa.app"))
             .set_json(serde_json::json!({ "identifier": email, "password": password }))
             .to_request(),
     )
@@ -1331,6 +1334,7 @@ async fn logout_revokes_current_token() -> Result<(), Box<dyn Error>> {
         &app,
         test::TestRequest::post()
             .uri("/auth/login")
+            .insert_header(("X-Fiestaaa-Auth-Response", "bearer"))
             .set_json(serde_json::json!({ "identifier": email, "password": password }))
             .to_request(),
     )
@@ -1433,6 +1437,7 @@ async fn deleted_user_token_cannot_access_events() -> Result<(), Box<dyn Error>>
         &app,
         test::TestRequest::post()
             .uri("/auth/login")
+            .insert_header(("X-Fiestaaa-Auth-Response", "bearer"))
             .set_json(serde_json::json!({ "identifier": email, "password": password }))
             .to_request(),
     )

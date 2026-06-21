@@ -52,13 +52,11 @@ SQL migrations live in `migrations/` and are applied on startup through `sqlx::m
 - Add/update tests if applicable.
 - Ensure `cargo fmt`, `cargo clippy -D warnings`, and `ruby scripts/check_markdown_links.rb` pass.
 - Use a PR title or squash commit message that can become a clear release note.
-  Gitmoji is preferred for new work, for example:
-  - `✨ (events): Add item reservations`
-  - `🐛 (auth): Fix OAuth state refresh`
-  - `🔒 (auth): Harden token validation`
-  - `⬆️ (deps): Bump Rust dependencies`
-- Conventional Commit titles such as `feat(events): add item reservations` and
-  `fix(auth): refresh OAuth state` remain accepted during the transition.
+  Prefer Conventional Commit titles, for example:
+  - `feat(events): add item reservations`
+  - `fix(auth): refresh OAuth state`
+  - `security(auth): harden token validation`
+  - `chore(deps): bump Rust dependencies`
 - `CHANGELOG.md` is generated automatically during the release workflow from
   commits on `main`; only edit it manually for historical corrections.
 - Security vulnerabilities must not be reported through a public issue; follow `SECURITY.md`.
