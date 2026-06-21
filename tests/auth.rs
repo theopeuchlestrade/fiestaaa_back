@@ -13,7 +13,7 @@ use common::{
     DB_LOCK, TestOAuthConfig, build_state, build_state_with_oauth_config, obtain_pool, reset_tables,
 };
 use fiestaaa_back::{
-    auth::{hash_password, now_ts, session_cookie_name, verify_password},
+    auth::{decode_jwt, hash_password, now_ts, session_cookie_name, verify_password},
     routes,
     security::sha256_hex,
 };
@@ -218,13 +218,17 @@ struct TestAppleClaims<'a> {
 }
 
 fn apple_id_token(aud: &str, sub: &str, email: Option<&str>) -> String {
+    apple_id_token_with_exp(aud, sub, email, (now_ts() + 3600) as usize)
+}
+
+fn apple_id_token_with_exp(aud: &str, sub: &str, email: Option<&str>, exp: usize) -> String {
     let mut header = jsonwebtoken::Header::new(jsonwebtoken::Algorithm::RS256);
     header.kid = Some(TEST_APPLE_KID.into());
     let claims = TestAppleClaims {
         sub,
         email,
         email_verified: email.map(|_| serde_json::json!("true")),
-        exp: (now_ts() + 3600) as usize,
+        exp,
         iss: "https://appleid.apple.com",
         aud,
     };
@@ -619,6 +623,64 @@ async fn oauth_apple_reuses_identity_without_email() -> Result<(), Box<dyn Error
     .await?;
     assert_eq!(provider, "apple");
     assert_eq!(subject, "apple-stable-subject");
+
+    oauth_server.stop().await;
+    Ok(())
+}
+
+#[tokio::test]
+async fn oauth_apple_uses_standard_session_expiry() -> Result<(), Box<dyn Error>> {
+    let Some(pool) = obtain_pool().await else {
+        eprintln!("Skipping auth tests: FIESTAAA_SKIP_DB_TESTS=1");
+        return Ok(());
+    };
+    let _guard = DB_LOCK.lock().await;
+    reset_tables(
+        &pool,
+        &["oauth_identities", "pending_registrations", "users"],
+    )
+    .await?;
+
+    let oauth_server = spawn_oauth_mock_server()?;
+    let state = build_state_with_oauth_config(
+        pool.clone(),
+        "secret",
+        &[],
+        oauth_test_config(&oauth_server.base_url),
+    );
+    let app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
+
+    let apple_exp = (now_ts() + 60) as usize;
+    let session_issued_after = now_ts();
+    let id_token = apple_id_token_with_exp(
+        TEST_APPLE_SERVICE_ID,
+        "apple-short-lived-subject",
+        Some("Apple.Short@Example.com"),
+        apple_exp,
+    );
+    let resp = test::call_service(
+        &app,
+        test::TestRequest::post()
+            .uri("/auth/oauth/apple")
+            .insert_header(("X-Fiestaaa-Auth-Response", "bearer"))
+            .set_json(serde_json::json!({ "idToken": id_token }))
+            .to_request(),
+    )
+    .await;
+
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body: Value = test::read_body_json(resp).await;
+    let token = body
+        .get("token")
+        .and_then(|value| value.as_str())
+        .expect("token in response");
+    let session_claims = match decode_jwt(token, "secret") {
+        Ok(claims) => claims,
+        Err(_) => panic!("session token should decode"),
+    };
+
+    assert!(session_claims.exp > apple_exp);
+    assert!(session_claims.exp >= (session_issued_after + 24 * 3600 - 5) as usize);
 
     oauth_server.stop().await;
     Ok(())
