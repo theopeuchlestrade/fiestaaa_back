@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-06-24
+
+### Dependencies
+- *(deps)* Bump the cargo-dependencies group with 4 updates.
+- *(deps)* Bump actions/checkout from 6.0.3 to 7.0.0.
+
+### Fixed
+- *(auth)* Require explicit bearer token responses (#133).
+
+### Internal
+- Use standard Apple OAuth session expiry (#134).
+- Refresh pending registration verification links (#135).
+
 ## [0.1.2] - 2026-06-20
 
 ### Added
