@@ -171,6 +171,7 @@ pub struct AppConfig {
     pub fcm_service_account_path: Option<String>,
     pub fcm_project_id: Option<String>,
     pub event_cleanup_days: i64,
+    pub event_purge_days: i64,
     pub event_cleanup_interval_hours: u64,
     pub google_client_id: Option<String>,
     pub google_android_client_id: Option<String>,
@@ -255,6 +256,7 @@ impl AppConfig {
             .ok()
             .filter(|v| !v.trim().is_empty());
         let event_cleanup_days = read_parsed_env("EVENT_CLEANUP_DAYS", 7)?;
+        let event_purge_days = read_parsed_env("EVENT_PURGE_DAYS", 30)?;
         let event_cleanup_interval_hours = read_parsed_env("EVENT_CLEANUP_INTERVAL_HOURS", 1)?;
         let google_client_id = std::env::var("FIESTAAA_GOOGLE_WEB_CLIENT_ID")
             .ok()
@@ -320,6 +322,7 @@ impl AppConfig {
             fcm_service_account_path,
             fcm_project_id,
             event_cleanup_days,
+            event_purge_days,
             event_cleanup_interval_hours,
             google_client_id,
             google_android_client_id,

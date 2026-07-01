@@ -8,6 +8,7 @@ use super::*;
     get,
     path = "/events/{event_id}",
     tag = "events",
+    params(PaginationQuery),
     responses(
         (status = 200, description = "Event found", body = Event),
         (status = 401, description = "Authentication required", body = ErrorResponse),
@@ -31,7 +32,8 @@ pub async fn get_event(
     let sql = select_events_sql(
         "FROM events e
          JOIN users owner ON owner.id = e.owner_user_id
-         WHERE e.event_id = $1",
+         WHERE e.event_id = $1
+           AND e.deleted_at IS NULL",
     );
 
     match sqlx::query_as::<_, Event>(AssertSqlSafe(sql))
@@ -59,7 +61,11 @@ pub async fn get_event(
     )
 )]
 #[get("/events")]
-pub async fn list_events(state: web::Data<AppState>, req: HttpRequest) -> impl Responder {
+pub async fn list_events(
+    state: web::Data<AppState>,
+    req: HttpRequest,
+    query: web::Query<PaginationQuery>,
+) -> impl Responder {
     let email = match claims_email(&req, state.get_ref()).await {
         Ok(e) => e,
         Err(resp) => return resp,
@@ -68,31 +74,49 @@ pub async fn list_events(state: web::Data<AppState>, req: HttpRequest) -> impl R
         Ok(id) => id,
         Err(resp) => return resp,
     };
-    if let Err(resp) = expire_overdue_invitations(&state.db).await {
-        return resp;
-    }
-
-    let sql = select_events_sql(
-        "FROM events e
+    let pagination = match page_request(&query) {
+        Ok(value) => value,
+        Err(response) => return response,
+    };
+    let from = "FROM events e
          JOIN users owner ON owner.id = e.owner_user_id
-         WHERE e.owner_user_id = $1
-            OR EXISTS (
+         WHERE e.deleted_at IS NULL
+           AND (
+             e.owner_user_id = $1
+             OR EXISTS (
                 SELECT 1
                 FROM invitations i
                 WHERE i.event_id = e.event_id
                   AND i.user_id = $1
-                  AND i.status NOT IN ('Declined', 'Expired')
-            )
-         ORDER BY e.date_event, e.start_time",
-    );
+                  AND i.status <> 'Declined'
+                  AND NOT (
+                      i.status = 'Expired'
+                      OR (
+                          i.status = 'Waiting'
+                          AND e.invitation_deadline IS NOT NULL
+                          AND CURRENT_DATE > e.invitation_deadline
+                      )
+                  )
+             )
+           )";
+    let suffix = if pagination.is_some() {
+        format!("{from} AND e.event_id > $2 ORDER BY e.event_id LIMIT $3")
+    } else {
+        format!("{from} ORDER BY e.starts_at, e.event_id")
+    };
+    let sql = select_events_sql(&suffix);
 
-    let res = sqlx::query_as::<_, Event>(AssertSqlSafe(sql))
-        .bind(user_id)
-        .fetch_all(&state.db)
-        .await;
+    let mut statement = sqlx::query_as::<_, Event>(AssertSqlSafe(sql)).bind(user_id);
+    if let Some(page) = pagination {
+        statement = statement.bind(page.after_id.unwrap_or(0)).bind(page.limit);
+    }
+    let res = statement.fetch_all(&state.db).await;
 
     match res {
-        Ok(events) => HttpResponse::Ok().json(events),
+        Ok(events) => match pagination {
+            Some(page) => json_page(events, page.limit, |event| event.event_id.to_string()),
+            None => HttpResponse::Ok().json(events),
+        },
         Err(_) => HttpResponse::InternalServerError().json(ErrorResponse {
             error: "db_error".into(),
             details: None,
@@ -145,6 +169,19 @@ pub async fn create_event(
         });
     }
     if let Err(resp) = validate_event_schedule(
+        payload.date_event,
+        payload.start_time,
+        payload.end_date,
+        payload.end_time,
+    ) {
+        return resp;
+    }
+    let timezone = match normalize_event_timezone(payload.timezone.as_deref()) {
+        Ok(value) => value,
+        Err(resp) => return resp,
+    };
+    if let Err(resp) = validate_event_local_times(
+        &timezone,
         payload.date_event,
         payload.start_time,
         payload.end_date,
@@ -210,6 +247,7 @@ pub async fn create_event(
             playlist_url,
             playlist_provider,
             enabled_features,
+            timezone,
             owner_user_id
          )
          VALUES (
@@ -230,7 +268,8 @@ pub async fn create_event(
             $15,
             $16,
             $17,
-            $18
+            $18,
+            $19
          )
          RETURNING *",
     );
@@ -253,6 +292,7 @@ pub async fn create_event(
         .bind(&playlist_url)
         .bind(&playlist_provider)
         .bind(&enabled_features)
+        .bind(&timezone)
         .bind(owner_user_id)
         .fetch_one(&state.db)
         .await;
@@ -327,6 +367,19 @@ pub async fn replace_event(
     ) {
         return resp;
     }
+    let timezone = match normalize_event_timezone(payload.timezone.as_deref()) {
+        Ok(value) => value,
+        Err(resp) => return resp,
+    };
+    if let Err(resp) = validate_event_local_times(
+        &timezone,
+        payload.date_event,
+        payload.start_time,
+        payload.end_date,
+        payload.end_time,
+    ) {
+        return resp;
+    }
     if payload.end_date.is_some() || payload.end_time.is_some() {
         updated_fields.push("duration");
     }
@@ -394,8 +447,9 @@ pub async fn replace_event(
              payment_per_person = $14,
              playlist_url = $15,
              playlist_provider = $16,
-             enabled_features = $17
-         WHERE event_id = $18
+             enabled_features = $17,
+             timezone = $18
+         WHERE event_id = $19
          RETURNING *",
     );
 
@@ -417,6 +471,7 @@ pub async fn replace_event(
         .bind(&playlist_url)
         .bind(&playlist_provider)
         .bind(&enabled_features)
+        .bind(&timezone)
         .bind(*event_id)
         .fetch_optional(&state.db)
         .await;
@@ -504,6 +559,9 @@ pub async fn update_event(
     if payload.start_time.is_some() {
         updated_fields.push("time");
     }
+    if payload.timezone.is_some() {
+        updated_fields.push("timezone");
+    }
     if payload.end_date.is_some() || payload.end_time.is_some() {
         updated_fields.push("duration");
     }
@@ -558,6 +616,7 @@ pub async fn update_event(
         current_playlist_provider,
         current_playlist_url,
         current_enabled_features,
+        current_timezone,
     ) = match fetch_event_payment_info(&state.db, *event_id).await {
         Ok(info) => info,
         Err(resp) => return resp,
@@ -581,7 +640,21 @@ pub async fn update_event(
     let target_start_time = payload.start_time.unwrap_or(current_start_time);
     let target_end_date = payload.end_date.unwrap_or(current_end_date);
     let target_end_time = payload.end_time.unwrap_or(current_end_time);
+    let target_timezone =
+        match normalize_event_timezone(payload.timezone.as_deref().or(Some(&current_timezone))) {
+            Ok(value) => value,
+            Err(resp) => return resp,
+        };
     if let Err(resp) = validate_event_schedule(
+        target_date_event,
+        target_start_time,
+        target_end_date,
+        target_end_time,
+    ) {
+        return resp;
+    }
+    if let Err(resp) = validate_event_local_times(
+        &target_timezone,
         target_date_event,
         target_start_time,
         target_end_date,
@@ -697,8 +770,9 @@ pub async fn update_event(
              payment_per_person = $17,
              playlist_url = CASE WHEN $18 THEN $19 ELSE playlist_url END,
              playlist_provider = CASE WHEN $20 THEN $21 ELSE playlist_provider END,
-             enabled_features = $22
-         WHERE event_id = $23
+             enabled_features = $22,
+             timezone = $23
+         WHERE event_id = $24
          RETURNING *",
     );
 
@@ -743,6 +817,7 @@ pub async fn update_event(
         .bind(playlist_provider_set)
         .bind(playlist_provider)
         .bind(&enabled_features)
+        .bind(&target_timezone)
         .bind(*event_id)
         .fetch_optional(&state.db)
         .await;
@@ -809,14 +884,17 @@ pub async fn delete_event(
     if let Err(resp) = ensure_event_owner(&req, state.get_ref(), *event_id).await {
         return resp;
     }
-    if let Err(resp) = ensure_event_writable(&state.db, *event_id).await {
-        return resp;
-    }
 
-    let res = sqlx::query("DELETE FROM events WHERE event_id = $1")
-        .bind(*event_id)
-        .execute(&state.db)
-        .await;
+    let res = sqlx::query(
+        "UPDATE events
+         SET deleted_at = NOW(),
+             purge_at = NOW() + INTERVAL '30 days',
+             deletion_reason = 'owner'
+         WHERE event_id = $1 AND deleted_at IS NULL",
+    )
+    .bind(*event_id)
+    .execute(&state.db)
+    .await;
 
     match res {
         Ok(result) if result.rows_affected() == 0 => HttpResponse::NotFound().json(ErrorResponse {
@@ -832,12 +910,98 @@ pub async fn delete_event(
             .await;
             publish_global_type(&state.redis_client, event_types::EVENTS_CHANGED).await;
             HttpResponse::Ok().json(StatusResponse {
-                status: "deleted".into(),
+                status: "trashed".into(),
             })
         }
         Err(_) => HttpResponse::InternalServerError().json(ErrorResponse {
             error: "db_error".into(),
             details: None,
         }),
+    }
+}
+
+#[utoipa::path(
+    get,
+    path = "/events/trash",
+    tag = "events",
+    responses(
+        (status = 200, description = "Recoverable events", body = [Event]),
+        (status = 401, description = "Authentication required", body = ErrorResponse)
+    )
+)]
+#[get("/events/trash")]
+pub async fn list_trashed_events(state: web::Data<AppState>, req: HttpRequest) -> impl Responder {
+    let email = match claims_email(&req, state.get_ref()).await {
+        Ok(email) => email,
+        Err(resp) => return resp,
+    };
+    let owner_id = match fetch_user_id(&state.db, &email).await {
+        Ok(id) => id,
+        Err(resp) => return resp,
+    };
+    let sql = select_events_sql(
+        "FROM events e
+         JOIN users owner ON owner.id = e.owner_user_id
+         WHERE e.owner_user_id = $1
+           AND e.deleted_at IS NOT NULL
+         ORDER BY e.deleted_at DESC, e.event_id DESC",
+    );
+    match sqlx::query_as::<_, Event>(AssertSqlSafe(sql))
+        .bind(owner_id)
+        .fetch_all(&state.db)
+        .await
+    {
+        Ok(events) => HttpResponse::Ok().json(events),
+        Err(_) => server_error(),
+    }
+}
+
+#[utoipa::path(
+    post,
+    path = "/events/{event_id}/restore",
+    tag = "events",
+    responses(
+        (status = 200, description = "Event restored", body = Event),
+        (status = 404, description = "Event not found", body = ErrorResponse)
+    ),
+    params(("event_id" = i64, Path, description = "Event identifier"))
+)]
+#[post("/events/{event_id}/restore")]
+pub async fn restore_event(
+    state: web::Data<AppState>,
+    req: HttpRequest,
+    event_id: web::Path<i64>,
+) -> impl Responder {
+    let email = match claims_email(&req, state.get_ref()).await {
+        Ok(email) => email,
+        Err(resp) => return resp,
+    };
+    let owner_id = match fetch_user_id(&state.db, &email).await {
+        Ok(id) => id,
+        Err(resp) => return resp,
+    };
+    let sql = upsert_event_returning_sql(
+        "UPDATE events
+         SET deleted_at = NULL, purge_at = NULL, deletion_reason = NULL
+         WHERE event_id = $1
+           AND owner_user_id = $2
+           AND deleted_at IS NOT NULL
+         RETURNING *",
+    );
+    match sqlx::query_as::<_, Event>(AssertSqlSafe(sql))
+        .bind(*event_id)
+        .bind(owner_id)
+        .fetch_optional(&state.db)
+        .await
+    {
+        Ok(Some(event)) => {
+            publish_global_type(&state.redis_client, event_types::EVENTS_CHANGED).await;
+            HttpResponse::Ok().json(event)
+        }
+        Ok(None) => HttpResponse::NotFound().json(ErrorResponse {
+            error: "event_not_found".into(),
+            details: None,
+        }),
+        Err(_) => server_error(),
     }
 }

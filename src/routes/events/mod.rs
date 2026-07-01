@@ -10,13 +10,15 @@ use crate::{
         StatusResponse,
     },
     notifications::{NotificationRequest, event_member_user_ids, notify_users},
+    pagination::{PaginationQuery, json_page, page_request},
     realtime::{event_types, publish_event, publish_event_type, publish_global_type},
     routes::event_access::{ensure_event_writable, fetch_event_timing},
     security::sha256_hex,
     state::AppState,
 };
 use actix_web::{HttpRequest, HttpResponse};
-use chrono::NaiveDate;
+use chrono::{LocalResult, NaiveDate, TimeZone};
+use chrono_tz::Tz;
 use log::warn;
 use regex::Regex;
 use serde::Deserialize;
@@ -33,7 +35,10 @@ pub(crate) mod polls;
 pub(crate) mod share_links;
 
 pub use address::search_address;
-pub use core::{create_event, delete_event, get_event, list_events, replace_event, update_event};
+pub use core::{
+    create_event, delete_event, get_event, list_events, list_trashed_events, replace_event,
+    restore_event, update_event,
+};
 pub use expenses::{
     create_event_expense, delete_event_expense, get_event_expenses_summary, list_event_expenses,
 };
@@ -60,6 +65,17 @@ fn event_projection(event_alias: &str, owner_alias: &str) -> String {
          {event_alias}.start_time,
          {event_alias}.end_date,
          {event_alias}.end_time,
+         {event_alias}.timezone,
+         {event_alias}.starts_at AS start_at,
+         {event_alias}.effective_ends_at AS effective_end_at,
+         CASE
+             WHEN NOW() < {event_alias}.starts_at THEN 'upcoming'
+             WHEN NOW() <= {event_alias}.effective_ends_at THEN 'ongoing'
+             ELSE 'finished'
+         END AS lifecycle_status,
+         {event_alias}.deleted_at,
+         {event_alias}.purge_at,
+         {event_alias}.deletion_reason,
          {event_alias}.invitation_deadline,
          fiestaaa_decrypt_text({event_alias}.address_ciphertext) AS address,
          CAST(fiestaaa_decrypt_text({event_alias}.latitude_ciphertext) AS DOUBLE PRECISION) AS latitude,
@@ -73,6 +89,47 @@ fn event_projection(event_alias: &str, owner_alias: &str) -> String {
          {event_alias}.enabled_features,
          fiestaaa_decrypt_text({owner_alias}.email_ciphertext) AS owner_email"
     )
+}
+
+#[cfg(test)]
+mod timezone_tests {
+    use super::*;
+    use chrono::NaiveTime;
+
+    #[test]
+    fn rejects_nonexistent_and_ambiguous_paris_times() {
+        let nonexistent = validate_event_local_times(
+            "Europe/Paris",
+            NaiveDate::from_ymd_opt(2026, 3, 29).unwrap(),
+            NaiveTime::from_hms_opt(2, 30, 0).unwrap(),
+            None,
+            None,
+        );
+        assert!(nonexistent.is_err());
+
+        let ambiguous = validate_event_local_times(
+            "Europe/Paris",
+            NaiveDate::from_ymd_opt(2026, 10, 25).unwrap(),
+            NaiveTime::from_hms_opt(2, 30, 0).unwrap(),
+            None,
+            None,
+        );
+        assert!(ambiguous.is_err());
+    }
+
+    #[test]
+    fn accepts_unambiguous_local_time() {
+        assert!(
+            validate_event_local_times(
+                "Europe/Paris",
+                NaiveDate::from_ymd_opt(2026, 7, 1).unwrap(),
+                NaiveTime::from_hms_opt(20, 0, 0).unwrap(),
+                None,
+                None,
+            )
+            .is_ok()
+        );
+    }
 }
 
 fn select_events_sql(from_and_where: &str) -> String {
@@ -156,7 +213,8 @@ async fn fetch_event_owner_identity(
                 fiestaaa_decrypt_text(u.email_ciphertext) AS owner_email
          FROM events e
          JOIN users u ON u.id = e.owner_user_id
-         WHERE e.event_id = $1",
+         WHERE e.event_id = $1
+           AND e.deleted_at IS NULL",
     )
     .bind(event_id)
     .fetch_optional(db)
@@ -333,6 +391,53 @@ fn validate_event_schedule(
             details: Some("end_date et end_time doivent être renseignés ensemble".into()),
         })),
     }
+}
+
+fn normalize_event_timezone(value: Option<&str>) -> Result<String, HttpResponse> {
+    let timezone = value
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("Europe/Paris");
+    timezone.parse::<Tz>().map_err(|_| {
+        HttpResponse::BadRequest().json(ErrorResponse {
+            error: "invalid_timezone".into(),
+            details: None,
+        })
+    })?;
+    Ok(timezone.to_string())
+}
+
+fn validate_event_local_times(
+    timezone: &str,
+    start_date: NaiveDate,
+    start_time: chrono::NaiveTime,
+    end_date: Option<NaiveDate>,
+    end_time: Option<chrono::NaiveTime>,
+) -> Result<(), HttpResponse> {
+    let timezone = timezone.parse::<Tz>().map_err(|_| {
+        HttpResponse::BadRequest().json(ErrorResponse {
+            error: "invalid_timezone".into(),
+            details: None,
+        })
+    })?;
+    let validate = |date: NaiveDate, time: chrono::NaiveTime| match timezone
+        .from_local_datetime(&date.and_time(time))
+    {
+        LocalResult::Single(_) => Ok(()),
+        LocalResult::Ambiguous(_, _) => Err(HttpResponse::BadRequest().json(ErrorResponse {
+            error: "ambiguous_local_time".into(),
+            details: None,
+        })),
+        LocalResult::None => Err(HttpResponse::BadRequest().json(ErrorResponse {
+            error: "nonexistent_local_time".into(),
+            details: None,
+        })),
+    };
+    validate(start_date, start_time)?;
+    if let (Some(date), Some(time)) = (end_date, end_time) {
+        validate(date, time)?;
+    }
+    Ok(())
 }
 
 const PLAYLIST_SPOTIFY_REGEX: &str = r"^https?://open\.spotify\.com/.+$";
@@ -547,22 +652,6 @@ fn normalize_playlist_payload(
     Ok((Some(provider), Some(playlist_url)))
 }
 
-async fn expire_overdue_invitations(db: &PgPool) -> Result<(), HttpResponse> {
-    sqlx::query(
-        "UPDATE invitations i
-         SET status = 'Expired'
-         FROM events e
-         WHERE i.event_id = e.event_id
-           AND i.status = 'Waiting'
-           AND e.invitation_deadline IS NOT NULL
-           AND CURRENT_DATE > e.invitation_deadline",
-    )
-    .execute(db)
-    .await
-    .map(|_| ())
-    .map_err(|_| server_error())
-}
-
 fn clean_payment_value(value: Option<String>) -> Option<String> {
     value.and_then(|v| {
         let trimmed = v.trim();
@@ -709,12 +798,15 @@ async fn normalize_payment_info(
 }
 
 async fn ensure_event_exists(db: &PgPool, event_id: i64) -> Result<(), HttpResponse> {
-    let exists =
-        sqlx::query_scalar::<_, bool>("SELECT EXISTS(SELECT 1 FROM events WHERE event_id = $1)")
-            .bind(event_id)
-            .fetch_one(db)
-            .await
-            .map_err(|_| server_error())?;
+    let exists = sqlx::query_scalar::<_, bool>(
+        "SELECT EXISTS(
+            SELECT 1 FROM events WHERE event_id = $1 AND deleted_at IS NULL
+        )",
+    )
+    .bind(event_id)
+    .fetch_one(db)
+    .await
+    .map_err(|_| server_error())?;
 
     if exists {
         Ok(())
@@ -742,6 +834,7 @@ async fn fetch_event_payment_info(
         Option<String>,
         Option<String>,
         Vec<String>,
+        String,
     ),
     HttpResponse,
 > {
@@ -759,6 +852,7 @@ async fn fetch_event_payment_info(
             Option<String>,
             Option<String>,
             Vec<String>,
+            String,
         ),
     >(
         "SELECT payment_provider_id,
@@ -771,7 +865,8 @@ async fn fetch_event_payment_info(
                 invitation_deadline,
                 playlist_provider,
                 playlist_url,
-                enabled_features
+                enabled_features,
+                timezone
          FROM events
          WHERE event_id = $1",
     )

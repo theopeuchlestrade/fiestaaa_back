@@ -1,41 +1,41 @@
-use chrono::{NaiveDate, NaiveTime};
+use chrono::{DateTime, Utc};
 use sqlx::PgPool;
 
 use crate::api_error::{ApiError, ApiResult};
 
 #[derive(Debug, Clone)]
 pub struct EventTiming {
-    pub date_event: NaiveDate,
-    pub start_time: NaiveTime,
-    pub end_date: Option<NaiveDate>,
-    pub end_time: Option<NaiveTime>,
+    pub starts_at: DateTime<Utc>,
+    pub effective_ends_at: DateTime<Utc>,
 }
 
 pub async fn fetch_event_timing(db: &PgPool, event_id: i64) -> ApiResult<EventTiming> {
-    let row = sqlx::query_as::<_, (NaiveDate, NaiveTime, Option<NaiveDate>, Option<NaiveTime>)>(
-        "SELECT date_event, start_time, end_date, end_time FROM events WHERE event_id = $1",
+    let row = sqlx::query_as::<_, (DateTime<Utc>, DateTime<Utc>)>(
+        "SELECT starts_at, effective_ends_at
+         FROM events
+         WHERE event_id = $1 AND deleted_at IS NULL",
     )
     .bind(event_id)
     .fetch_optional(db)
     .await
     .map_err(|_| ApiError::database())?;
 
-    row.map(|(date_event, start_time, end_date, end_time)| EventTiming {
-        date_event,
-        start_time,
-        end_date,
-        end_time,
+    row.map(|(starts_at, effective_ends_at)| EventTiming {
+        starts_at,
+        effective_ends_at,
     })
     .ok_or_else(|| ApiError::not_found("event_not_found"))
 }
 
 pub async fn fetch_event_owner_id(db: &PgPool, event_id: i64) -> ApiResult<i64> {
-    sqlx::query_scalar::<_, i64>("SELECT owner_user_id FROM events WHERE event_id = $1")
-        .bind(event_id)
-        .fetch_optional(db)
-        .await
-        .map_err(|_| ApiError::database())?
-        .ok_or_else(|| ApiError::not_found("event_not_found"))
+    sqlx::query_scalar::<_, i64>(
+        "SELECT owner_user_id FROM events WHERE event_id = $1 AND deleted_at IS NULL",
+    )
+    .bind(event_id)
+    .fetch_optional(db)
+    .await
+    .map_err(|_| ApiError::database())?
+    .ok_or_else(|| ApiError::not_found("event_not_found"))
 }
 
 pub async fn fetch_user_id_by_email(db: &PgPool, email: &str) -> ApiResult<Option<i64>> {

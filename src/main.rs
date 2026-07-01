@@ -1,6 +1,6 @@
 use actix_cors::Cors;
 use actix_files::Files;
-use actix_web::http::header::{AUTHORIZATION, CONTENT_TYPE};
+use actix_web::http::header::{AUTHORIZATION, CONTENT_TYPE, HeaderName};
 use actix_web::{
     App, HttpServer,
     middleware::{DefaultHeaders, Logger},
@@ -48,6 +48,7 @@ async fn main() -> std::io::Result<()> {
 
     cleanup::CleanupService::new(pool.clone())
         .with_cleanup_days(cfg.event_cleanup_days)
+        .with_purge_days(cfg.event_purge_days)
         .with_interval_hours(cfg.event_cleanup_interval_hours)
         .start();
 
@@ -69,6 +70,7 @@ async fn main() -> std::io::Result<()> {
         http_client.clone(),
         cfg.notification_dedup_ttl_seconds,
     );
+    notifications::NotificationOutboxWorker::new(pool.clone(), notifications.clone()).start();
     let state = web::Data::new(state::AppState {
         db: pool,
         jwt_secret: cfg.jwt_secret.clone(),
@@ -113,7 +115,12 @@ async fn main() -> std::io::Result<()> {
     HttpServer::new(move || {
         let mut cors = Cors::default()
             .allowed_methods(vec!["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"])
-            .allowed_headers(vec![AUTHORIZATION, CONTENT_TYPE])
+            .allowed_headers(vec![
+                AUTHORIZATION,
+                CONTENT_TYPE,
+                HeaderName::from_static("x-fiestaaa-client-version"),
+            ])
+            .expose_headers(vec![HeaderName::from_static("x-next-cursor")])
             .supports_credentials()
             .max_age(3600);
         for origin in &cfg.cors_allowed_origins {

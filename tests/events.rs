@@ -195,6 +195,7 @@ async fn create_event_requires_authentication() -> Result<(), Box<dyn Error>> {
                 description: "The best party of the summer".to_string(),
                 date_event: NaiveDate::from_ymd_opt(2024, 7, 1).unwrap(),
                 start_time: NaiveTime::from_hms_opt(20, 0, 0).unwrap(),
+                timezone: None,
                 end_date: None,
                 end_time: None,
                 invitation_deadline: None,
@@ -244,6 +245,7 @@ async fn create_event_allows_authenticated_user() -> Result<(), Box<dyn Error>> 
                 description: "The best party of the summer".to_string(),
                 date_event: NaiveDate::from_ymd_opt(2024, 7, 1).unwrap(),
                 start_time: NaiveTime::from_hms_opt(20, 0, 0).unwrap(),
+                timezone: None,
                 end_date: None,
                 end_time: None,
                 invitation_deadline: None,
@@ -293,6 +295,7 @@ async fn create_event_accepts_ticketing_feature() -> Result<(), Box<dyn Error>> 
                 description: "Entry with QR".to_string(),
                 date_event: NaiveDate::from_ymd_opt(2024, 7, 1).unwrap(),
                 start_time: NaiveTime::from_hms_opt(20, 0, 0).unwrap(),
+                timezone: None,
                 end_date: None,
                 end_time: None,
                 invitation_deadline: None,
@@ -411,6 +414,7 @@ async fn events_crud_flow() -> Result<(), Box<dyn Error>> {
                 description: "The best party of the summer".to_string(),
                 date_event: NaiveDate::from_ymd_opt(2099, 7, 1).unwrap(),
                 start_time: NaiveTime::from_hms_opt(20, 0, 0).unwrap(),
+                timezone: None,
                 end_date: None,
                 end_time: None,
                 invitation_deadline: None,
@@ -460,6 +464,7 @@ async fn events_crud_flow() -> Result<(), Box<dyn Error>> {
                 description: "The BIGGEST party of the summer".to_string(),
                 date_event: NaiveDate::from_ymd_opt(2099, 7, 2).unwrap(),
                 start_time: NaiveTime::from_hms_opt(21, 0, 0).unwrap(),
+                timezone: None,
                 end_date: None,
                 end_time: None,
                 invitation_deadline: None,
@@ -494,6 +499,7 @@ async fn events_crud_flow() -> Result<(), Box<dyn Error>> {
                 description: None,
                 date_event: None,
                 start_time: Some(NaiveTime::from_hms_opt(22, 0, 0).unwrap()),
+                timezone: None,
                 end_date: None,
                 end_time: None,
                 invitation_deadline: None,
@@ -527,10 +533,31 @@ async fn events_crud_flow() -> Result<(), Box<dyn Error>> {
     .await;
     assert_eq!(resp.status(), StatusCode::OK);
 
-    let remaining: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM events")
+    let remaining: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM events WHERE deleted_at IS NULL")
         .fetch_one(&pool)
         .await?;
     assert_eq!(remaining.0, 0);
+
+    let trashed: (i64,) =
+        sqlx::query_as("SELECT COUNT(*) FROM events WHERE deleted_at IS NOT NULL")
+            .fetch_one(&pool)
+            .await?;
+    assert_eq!(trashed.0, 1);
+
+    let resp = test::call_service(
+        &app,
+        test::TestRequest::post()
+            .uri(&format!("/events/{}/restore", created.event_id))
+            .insert_header(("Authorization", format!("Bearer {}", token)))
+            .to_request(),
+    )
+    .await;
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    let restored: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM events WHERE deleted_at IS NULL")
+        .fetch_one(&pool)
+        .await?;
+    assert_eq!(restored.0, 1);
 
     Ok(())
 }
@@ -568,6 +595,7 @@ async fn update_event_playlist_requires_creator_or_admin() -> Result<(), Box<dyn
                 description: "Music matters".to_string(),
                 date_event: NaiveDate::from_ymd_opt(2099, 7, 10).unwrap(),
                 start_time: NaiveTime::from_hms_opt(20, 0, 0).unwrap(),
+                timezone: None,
                 end_date: None,
                 end_time: None,
                 invitation_deadline: None,
@@ -598,6 +626,7 @@ async fn update_event_playlist_requires_creator_or_admin() -> Result<(), Box<dyn
                 description: None,
                 date_event: None,
                 start_time: None,
+                timezone: None,
                 end_date: None,
                 end_time: None,
                 invitation_deadline: None,
@@ -652,6 +681,7 @@ async fn update_event_playlist_rejects_non_owner_when_admins_are_unset()
                 description: "Music matters".to_string(),
                 date_event: NaiveDate::from_ymd_opt(2099, 7, 10).unwrap(),
                 start_time: NaiveTime::from_hms_opt(20, 0, 0).unwrap(),
+                timezone: None,
                 end_date: None,
                 end_time: None,
                 invitation_deadline: None,
@@ -682,6 +712,7 @@ async fn update_event_playlist_rejects_non_owner_when_admins_are_unset()
                 description: None,
                 date_event: None,
                 start_time: None,
+                timezone: None,
                 end_date: None,
                 end_time: None,
                 invitation_deadline: None,
@@ -731,6 +762,7 @@ async fn update_event_playlist_requires_valid_provider() -> Result<(), Box<dyn E
                 description: "Music matters".to_string(),
                 date_event: NaiveDate::from_ymd_opt(2099, 7, 10).unwrap(),
                 start_time: NaiveTime::from_hms_opt(20, 0, 0).unwrap(),
+                timezone: None,
                 end_date: None,
                 end_time: None,
                 invitation_deadline: None,
@@ -761,6 +793,7 @@ async fn update_event_playlist_requires_valid_provider() -> Result<(), Box<dyn E
                 description: None,
                 date_event: None,
                 start_time: None,
+                timezone: None,
                 end_date: None,
                 end_time: None,
                 invitation_deadline: None,
@@ -810,6 +843,7 @@ async fn update_event_playlist_requires_valid_url() -> Result<(), Box<dyn Error>
                 description: "Music matters".to_string(),
                 date_event: NaiveDate::from_ymd_opt(2099, 7, 10).unwrap(),
                 start_time: NaiveTime::from_hms_opt(20, 0, 0).unwrap(),
+                timezone: None,
                 end_date: None,
                 end_time: None,
                 invitation_deadline: None,
@@ -840,6 +874,7 @@ async fn update_event_playlist_requires_valid_url() -> Result<(), Box<dyn Error>
                 description: None,
                 date_event: None,
                 start_time: None,
+                timezone: None,
                 end_date: None,
                 end_time: None,
                 invitation_deadline: None,
@@ -889,6 +924,7 @@ async fn update_event_playlist_can_clear_fields() -> Result<(), Box<dyn Error>> 
                 description: "Music matters".to_string(),
                 date_event: NaiveDate::from_ymd_opt(2099, 7, 10).unwrap(),
                 start_time: NaiveTime::from_hms_opt(20, 0, 0).unwrap(),
+                timezone: None,
                 end_date: None,
                 end_time: None,
                 invitation_deadline: None,
@@ -920,6 +956,7 @@ async fn update_event_playlist_can_clear_fields() -> Result<(), Box<dyn Error>> 
                 description: None,
                 date_event: None,
                 start_time: None,
+                timezone: None,
                 end_date: None,
                 end_time: None,
                 invitation_deadline: None,
@@ -986,6 +1023,7 @@ async fn event_items_reservation_flow() -> Result<(), Box<dyn Error>> {
                 description: "Bring your best drinks".to_string(),
                 date_event: NaiveDate::from_ymd_opt(2099, 8, 1).unwrap(),
                 start_time: NaiveTime::from_hms_opt(18, 30, 0).unwrap(),
+                timezone: None,
                 end_date: None,
                 end_time: None,
                 invitation_deadline: None,
@@ -1191,6 +1229,7 @@ async fn event_items_scope_filters() -> Result<(), Box<dyn Error>> {
                 description: "Scope filters".to_string(),
                 date_event: NaiveDate::from_ymd_opt(2099, 8, 1).unwrap(),
                 start_time: NaiveTime::from_hms_opt(18, 30, 0).unwrap(),
+                timezone: None,
                 end_date: None,
                 end_time: None,
                 invitation_deadline: None,
@@ -1412,6 +1451,7 @@ async fn reserve_event_item_requires_membership() -> Result<(), Box<dyn Error>> 
                 description: "Reservation access control".to_string(),
                 date_event: NaiveDate::from_ymd_opt(2030, 1, 1).unwrap(),
                 start_time: NaiveTime::from_hms_opt(18, 30, 0).unwrap(),
+                timezone: None,
                 end_date: None,
                 end_time: None,
                 invitation_deadline: None,
@@ -1490,6 +1530,7 @@ async fn create_event_rejects_unknown_payment_provider() -> Result<(), Box<dyn E
                 description: "The best party of the summer".to_string(),
                 date_event: NaiveDate::from_ymd_opt(2024, 7, 1).unwrap(),
                 start_time: NaiveTime::from_hms_opt(20, 0, 0).unwrap(),
+                timezone: None,
                 end_date: None,
                 end_time: None,
                 invitation_deadline: None,
@@ -1549,6 +1590,7 @@ async fn create_event_rejects_unsafe_absolute_payment_link() -> Result<(), Box<d
                     description: "Should be rejected".to_string(),
                     date_event: NaiveDate::from_ymd_opt(2026, 7, 1).unwrap(),
                     start_time: NaiveTime::from_hms_opt(20, 0, 0).unwrap(),
+                    timezone: None,
                     end_date: None,
                     end_time: None,
                     invitation_deadline: None,
@@ -1603,6 +1645,7 @@ async fn event_validates_empty_fields() -> Result<(), Box<dyn Error>> {
                 description: "Description".to_string(),
                 date_event: NaiveDate::from_ymd_opt(2024, 7, 1).unwrap(),
                 start_time: NaiveTime::from_hms_opt(20, 0, 0).unwrap(),
+                timezone: None,
                 end_date: None,
                 end_time: None,
                 invitation_deadline: None,
@@ -1633,6 +1676,7 @@ async fn event_validates_empty_fields() -> Result<(), Box<dyn Error>> {
                 description: "".to_string(),
                 date_event: NaiveDate::from_ymd_opt(2024, 7, 1).unwrap(),
                 start_time: NaiveTime::from_hms_opt(20, 0, 0).unwrap(),
+                timezone: None,
                 end_date: None,
                 end_time: None,
                 invitation_deadline: None,
@@ -1663,6 +1707,7 @@ async fn event_validates_empty_fields() -> Result<(), Box<dyn Error>> {
                 description: "Description".to_string(),
                 date_event: NaiveDate::from_ymd_opt(2024, 7, 1).unwrap(),
                 start_time: NaiveTime::from_hms_opt(20, 0, 0).unwrap(),
+                timezone: None,
                 end_date: None,
                 end_time: None,
                 invitation_deadline: None,
