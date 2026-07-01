@@ -16,6 +16,7 @@ use crate::{
         CarpoolPayload, CarpoolView, ErrorResponse, StatusResponse,
     },
     notifications::{NotificationRequest, enqueue_notifications_tx, notify_users},
+    pagination::{PageRequest, PaginationQuery, json_page, page_request},
     realtime::publish_event,
     routes::event_access::ensure_event_writable,
     state::AppState,
@@ -210,18 +211,27 @@ async fn fetch_carpool_views(
     event_id: i64,
     user_id: Option<i64>,
     sort_by: Option<String>,
+    page: Option<PageRequest>,
 ) -> Result<Vec<CarpoolView>, HttpResponse> {
-    let sql = select_carpools_sql("FROM carpools c WHERE c.event_id = $1");
-    let carpools = sqlx::query_as::<_, Carpool>(AssertSqlSafe(sql))
-        .bind(event_id)
-        .fetch_all(db)
-        .await
-        .map_err(|_| {
-            HttpResponse::InternalServerError().json(ErrorResponse {
-                error: "db_error".into(),
-                details: None,
-            })
-        })?;
+    let suffix = if page.is_some() {
+        "FROM carpools c
+         WHERE c.event_id = $1 AND c.carpool_id > $2
+         ORDER BY c.carpool_id
+         LIMIT $3"
+    } else {
+        "FROM carpools c WHERE c.event_id = $1"
+    };
+    let sql = select_carpools_sql(suffix);
+    let mut statement = sqlx::query_as::<_, Carpool>(AssertSqlSafe(sql)).bind(event_id);
+    if let Some(page) = page {
+        statement = statement.bind(page.after_id.unwrap_or(0)).bind(page.limit);
+    }
+    let carpools = statement.fetch_all(db).await.map_err(|_| {
+        HttpResponse::InternalServerError().json(ErrorResponse {
+            error: "db_error".into(),
+            details: None,
+        })
+    })?;
 
     // Helper function to apply sorting to a list of carpools
     fn apply_sort(list: &mut [Carpool], sort_by: Option<&str>) {
@@ -390,7 +400,9 @@ async fn fetch_carpool_views(
     tag = "carpools",
     params(
         ("event_id" = i64, Path, description = "Event identifier"),
-        ("sort" = Option<String>, Query, description = "Sort criterion: departure_asc, departure_desc, seats_asc, seats_desc, available_seats_asc, available_seats_desc")
+        ("sort" = Option<String>, Query, description = "Sort criterion: departure_asc, departure_desc, seats_asc, seats_desc, available_seats_asc, available_seats_desc"),
+        ("limit" = Option<i64>, Query, description = "Page size (max 100)"),
+        ("cursor" = Option<String>, Query, description = "Cursor returned in X-Next-Cursor")
     ),
     responses(
         (status = 200, description = "Carpool list", body = Vec<CarpoolView>),
@@ -417,8 +429,26 @@ pub async fn list_event_carpools(
         Err(_) => None,
     };
 
-    match fetch_carpool_views(&state.db, *event_id, user_id, query.sort.clone()).await {
-        Ok(carpools) => HttpResponse::Ok().json(carpools),
+    let pagination = match page_request(&PaginationQuery {
+        limit: query.limit,
+        cursor: query.cursor.clone(),
+    }) {
+        Ok(value) => value,
+        Err(response) => return response,
+    };
+    match fetch_carpool_views(
+        &state.db,
+        *event_id,
+        user_id,
+        query.sort.clone(),
+        pagination,
+    )
+    .await
+    {
+        Ok(carpools) => match pagination {
+            Some(page) => json_page(carpools, page.limit, |item| item.carpool_id.to_string()),
+            None => HttpResponse::Ok().json(carpools),
+        },
         Err(resp) => resp,
     }
 }
@@ -427,6 +457,8 @@ pub async fn list_event_carpools(
 pub struct CarpoolListQuery {
     #[serde(default)]
     pub sort: Option<String>,
+    pub limit: Option<i64>,
+    pub cursor: Option<String>,
 }
 
 #[utoipa::path(
@@ -604,7 +636,7 @@ pub async fn create_carpool(
     )
     .await;
 
-    match fetch_carpool_views(&state.db, *event_id, None, None).await {
+    match fetch_carpool_views(&state.db, *event_id, None, None, None).await {
         Ok(views) => {
             let view = views.iter().find(|v| v.carpool_id == carpool_id);
             match view {
@@ -751,7 +783,7 @@ pub async fn update_carpool(
     )
     .await;
 
-    match fetch_carpool_views(&state.db, current.event_id, None, None).await {
+    match fetch_carpool_views(&state.db, current.event_id, None, None, None).await {
         Ok(views) => {
             let view = views.iter().find(|v| v.carpool_id == *carpool_id);
             match view {
