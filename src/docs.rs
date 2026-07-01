@@ -37,10 +37,12 @@ use crate::models::{
         crate::routes::items::update_item,
         crate::routes::items::delete_item,
         crate::routes::events::core::list_events,
+        crate::routes::events::core::list_trashed_events,
         crate::routes::events::core::create_event,
         crate::routes::events::core::replace_event,
         crate::routes::events::core::update_event,
         crate::routes::events::core::delete_event,
+        crate::routes::events::core::restore_event,
         crate::routes::events::share_links::create_share_link,
         crate::routes::events::share_links::claim_share_link,
         crate::routes::events::address::search_address,
@@ -175,3 +177,19 @@ use crate::models::{
     )
 )]
 pub struct ApiDoc;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::security::sha256_hex;
+
+    #[test]
+    fn openapi_contract_matches_snapshot_hash() {
+        let document = serde_json::to_string_pretty(&ApiDoc::openapi()).expect("OpenAPI JSON");
+        assert_eq!(
+            sha256_hex(&document),
+            "1a88daf2aab12c091310371693b804d596d747196ff2b6068b10e1799c28bee9",
+            "OpenAPI changed: review the generated contract, then update this hash"
+        );
+    }
+}

@@ -70,6 +70,15 @@ static PUSH_ERRORS_TOTAL: Lazy<IntCounterVec> = Lazy::new(|| {
     .expect("register fiestaaa_push_errors_total")
 });
 
+static API_LIST_CLIENTS_TOTAL: Lazy<IntCounterVec> = Lazy::new(|| {
+    register_int_counter_vec!(
+        "fiestaaa_api_list_clients_total",
+        "GET requests split by pagination adoption and client version.",
+        &["mode", "client_version"]
+    )
+    .expect("register fiestaaa_api_list_clients_total")
+});
+
 pub struct MetricsMiddleware;
 
 impl<S, B> Transform<S, ServiceRequest> for MetricsMiddleware
@@ -112,6 +121,21 @@ where
     fn call(&self, req: ServiceRequest) -> Self::Future {
         let service = Rc::clone(&self.service);
         let start = Instant::now();
+        let pagination_mode = if req
+            .query_string()
+            .split('&')
+            .any(|part| part.starts_with("limit=") || part.starts_with("cursor="))
+        {
+            "paginated"
+        } else {
+            "legacy"
+        };
+        let client_version = req
+            .headers()
+            .get("x-fiestaaa-client-version")
+            .and_then(|value| value.to_str().ok())
+            .unwrap_or("unknown")
+            .to_owned();
 
         Box::pin(async move {
             let res = service.call(req).await?;
@@ -129,6 +153,11 @@ where
             HTTP_REQUEST_DURATION_SECONDS
                 .with_label_values(&[&method, &route, &status])
                 .observe(elapsed);
+            if method == "GET" {
+                API_LIST_CLIENTS_TOTAL
+                    .with_label_values(&[pagination_mode, &client_version])
+                    .inc();
+            }
 
             if res.status().is_server_error() {
                 capture_message(
@@ -162,6 +191,7 @@ pub fn render_prometheus() -> Result<String, prometheus::Error> {
     Lazy::force(&INVITATION_ERRORS_TOTAL);
     Lazy::force(&EMAIL_ERRORS_TOTAL);
     Lazy::force(&PUSH_ERRORS_TOTAL);
+    Lazy::force(&API_LIST_CLIENTS_TOTAL);
     crate::user_metrics::force_registered();
 
     let metric_families = prometheus::gather();
