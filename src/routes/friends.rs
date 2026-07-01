@@ -1,7 +1,7 @@
 use actix_web::{HttpRequest, HttpResponse, Responder, delete, get, patch, post, web};
 use serde::Deserialize;
 use serde_json::json;
-use sqlx::{PgPool, Row};
+use sqlx::{AssertSqlSafe, PgPool, Row};
 
 use crate::{
     auth::extract_active_claims_from_auth,
@@ -11,6 +11,7 @@ use crate::{
         FriendSearchResult, StatusResponse,
     },
     notifications::{NotificationRequest, notify_users},
+    pagination::{PaginationQuery, json_page, page_request},
     realtime::{event_types, publish_global_type},
     security::normalize_email,
     state::AppState,
@@ -195,19 +196,38 @@ fn db_error() -> HttpResponse {
     get,
     path = "/me/friends",
     tag = "friends",
+    params(
+        ("limit" = Option<i64>, Query, description = "Page size (max 100)"),
+        ("cursor" = Option<String>, Query, description = "Cursor returned in X-Next-Cursor")
+    ),
     responses(
         (status = 200, description = "Friend list", body = [Friend]),
         (status = 401, description = "Authentication required", body = ErrorResponse)
     )
 )]
 #[get("/me/friends")]
-pub async fn list_friends(state: web::Data<AppState>, req: HttpRequest) -> impl Responder {
+pub async fn list_friends(
+    state: web::Data<AppState>,
+    req: HttpRequest,
+    query: web::Query<PaginationQuery>,
+) -> impl Responder {
     let user = match current_user(&req, state.get_ref()).await {
         Ok(u) => u,
         Err(resp) => return resp,
     };
 
-    match sqlx::query_as::<_, Friend>(
+    let pagination = match page_request(&query) {
+        Ok(value) => value,
+        Err(response) => return response,
+    };
+    let suffix = if pagination.is_some() {
+        " AND ($2::BIGINT IS NULL OR f.created_at < to_timestamp($2::DOUBLE PRECISION / 1000))
+          ORDER BY f.created_at DESC
+          LIMIT $3"
+    } else {
+        " ORDER BY f.created_at DESC"
+    };
+    let sql = format!(
         "SELECT
             CASE
                 WHEN f.user_a = $1 THEN fiestaaa_decrypt_text(u2.email_ciphertext)
@@ -219,14 +239,19 @@ pub async fn list_friends(state: web::Data<AppState>, req: HttpRequest) -> impl 
          FROM friendships f
          JOIN users u1 ON u1.id = f.user_a
          JOIN users u2 ON u2.id = f.user_b
-         WHERE f.user_a = $1 OR f.user_b = $1
-         ORDER BY f.created_at DESC",
-    )
-    .bind(user.id)
-    .fetch_all(&state.db)
-    .await
-    {
-        Ok(list) => HttpResponse::Ok().json(list),
+         WHERE (f.user_a = $1 OR f.user_b = $1){suffix}"
+    );
+    let mut statement = sqlx::query_as::<_, Friend>(AssertSqlSafe(sql)).bind(user.id);
+    if let Some(page) = pagination {
+        statement = statement.bind(page.after_id).bind(page.limit);
+    }
+    match statement.fetch_all(&state.db).await {
+        Ok(list) => match pagination {
+            Some(page) => json_page(list, page.limit, |friend| {
+                friend.since.timestamp_millis().to_string()
+            }),
+            None => HttpResponse::Ok().json(list),
+        },
         Err(_) => db_error(),
     }
 }
@@ -414,19 +439,38 @@ pub async fn create_friend_request(
     get,
     path = "/friends/requests",
     tag = "friends",
+    params(
+        ("limit" = Option<i64>, Query, description = "Page size (max 100)"),
+        ("cursor" = Option<String>, Query, description = "Cursor returned in X-Next-Cursor")
+    ),
     responses(
         (status = 200, description = "Friend requests", body = [FriendRequest]),
         (status = 401, description = "Authentication required", body = ErrorResponse)
     )
 )]
 #[get("/friends/requests")]
-pub async fn list_friend_requests(state: web::Data<AppState>, req: HttpRequest) -> impl Responder {
+pub async fn list_friend_requests(
+    state: web::Data<AppState>,
+    req: HttpRequest,
+    query: web::Query<PaginationQuery>,
+) -> impl Responder {
     let user = match current_user(&req, state.get_ref()).await {
         Ok(u) => u,
         Err(resp) => return resp,
     };
 
-    match sqlx::query_as::<_, FriendRequest>(
+    let pagination = match page_request(&query) {
+        Ok(value) => value,
+        Err(response) => return response,
+    };
+    let suffix = if pagination.is_some() {
+        " AND ($2::BIGINT IS NULL OR fr.id < $2)
+          ORDER BY fr.id DESC
+          LIMIT $3"
+    } else {
+        " ORDER BY fr.created_at DESC, fr.id DESC"
+    };
+    let sql = format!(
         "SELECT fr.id,
                 fiestaaa_decrypt_text(sender.email_ciphertext) AS sender_email,
                 sender.handle AS sender_handle,
@@ -439,14 +483,17 @@ pub async fn list_friend_requests(state: web::Data<AppState>, req: HttpRequest) 
          FROM friend_requests fr
          JOIN users sender ON sender.id = fr.sender_id
          JOIN users receiver ON receiver.id = fr.receiver_id
-         WHERE fr.sender_id = $1 OR fr.receiver_id = $1
-         ORDER BY fr.created_at DESC",
-    )
-    .bind(user.id)
-    .fetch_all(&state.db)
-    .await
-    {
-        Ok(list) => HttpResponse::Ok().json(list),
+         WHERE (fr.sender_id = $1 OR fr.receiver_id = $1){suffix}"
+    );
+    let mut statement = sqlx::query_as::<_, FriendRequest>(AssertSqlSafe(sql)).bind(user.id);
+    if let Some(page) = pagination {
+        statement = statement.bind(page.after_id).bind(page.limit);
+    }
+    match statement.fetch_all(&state.db).await {
+        Ok(list) => match pagination {
+            Some(page) => json_page(list, page.limit, |request| request.id.to_string()),
+            None => HttpResponse::Ok().json(list),
+        },
         Err(_) => HttpResponse::Ok().json(Vec::<FriendRequest>::new()),
     }
 }

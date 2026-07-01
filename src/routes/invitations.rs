@@ -13,6 +13,7 @@ use crate::{
     },
     notifications::{NotificationRequest, find_user_id_by_email, notify_users},
     observability,
+    pagination::{PaginationQuery, json_page, page_request},
     realtime::{event_types, publish_event, publish_event_type, publish_global_type},
     routes::event_access::ensure_event_writable,
     security::sha256_hex,
@@ -680,7 +681,9 @@ async fn insert_invitation_for_user(
         (status = 404, description = "Event not found", body = ErrorResponse)
     ),
     params(
-        ("event_id" = i64, Path, description = "Event identifier")
+        ("event_id" = i64, Path, description = "Event identifier"),
+        ("limit" = Option<i64>, Query, description = "Page size (max 100)"),
+        ("cursor" = Option<String>, Query, description = "Cursor returned in X-Next-Cursor")
     )
 )]
 #[get("/events/{event_id}/invitations")]
@@ -688,6 +691,7 @@ pub async fn list_event_invitations(
     state: web::Data<AppState>,
     req: HttpRequest,
     event_id: web::Path<i64>,
+    query: web::Query<PaginationQuery>,
 ) -> impl Responder {
     let requester = match claims_email(&req, state.get_ref()).await {
         Ok(email) => email,
@@ -700,12 +704,19 @@ pub async fn list_event_invitations(
     if let Err(resp) = ensure_event_participant(&req, state.get_ref(), *event_id).await {
         return resp;
     }
-    if let Err(resp) = expire_overdue_invitations(&state.db).await {
-        return resp;
-    }
-
-    match sqlx::query_as::<_, Invitation>(
-        "SELECT e.event_id,
+    let pagination = match page_request(&query) {
+        Ok(value) => value,
+        Err(response) => return response,
+    };
+    let suffix = if pagination.is_some() {
+        "SELECT * FROM ({union}) page
+         WHERE ($2::BIGINT IS NULL OR page.date_invi < to_timestamp($2::DOUBLE PRECISION / 1000))
+         ORDER BY page.date_invi DESC, COALESCE(page.user_id, 0) DESC
+         LIMIT $3"
+    } else {
+        "SELECT * FROM ({union}) page ORDER BY page.date_invi DESC"
+    };
+    let union = "SELECT e.event_id,
                 u_owner.id AS user_id,
                 fiestaaa_decrypt_text(u_owner.email_ciphertext) AS email,
                 u_owner.handle AS handle,
@@ -715,14 +726,20 @@ pub async fn list_event_invitations(
                 e.name_event AS event_name
          FROM events e
          LEFT JOIN users u_owner ON u_owner.id = e.owner_user_id
-         WHERE e.event_id = $1
+         WHERE e.event_id = $1 AND e.deleted_at IS NULL
          UNION ALL
          SELECT i.event_id,
                 u.id AS user_id,
                 fiestaaa_decrypt_text(u.email_ciphertext) AS email,
                 u.handle,
                 u.avatar_url,
-                i.status,
+                CASE
+                    WHEN i.status = 'Waiting'
+                     AND e.invitation_deadline IS NOT NULL
+                     AND CURRENT_DATE > e.invitation_deadline
+                    THEN 'Expired'
+                    ELSE i.status
+                END AS status,
                 i.date_invi,
                 e.name_event AS event_name
          FROM invitations i
@@ -730,6 +747,7 @@ pub async fn list_event_invitations(
          JOIN events e ON e.event_id = i.event_id
          WHERE i.event_id = $1
            AND u.id <> e.owner_user_id
+           AND e.deleted_at IS NULL
          UNION ALL
          SELECT pending.event_id,
                 NULL::BIGINT AS user_id,
@@ -752,13 +770,13 @@ pub async fn list_event_invitations(
                AND expires_at >= NOW()
              ORDER BY target_email_lookup_hash, created_at DESC
          ) pending
-         JOIN events e ON e.event_id = pending.event_id
-         ORDER BY date_invi DESC",
-    )
-    .bind(*event_id)
-    .fetch_all(&state.db)
-    .await
-    {
+         JOIN events e ON e.event_id = pending.event_id AND e.deleted_at IS NULL";
+    let sql = suffix.replace("{union}", union);
+    let mut statement = sqlx::query_as::<_, Invitation>(sqlx::AssertSqlSafe(sql)).bind(*event_id);
+    if let Some(page) = pagination {
+        statement = statement.bind(page.after_id).bind(page.limit);
+    }
+    match statement.fetch_all(&state.db).await {
         Ok(mut list) => {
             if !owner_email.eq_ignore_ascii_case(&requester) {
                 list.retain(|invitation| invitation.user_id.is_some());
@@ -770,7 +788,12 @@ pub async fn list_event_invitations(
                     }
                 }
             }
-            HttpResponse::Ok().json(list)
+            match pagination {
+                Some(page) => json_page(list, page.limit, |invitation| {
+                    invitation.date_invi.timestamp_millis().to_string()
+                }),
+                None => HttpResponse::Ok().json(list),
+            }
         }
         Err(_) => HttpResponse::InternalServerError().json(ErrorResponse {
             error: "db_error".into(),
@@ -808,10 +831,6 @@ pub async fn create_invitation(
     if let Err(resp) = ensure_event_writable(&state.db, *event_id).await {
         return resp;
     }
-    if let Err(resp) = expire_overdue_invitations(&state.db).await {
-        return resp;
-    }
-
     let invitation_deadline = sqlx::query_scalar::<_, Option<NaiveDate>>(
         "SELECT invitation_deadline FROM events WHERE event_id = $1",
     )
@@ -993,41 +1012,66 @@ pub async fn delete_invitation(
     get,
     path = "/my/invitations",
     tag = "invitations",
+    params(
+        ("limit" = Option<i64>, Query, description = "Page size (max 100)"),
+        ("cursor" = Option<String>, Query, description = "Cursor returned in X-Next-Cursor")
+    ),
     responses(
         (status = 200, description = "User invitations", body = [Invitation]),
         (status = 401, description = "Authentication required", body = ErrorResponse)
     )
 )]
 #[get("/my/invitations")]
-pub async fn list_my_invitations(state: web::Data<AppState>, req: HttpRequest) -> impl Responder {
+pub async fn list_my_invitations(
+    state: web::Data<AppState>,
+    req: HttpRequest,
+    query: web::Query<PaginationQuery>,
+) -> impl Responder {
     let email = match claims_email(&req, state.get_ref()).await {
         Ok(e) => e,
         Err(resp) => return resp,
     };
-    if let Err(resp) = expire_overdue_invitations(&state.db).await {
-        return resp;
-    }
-
-    match sqlx::query_as::<_, Invitation>(
+    let pagination = match page_request(&query) {
+        Ok(value) => value,
+        Err(response) => return response,
+    };
+    let suffix = if pagination.is_some() {
+        " AND ($2::BIGINT IS NULL OR i.event_id < $2)
+          ORDER BY i.event_id DESC
+          LIMIT $3"
+    } else {
+        " ORDER BY i.date_invi DESC, i.event_id DESC"
+    };
+    let sql = format!(
         "SELECT i.event_id,
                 u.id AS user_id,
                 fiestaaa_decrypt_text(u.email_ciphertext) AS email,
                 u.handle,
                 u.avatar_url,
-                i.status,
+                CASE
+                    WHEN i.status = 'Waiting'
+                     AND e.invitation_deadline IS NOT NULL
+                     AND CURRENT_DATE > e.invitation_deadline
+                    THEN 'Expired'
+                    ELSE i.status
+                END AS status,
                 i.date_invi,
                 e.name_event AS event_name
          FROM invitations i
          JOIN users u ON u.id = i.user_id
          JOIN events e ON e.event_id = i.event_id
          WHERE fiestaaa_email_matches(u.email_lookup_hash, $1)
-         ORDER BY i.date_invi DESC",
-    )
-    .bind(&email)
-    .fetch_all(&state.db)
-    .await
-    {
-        Ok(list) => HttpResponse::Ok().json(list),
+           AND e.deleted_at IS NULL{suffix}"
+    );
+    let mut statement = sqlx::query_as::<_, Invitation>(sqlx::AssertSqlSafe(sql)).bind(&email);
+    if let Some(page) = pagination {
+        statement = statement.bind(page.after_id).bind(page.limit);
+    }
+    match statement.fetch_all(&state.db).await {
+        Ok(list) => match pagination {
+            Some(page) => json_page(list, page.limit, |item| item.event_id.to_string()),
+            None => HttpResponse::Ok().json(list),
+        },
         Err(_) => HttpResponse::InternalServerError().json(ErrorResponse {
             error: "db_error".into(),
             details: None,
