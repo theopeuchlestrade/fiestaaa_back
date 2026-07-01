@@ -3,11 +3,13 @@ use std::fs;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use futures_util::{StreamExt, stream};
 use log::{debug, warn};
 use redis::Client as RedisClient;
 use serde::Deserialize;
 use serde_json::Value;
-use sqlx::{Pool, Postgres, Row};
+use sqlx::{FromRow, Pool, Postgres, Row};
+use tokio::time::{Duration, interval};
 
 use crate::observability;
 
@@ -47,6 +49,154 @@ pub struct NotificationTarget {
     pub tokens: Vec<String>,
     pub dedup_key: Option<String>,
     pub dedup_ttl: Option<u64>,
+}
+
+#[derive(Debug, FromRow)]
+struct NotificationOutboxRow {
+    id: i64,
+    user_id: i64,
+    title: String,
+    body: String,
+    data: Value,
+    attempts: i32,
+}
+
+pub struct NotificationOutboxWorker {
+    db: Pool<Postgres>,
+    service: NotificationService,
+}
+
+impl NotificationOutboxWorker {
+    pub fn new(db: Pool<Postgres>, service: NotificationService) -> Self {
+        Self { db, service }
+    }
+
+    pub fn start(self) {
+        if !self.service.is_enabled() {
+            return;
+        }
+        tokio::spawn(async move {
+            let mut ticker = interval(Duration::from_secs(2));
+            loop {
+                ticker.tick().await;
+                if let Err(error) = self.process_batch().await {
+                    warn!("notification outbox worker failed: {error}");
+                    observability::record_push_error("outbox_worker_failure");
+                }
+            }
+        });
+    }
+
+    async fn process_batch(&self) -> Result<(), sqlx::Error> {
+        let rows = sqlx::query_as::<_, NotificationOutboxRow>(
+            "WITH picked AS (
+                 SELECT id
+                 FROM notification_outbox
+                 WHERE (
+                         status IN ('pending', 'retry')
+                         AND available_at <= NOW()
+                     )
+                     OR (
+                         status = 'processing'
+                         AND locked_at < NOW() - INTERVAL '5 minutes'
+                     )
+                 ORDER BY id
+                 FOR UPDATE SKIP LOCKED
+                 LIMIT 20
+             )
+             UPDATE notification_outbox outbox
+             SET status = 'processing',
+                 attempts = outbox.attempts + 1,
+                 locked_at = NOW()
+             FROM picked
+             WHERE outbox.id = picked.id
+             RETURNING outbox.id,
+                       outbox.user_id,
+                       outbox.title,
+                       outbox.body,
+                       outbox.data,
+                       outbox.attempts",
+        )
+        .fetch_all(&self.db)
+        .await?;
+
+        stream::iter(rows)
+            .for_each_concurrent(8, |row| async move {
+                self.deliver_row(row).await;
+            })
+            .await;
+        Ok(())
+    }
+
+    async fn deliver_row(&self, row: NotificationOutboxRow) {
+        let tokens = match tokens_by_user_ids(&self.db, &[row.user_id]).await {
+            Ok(mut tokens) => tokens.remove(&row.user_id).unwrap_or_default(),
+            Err(error) => {
+                self.retry_row(row.id, row.attempts, &error.to_string())
+                    .await;
+                return;
+            }
+        };
+        let delivered = self
+            .service
+            .send_to_tokens(
+                &self.db,
+                NotificationTarget {
+                    tokens,
+                    dedup_key: None,
+                    dedup_ttl: None,
+                },
+                &NotificationMessage {
+                    title: &row.title,
+                    body: &row.body,
+                    data: row.data,
+                },
+            )
+            .await;
+        if delivered {
+            if let Err(error) = sqlx::query(
+                "UPDATE notification_outbox
+                 SET status = 'sent', sent_at = NOW(), locked_at = NULL, last_error = NULL
+                 WHERE id = $1",
+            )
+            .bind(row.id)
+            .execute(&self.db)
+            .await
+            {
+                warn!("failed to mark outbox row {} as sent: {error}", row.id);
+            }
+        } else {
+            self.retry_row(row.id, row.attempts, "push delivery failed")
+                .await;
+        }
+    }
+
+    async fn retry_row(&self, id: i64, attempts: i32, error: &str) {
+        let status = if attempts >= 8 { "dead" } else { "retry" };
+        let delay_seconds = 2_i64.pow(attempts.clamp(1, 10) as u32).min(3600);
+        if let Err(update_error) = sqlx::query(
+            "UPDATE notification_outbox
+             SET status = $2,
+                 available_at = NOW() + make_interval(secs => $3),
+                 locked_at = NULL,
+                 last_error = $4
+             WHERE id = $1",
+        )
+        .bind(id)
+        .bind(status)
+        .bind(delay_seconds as f64)
+        .bind(error.chars().take(500).collect::<String>())
+        .execute(&self.db)
+        .await
+        {
+            warn!("failed to reschedule outbox row {id}: {update_error}");
+        }
+        observability::record_push_error(if status == "dead" {
+            "outbox_dead"
+        } else {
+            "outbox_retry"
+        });
+    }
 }
 
 struct FcmV1Context<'a> {
@@ -110,9 +260,9 @@ impl NotificationService {
         db: &Pool<Postgres>,
         target: NotificationTarget,
         message: &NotificationMessage<'_>,
-    ) {
+    ) -> bool {
         if target.tokens.is_empty() {
-            return;
+            return true;
         }
 
         let ttl = target.dedup_ttl.unwrap_or(self.default_dedup_ttl_seconds);
@@ -120,7 +270,7 @@ impl NotificationService {
             && self.is_throttled(key, ttl).await
         {
             debug!("notification skipped by throttle for key {key}");
-            return;
+            return true;
         }
 
         if let (Some(project_id), Some(provider)) =
@@ -131,14 +281,15 @@ impl NotificationService {
                 project_id,
                 provider: provider.clone(),
             };
+            let mut delivered = true;
             for tok in target.tokens {
-                self.send_v1(&ctx, &tok, message).await;
+                delivered &= self.send_v1(&ctx, &tok, message).await;
             }
-            return;
+            return delivered;
         }
 
         if self.server_key.is_none() {
-            return;
+            return true;
         }
 
         let payload = legacy_payload(&target.tokens, message);
@@ -161,7 +312,7 @@ impl NotificationService {
                     sentry::Level::Error,
                     &format!("failed to send FCM request: {err}"),
                 );
-                return;
+                return false;
             }
         };
 
@@ -187,6 +338,7 @@ impl NotificationService {
                     warn!("failed to prune invalid FCM tokens: {err}");
                     observability::record_push_error("legacy_invalid_token_prune_failed");
                 }
+                status.is_success()
             }
             Err(err) => {
                 let snippet = &body_text.chars().take(200).collect::<String>();
@@ -195,6 +347,7 @@ impl NotificationService {
                     status, err, snippet
                 );
                 observability::record_push_error("legacy_response_parse_failure");
+                status.is_success()
             }
         }
     }
@@ -204,7 +357,7 @@ impl NotificationService {
         ctx: &FcmV1Context<'_>,
         token: &str,
         message: &NotificationMessage<'_>,
-    ) {
+    ) -> bool {
         let url = format!("{FCM_V1_BASE}/projects/{}/messages:send", ctx.project_id);
         let access = match ctx.provider.token(&[FCM_SCOPE]).await {
             Ok(tok) => tok.as_str().to_string(),
@@ -215,7 +368,7 @@ impl NotificationService {
                     sentry::Level::Error,
                     &format!("fcm v1 auth token error: {err}"),
                 );
-                return;
+                return false;
             }
         };
 
@@ -237,7 +390,7 @@ impl NotificationService {
                     sentry::Level::Error,
                     &format!("failed to send FCM v1 request: {err}"),
                 );
-                return;
+                return false;
             }
         };
 
@@ -270,7 +423,9 @@ impl NotificationService {
             .bind(token)
             .execute(ctx.db)
             .await;
+            return true;
         }
+        status.is_success()
     }
 
     async fn is_throttled(&self, key: &str, ttl_seconds: u64) -> bool {
@@ -456,52 +611,63 @@ pub async fn tokens_by_user_ids(
 }
 
 pub async fn notify_users(
-    service: &NotificationService,
+    _service: &NotificationService,
     db: &Pool<Postgres>,
     user_ids: &[i64],
     request: NotificationRequest<'_>,
 ) {
-    if !service.is_enabled() {
-        return;
-    }
-
     let NotificationRequest {
         title,
         body,
         data,
         dedup_base_key,
-        dedup_ttl,
+        dedup_ttl: _,
     } = request;
-    let message = NotificationMessage { title, body, data };
-    let tokens = match tokens_by_user_ids(db, user_ids).await {
-        Ok(map) => map,
-        Err(err) => {
-            warn!("failed to load device tokens: {err}");
-            observability::record_push_error("device_token_load_failed");
-            return;
-        }
-    };
 
     for user_id in user_ids {
-        if let Some(user_tokens) = tokens.get(user_id) {
-            let dedup_key = dedup_base_key.map(|base| format!("{base}:{user_id}"));
-            service
-                .send_to_tokens(
-                    db,
-                    NotificationTarget {
-                        tokens: user_tokens.clone(),
-                        dedup_key,
-                        dedup_ttl,
-                    },
-                    &NotificationMessage {
-                        title: message.title,
-                        body: message.body,
-                        data: message.data.clone(),
-                    },
-                )
-                .await;
+        let dedup_key = dedup_base_key.map(|base| format!("{base}:{user_id}"));
+        if let Err(error) = sqlx::query(
+            "INSERT INTO notification_outbox (user_id, title, body, data, dedup_key)
+             VALUES ($1, $2, $3, $4, $5)
+             ON CONFLICT (dedup_key) WHERE dedup_key IS NOT NULL DO NOTHING",
+        )
+        .bind(user_id)
+        .bind(title)
+        .bind(body)
+        .bind(&data)
+        .bind(dedup_key)
+        .execute(db)
+        .await
+        {
+            warn!("failed to enqueue push notification: {error}");
+            observability::record_push_error("outbox_enqueue_failure");
         }
     }
+}
+
+pub async fn enqueue_notifications_tx(
+    tx: &mut sqlx::Transaction<'_, Postgres>,
+    user_ids: &[i64],
+    request: NotificationRequest<'_>,
+) -> Result<(), sqlx::Error> {
+    for user_id in user_ids {
+        let dedup_key = request
+            .dedup_base_key
+            .map(|base| format!("{base}:{user_id}"));
+        sqlx::query(
+            "INSERT INTO notification_outbox (user_id, title, body, data, dedup_key)
+             VALUES ($1, $2, $3, $4, $5)
+             ON CONFLICT (dedup_key) WHERE dedup_key IS NOT NULL DO NOTHING",
+        )
+        .bind(user_id)
+        .bind(request.title)
+        .bind(request.body)
+        .bind(&request.data)
+        .bind(dedup_key)
+        .execute(&mut **tx)
+        .await?;
+    }
+    Ok(())
 }
 
 pub async fn event_member_user_ids(

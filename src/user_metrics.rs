@@ -14,6 +14,7 @@ const WINDOWS: [&str; 3] = ["24h", "7d", "30d"];
 const ACTIVE_SOURCES: [&str; 4] = ["oauth_login", "device_seen", "product_activity", "any"];
 const PLATFORMS: [&str; 3] = ["ios", "android", "web"];
 const OAUTH_PROVIDERS: [&str; 2] = ["google", "apple"];
+const OUTBOX_STATUSES: [&str; 5] = ["pending", "processing", "retry", "sent", "dead"];
 
 static USERS_REGISTERED: Lazy<IntGauge> = Lazy::new(|| {
     register_int_gauge!(
@@ -92,6 +93,15 @@ static USER_METRICS_REFRESH_ERRORS_TOTAL: Lazy<IntCounter> = Lazy::new(|| {
     .expect("register fiestaaa_user_metrics_refresh_errors_total")
 });
 
+static NOTIFICATION_OUTBOX_STATUS: Lazy<IntGaugeVec> = Lazy::new(|| {
+    register_int_gauge_vec!(
+        "fiestaaa_notification_outbox",
+        "Push notification outbox rows by delivery status.",
+        &["status"]
+    )
+    .expect("register fiestaaa_notification_outbox")
+});
+
 pub struct UserMetricsService {
     pool: Pool<Postgres>,
     refresh_seconds: u64,
@@ -152,6 +162,7 @@ pub fn force_registered() {
     Lazy::force(&USERS_OAUTH_LINKED);
     Lazy::force(&USER_METRICS_REFRESH_TIMESTAMP_SECONDS);
     Lazy::force(&USER_METRICS_REFRESH_ERRORS_TOTAL);
+    Lazy::force(&NOTIFICATION_OUTBOX_STATUS);
 }
 
 fn initialize_zero_labels() {
@@ -174,6 +185,11 @@ fn initialize_zero_labels() {
     for provider in OAUTH_PROVIDERS {
         USERS_OAUTH_LINKED.with_label_values(&[provider]).set(0);
     }
+    for status in OUTBOX_STATUSES {
+        NOTIFICATION_OUTBOX_STATUS
+            .with_label_values(&[status])
+            .set(0);
+    }
 }
 
 pub async fn refresh_user_metrics(pool: &Pool<Postgres>) -> Result<(), sqlx::Error> {
@@ -189,6 +205,24 @@ pub async fn refresh_user_metrics(pool: &Pool<Postgres>) -> Result<(), sqlx::Err
             .fetch_one(pool)
             .await?;
     PENDING_REGISTRATIONS.set(pending);
+
+    for status in OUTBOX_STATUSES {
+        NOTIFICATION_OUTBOX_STATUS
+            .with_label_values(&[status])
+            .set(0);
+    }
+    let outbox_statuses = sqlx::query_as::<_, (String, i64)>(
+        "SELECT status, COUNT(*)::BIGINT
+         FROM notification_outbox
+         GROUP BY status",
+    )
+    .fetch_all(pool)
+    .await?;
+    for (status, count) in outbox_statuses {
+        NOTIFICATION_OUTBOX_STATUS
+            .with_label_values(&[&status])
+            .set(count);
+    }
 
     let created_windows = sqlx::query_as::<_, (String, i64)>(
         r#"
