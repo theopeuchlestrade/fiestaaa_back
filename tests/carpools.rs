@@ -982,6 +982,132 @@ async fn join_carpool_fails_when_full() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
+#[tokio::test]
+async fn concurrent_join_carpool_allows_only_the_last_available_seat() -> Result<(), Box<dyn Error>>
+{
+    let Some(pool) = obtain_pool().await else {
+        eprintln!("Skipping carpools tests: FIESTAAA_SKIP_DB_TESTS=1");
+        return Ok(());
+    };
+    let _guard = DB_LOCK.lock().await;
+    reset_tables(
+        &pool,
+        &[
+            "events",
+            "users",
+            "carpools",
+            "carpool_passengers",
+            "invitations",
+        ],
+    )
+    .await?;
+
+    let secret = "secret";
+    let driver_email = "driver@example.com";
+    let p1_email = "p1@example.com";
+    let p2_email = "p2@example.com";
+    seed_user(&pool, driver_email).await?;
+    let p1_id = seed_user(&pool, p1_email).await?;
+    let p2_id = seed_user(&pool, p2_email).await?;
+    let event_id = seed_event(&pool, driver_email).await?;
+    accept_invitation(&pool, event_id, p1_id).await?;
+    accept_invitation(&pool, event_id, p2_id).await?;
+
+    let app_a = test::init_service(
+        App::new()
+            .app_data(build_state(pool.clone(), secret, &[]))
+            .configure(routes::configure),
+    )
+    .await;
+    let app_b = test::init_service(
+        App::new()
+            .app_data(build_state(pool.clone(), secret, &[]))
+            .configure(routes::configure),
+    )
+    .await;
+
+    let create_response = test::call_service(
+        &app_a,
+        test::TestRequest::post()
+            .uri(&format!("/events/{event_id}/carpools"))
+            .insert_header((
+                "Authorization",
+                format!(
+                    "Bearer {}",
+                    make_token(secret, driver_email).expect("driver token")
+                ),
+            ))
+            .set_json(&CarpoolPayload {
+                origin: "Paris".to_string(),
+                origin_latitude: None,
+                origin_longitude: None,
+                depart_at: future_departure(),
+                seats_total: 1,
+                notes: None,
+            })
+            .to_request(),
+    )
+    .await;
+    assert_eq!(create_response.status(), StatusCode::CREATED);
+    let carpool: CarpoolView = test::read_body_json(create_response).await;
+
+    let request_a = test::TestRequest::post()
+        .uri(&format!("/carpools/{}/join", carpool.carpool_id))
+        .insert_header((
+            "Authorization",
+            format!(
+                "Bearer {}",
+                make_token(secret, p1_email).expect("passenger token")
+            ),
+        ))
+        .to_request();
+    let request_b = test::TestRequest::post()
+        .uri(&format!("/carpools/{}/join", carpool.carpool_id))
+        .insert_header((
+            "Authorization",
+            format!(
+                "Bearer {}",
+                make_token(secret, p2_email).expect("passenger token")
+            ),
+        ))
+        .to_request();
+
+    let (response_a, response_b) = futures_util::join!(
+        test::call_service(&app_a, request_a),
+        test::call_service(&app_b, request_b)
+    );
+    let statuses = [response_a.status(), response_b.status()];
+    assert_eq!(
+        statuses
+            .iter()
+            .filter(|status| **status == StatusCode::OK)
+            .count(),
+        1
+    );
+    assert_eq!(
+        statuses
+            .iter()
+            .filter(|status| **status == StatusCode::BAD_REQUEST)
+            .count(),
+        1
+    );
+
+    let seats_taken: i32 =
+        sqlx::query_scalar("SELECT seats_taken FROM carpools WHERE carpool_id = $1")
+            .bind(carpool.carpool_id)
+            .fetch_one(&pool)
+            .await?;
+    let passenger_count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM carpool_passengers WHERE carpool_id = $1")
+            .bind(carpool.carpool_id)
+            .fetch_one(&pool)
+            .await?;
+    assert_eq!(seats_taken, 1);
+    assert_eq!(passenger_count, 1);
+
+    Ok(())
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Test: join_carpool_fails_if_driver
 // ─────────────────────────────────────────────────────────────────────────────

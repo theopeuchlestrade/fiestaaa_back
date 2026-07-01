@@ -4,7 +4,10 @@ use log::{info, warn};
 use serde::Deserialize;
 use serde_json::json;
 use sqlx::{AssertSqlSafe, PgPool, Row};
-use std::cmp::Reverse;
+use std::{
+    cmp::Reverse,
+    collections::{HashMap, HashSet},
+};
 
 use crate::{
     auth::extract_active_claims_from_auth,
@@ -142,6 +145,27 @@ fn server_error() -> HttpResponse {
     })
 }
 
+async fn lock_event_user(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    event_id: i64,
+    user_id: i64,
+) -> Result<(), HttpResponse> {
+    let key = format!("carpool:{event_id}:{user_id}");
+    sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))")
+        .bind(key)
+        .execute(&mut **tx)
+        .await
+        .map(|_| ())
+        .map_err(|_| server_error())
+}
+
+fn is_unique_violation(error: &sqlx::Error) -> bool {
+    error
+        .as_database_error()
+        .and_then(|db_error| db_error.code())
+        .is_some_and(|code| code == "23505")
+}
+
 fn carpool_projection(alias: &str) -> String {
     format!(
         "{alias}.carpool_id,
@@ -232,6 +256,24 @@ async fn fetch_carpool_views(
     let mut carpools = carpools;
 
     if let Some(user_id) = user_id {
+        let carpool_ids: Vec<i64> = carpools.iter().map(|carpool| carpool.carpool_id).collect();
+        let passenger_carpool_ids: HashSet<i64> = if carpool_ids.is_empty() {
+            HashSet::new()
+        } else {
+            sqlx::query_scalar::<_, i64>(
+                "SELECT carpool_id
+                 FROM carpool_passengers
+                 WHERE user_id = $1 AND carpool_id = ANY($2)",
+            )
+            .bind(user_id)
+            .bind(&carpool_ids)
+            .fetch_all(db)
+            .await
+            .map_err(|_| server_error())?
+            .into_iter()
+            .collect()
+        };
+
         // First, separate carpools where user is driver or passenger
         let mut user_driver_carpools = Vec::new();
         let mut user_passenger_carpools = Vec::new();
@@ -242,20 +284,7 @@ async fn fetch_carpool_views(
             if carpool.driver_id == user_id {
                 user_driver_carpools.push(carpool);
             } else {
-                // Check if user is passenger (we'll need to query this)
-                let is_passenger = sqlx::query_scalar::<_, bool>(
-                    "SELECT EXISTS(SELECT 1 FROM carpool_passengers WHERE carpool_id = $1 AND user_id = $2)",
-                )
-                .bind(carpool.carpool_id)
-                .bind(user_id)
-                .fetch_one(db)
-                .await
-                .unwrap_or_else(|e| {
-                    warn!("Failed to check if user is passenger: {}", e);
-                    false
-                });
-
-                if is_passenger {
+                if passenger_carpool_ids.contains(&carpool.carpool_id) {
                     user_passenger_carpools.push(carpool);
                 } else {
                     other_carpools.push(carpool);
@@ -279,36 +308,63 @@ async fn fetch_carpool_views(
         apply_sort(&mut carpools, sort_by.as_deref());
     }
 
-    let mut views = Vec::new();
-    for carpool in carpools {
-        let driver = sqlx::query("SELECT u.handle, u.avatar_url FROM users u WHERE u.id = $1")
-            .bind(carpool.driver_id)
-            .fetch_optional(db)
-            .await
-            .map_err(|_| server_error())?;
-
-        let passengers = sqlx::query_as::<_, CarpoolPassenger>(
-            r#"
-            SELECT u.id as user_id, u.handle, u.avatar_url, cp.joined_at
-            FROM carpool_passengers cp
-            JOIN users u ON u.id = cp.user_id
-            WHERE cp.carpool_id = $1
-            ORDER BY cp.joined_at ASC
-            "#,
+    let carpool_ids: Vec<i64> = carpools.iter().map(|carpool| carpool.carpool_id).collect();
+    let driver_ids: Vec<i64> = carpools.iter().map(|carpool| carpool.driver_id).collect();
+    let mut drivers = HashMap::<i64, (String, Option<String>)>::new();
+    if !driver_ids.is_empty() {
+        for row in sqlx::query(
+            "SELECT id, handle, avatar_url
+             FROM users
+             WHERE id = ANY($1)",
         )
-        .bind(carpool.carpool_id)
+        .bind(&driver_ids)
         .fetch_all(db)
         .await
-        .map_err(|_| server_error())?;
+        .map_err(|_| server_error())?
+        {
+            drivers.insert(row.get("id"), (row.get("handle"), row.get("avatar_url")));
+        }
+    }
+
+    let mut passengers_by_carpool = HashMap::<i64, Vec<CarpoolPassenger>>::new();
+    if !carpool_ids.is_empty() {
+        for row in sqlx::query(
+            "SELECT cp.carpool_id, u.id AS user_id, u.handle, u.avatar_url, cp.joined_at
+             FROM carpool_passengers cp
+             JOIN users u ON u.id = cp.user_id
+             WHERE cp.carpool_id = ANY($1)
+             ORDER BY cp.carpool_id, cp.joined_at ASC",
+        )
+        .bind(&carpool_ids)
+        .fetch_all(db)
+        .await
+        .map_err(|_| server_error())?
+        {
+            passengers_by_carpool
+                .entry(row.get("carpool_id"))
+                .or_default()
+                .push(CarpoolPassenger {
+                    user_id: row.get("user_id"),
+                    handle: row.get("handle"),
+                    avatar_url: row.get("avatar_url"),
+                    joined_at: row.get("joined_at"),
+                });
+        }
+    }
+
+    let mut views = Vec::with_capacity(carpools.len());
+    for carpool in carpools {
+        let driver = drivers.get(&carpool.driver_id);
+        let passengers = passengers_by_carpool
+            .remove(&carpool.carpool_id)
+            .unwrap_or_default();
 
         views.push(CarpoolView {
             carpool_id: carpool.carpool_id,
             event_id: carpool.event_id,
             driver_id: carpool.driver_id,
-            driver_handle: driver.as_ref().and_then(|row| row.try_get("handle").ok()),
-            driver_avatar_url: driver
-                .as_ref()
-                .and_then(|row| row.try_get("avatar_url").ok()),
+            driver_handle: driver.map(|(handle, _)| handle.clone()),
+            driver_avatar_url: driver.and_then(|(_, avatar_url)| avatar_url.clone()),
             origin: carpool.origin,
             origin_latitude: carpool.origin_latitude,
             origin_longitude: carpool.origin_longitude,
@@ -442,6 +498,14 @@ pub async fn create_carpool(
         .map(|n| n.trim().to_string())
         .filter(|n| !n.is_empty());
 
+    let mut tx = match state.db.begin().await {
+        Ok(tx) => tx,
+        Err(_) => return server_error(),
+    };
+    if let Err(resp) = lock_event_user(&mut tx, *event_id, user_id).await {
+        return resp;
+    }
+
     let existing_carpool = match sqlx::query_scalar::<_, i64>(
         "SELECT carpool_id FROM carpool_passengers WHERE user_id = $1 AND carpool_id IN (SELECT carpool_id FROM carpools WHERE event_id = $2)
          UNION SELECT carpool_id FROM carpools WHERE driver_id = $1 AND event_id = $2
@@ -449,7 +513,7 @@ pub async fn create_carpool(
     )
     .bind(user_id)
     .bind(*event_id)
-    .fetch_optional(&state.db)
+    .fetch_optional(&mut *tx)
     .await
     {
         Ok(opt) => opt,
@@ -460,6 +524,7 @@ pub async fn create_carpool(
     };
 
     if existing_carpool.is_some() {
+        let _ = tx.rollback().await;
         warn!(
             "User {} is already in a carpool for event {}",
             user_id, *event_id
@@ -470,7 +535,6 @@ pub async fn create_carpool(
         });
     }
 
-    // Insert the carpool into the database
     let carpool_id = match sqlx::query_scalar::<_, i64>(
         r#"
         INSERT INTO carpools (
@@ -506,14 +570,24 @@ pub async fn create_carpool(
     .bind(payload.depart_at)
     .bind(payload.seats_total)
     .bind(&notes)
-    .fetch_one(&state.db)
+    .fetch_one(&mut *tx)
     .await
     {
         Ok(id) => id,
-        Err(_) => {
+        Err(error) => {
+            let _ = tx.rollback().await;
+            if is_unique_violation(&error) {
+                return HttpResponse::BadRequest().json(ErrorResponse {
+                    error: "already_in_carpool".into(),
+                    details: Some("Vous êtes déjà dans un covoiturage pour cet événement".into()),
+                });
+            }
             return server_error();
         }
     };
+    if tx.commit().await.is_err() {
+        return server_error();
+    }
 
     info!(
         "Carpool {} created by user {} for event {}",
@@ -567,9 +641,24 @@ pub async fn update_carpool(
 
     let payload = payload.into_inner();
 
-    let current = match fetch_carpool(&state.db, *carpool_id).await {
-        Ok(c) => c,
-        Err(resp) => return resp,
+    let mut tx = match state.db.begin().await {
+        Ok(tx) => tx,
+        Err(_) => return server_error(),
+    };
+    let sql = select_carpools_sql("FROM carpools c WHERE c.carpool_id = $1 FOR UPDATE");
+    let current = match sqlx::query_as::<_, Carpool>(AssertSqlSafe(sql))
+        .bind(*carpool_id)
+        .fetch_optional(&mut *tx)
+        .await
+    {
+        Ok(Some(carpool)) => carpool,
+        Ok(None) => {
+            return HttpResponse::NotFound().json(ErrorResponse {
+                error: "carpool_not_found".into(),
+                details: None,
+            });
+        }
+        Err(_) => return server_error(),
     };
     if let Err(resp) = ensure_event_writable(&state.db, current.event_id).await {
         return resp;
@@ -637,7 +726,7 @@ pub async fn update_carpool(
     .bind(seats_total)
     .bind(notes)
     .bind(*carpool_id)
-    .execute(&state.db)
+    .execute(&mut *tx)
     .await
     {
         Ok(_) => (),
@@ -645,6 +734,9 @@ pub async fn update_carpool(
             warn!("Failed to update carpool: {}", e);
             return server_error();
         }
+    }
+    if tx.commit().await.is_err() {
+        return server_error();
     }
 
     info!("Carpool {} updated", carpool_id);
@@ -699,32 +791,25 @@ pub async fn delete_carpool(
         return resp;
     }
 
-    // Fetch passengers before deletion to notify them
+    let mut tx = match state.db.begin().await {
+        Ok(tx) => tx,
+        Err(_) => return server_error(),
+    };
+
     let passenger_ids = match sqlx::query_scalar::<_, i64>(
         "SELECT user_id FROM carpool_passengers WHERE carpool_id = $1",
     )
     .bind(*carpool_id)
-    .fetch_all(&state.db)
+    .fetch_all(&mut *tx)
     .await
     {
         Ok(ids) => ids,
         Err(_) => return server_error(),
     };
 
-    // Delete carpool_passengers entries first
-    if let Err(e) = sqlx::query("DELETE FROM carpool_passengers WHERE carpool_id = $1")
-        .bind(*carpool_id)
-        .execute(&state.db)
-        .await
-    {
-        warn!("Failed to delete carpool passengers: {}", e);
-        return server_error();
-    }
-
-    // Delete the carpool itself
     match sqlx::query("DELETE FROM carpools WHERE carpool_id = $1")
         .bind(*carpool_id)
-        .execute(&state.db)
+        .execute(&mut *tx)
         .await
     {
         Ok(_) => (),
@@ -732,6 +817,9 @@ pub async fn delete_carpool(
             warn!("Failed to delete carpool: {}", e);
             return server_error();
         }
+    }
+    if tx.commit().await.is_err() {
+        return server_error();
     }
 
     info!("Carpool {} deleted", carpool_id);
@@ -743,7 +831,6 @@ pub async fn delete_carpool(
     )
     .await;
 
-    // Notify passengers that the carpool was cancelled
     if !passenger_ids.is_empty() && state.notifications.is_enabled() {
         let body = format!(
             "Le covoiturage au départ de {} a été annulé par le conducteur",
@@ -817,6 +904,29 @@ pub async fn join_carpool(
         return resp;
     }
 
+    let mut tx = match state.db.begin().await {
+        Ok(tx) => tx,
+        Err(_) => return server_error(),
+    };
+    if let Err(resp) = lock_event_user(&mut tx, carpool.event_id, user_id).await {
+        return resp;
+    }
+    let sql = select_carpools_sql("FROM carpools c WHERE c.carpool_id = $1 FOR UPDATE");
+    let carpool = match sqlx::query_as::<_, Carpool>(AssertSqlSafe(sql))
+        .bind(*carpool_id)
+        .fetch_optional(&mut *tx)
+        .await
+    {
+        Ok(Some(carpool)) => carpool,
+        Ok(None) => {
+            return HttpResponse::NotFound().json(ErrorResponse {
+                error: "carpool_not_found".into(),
+                details: None,
+            });
+        }
+        Err(_) => return server_error(),
+    };
+
     if carpool.driver_id == user_id {
         return HttpResponse::BadRequest().json(ErrorResponse {
             error: "cannot_join_own_carpool".into(),
@@ -830,7 +940,7 @@ pub async fn join_carpool(
     .bind(user_id)
     .bind(*carpool_id)
     .bind(carpool.event_id)
-    .fetch_one(&state.db)
+    .fetch_one(&mut *tx)
     .await
     {
         Ok(is_driver) => is_driver,
@@ -858,7 +968,7 @@ pub async fn join_carpool(
     .bind(user_id)
     .bind(carpool.event_id)
     .bind(*carpool_id)
-    .fetch_one(&state.db)
+    .fetch_one(&mut *tx)
     .await
     {
         Ok(is_passenger) => is_passenger,
@@ -885,7 +995,7 @@ pub async fn join_carpool(
     )
     .bind(*carpool_id)
     .bind(user_id)
-    .fetch_one(&state.db)
+    .fetch_one(&mut *tx)
     .await
     {
         Ok(joined) => joined,
@@ -899,40 +1009,56 @@ pub async fn join_carpool(
         });
     }
 
-    if carpool.seats_taken >= carpool.seats_total {
-        return HttpResponse::BadRequest().json(ErrorResponse {
-            error: "carpool_full".into(),
-            details: Some("Plus de places disponibles".into()),
-        });
-    }
-
-    match sqlx::query("INSERT INTO carpool_passengers (carpool_id, user_id) VALUES ($1, $2)")
-        .bind(*carpool_id)
-        .bind(user_id)
-        .execute(&state.db)
-        .await
+    let new_seats_taken = match sqlx::query_scalar::<_, i32>(
+        "UPDATE carpools
+         SET seats_taken = seats_taken + 1, updated_at = NOW()
+         WHERE carpool_id = $1 AND seats_taken < seats_total
+         RETURNING seats_taken",
+    )
+    .bind(*carpool_id)
+    .fetch_optional(&mut *tx)
+    .await
     {
-        Ok(_) => (),
+        Ok(Some(value)) => value,
+        Ok(None) => {
+            let _ = tx.rollback().await;
+            return HttpResponse::BadRequest().json(ErrorResponse {
+                error: "carpool_full".into(),
+                details: Some("Plus de places disponibles".into()),
+            });
+        }
         Err(e) => {
-            warn!("Failed to join carpool: {}", e);
+            warn!("Failed to reserve carpool seat: {}", e);
             return server_error();
         }
-    }
+    };
 
-    let new_seats_taken = carpool.seats_taken + 1;
     match sqlx::query(
-        "UPDATE carpools SET seats_taken = $1, updated_at = now() WHERE carpool_id = $2",
+        "INSERT INTO carpool_passengers (carpool_id, event_id, user_id)
+         VALUES ($1, $2, $3)",
     )
-    .bind(new_seats_taken)
     .bind(*carpool_id)
-    .execute(&state.db)
+    .bind(carpool.event_id)
+    .bind(user_id)
+    .execute(&mut *tx)
     .await
     {
         Ok(_) => (),
         Err(e) => {
-            warn!("Failed to update seats_taken: {}", e);
+            let unique_violation = is_unique_violation(&e);
+            let _ = tx.rollback().await;
+            if unique_violation {
+                return HttpResponse::Conflict().json(ErrorResponse {
+                    error: "already_in_carpool".into(),
+                    details: Some("Vous êtes déjà dans un covoiturage pour cet événement".into()),
+                });
+            }
+            warn!("Failed to join carpool: {}", e);
             return server_error();
         }
+    }
+    if tx.commit().await.is_err() {
+        return server_error();
     }
 
     info!("User {} joined carpool {}", user_id, carpool_id);
@@ -944,7 +1070,6 @@ pub async fn join_carpool(
     )
     .await;
 
-    // Notify driver
     if state.notifications.is_enabled() {
         let passenger_handle =
             match sqlx::query_scalar::<_, String>("SELECT handle FROM users WHERE id = $1")
@@ -952,10 +1077,9 @@ pub async fn join_carpool(
                 .fetch_optional(&state.db)
                 .await
             {
-                Ok(Some(h)) => h,
+                Ok(Some(handle)) => handle,
                 _ => "Un utilisateur".to_string(),
             };
-
         let body = format!("{} a rejoint votre covoiturage", passenger_handle);
         let dedup = format!("carpool_join:{}:{}", *carpool_id, user_id);
         notify_users(
@@ -1023,12 +1147,35 @@ pub async fn leave_carpool(
         return resp;
     }
 
+    let mut tx = match state.db.begin().await {
+        Ok(tx) => tx,
+        Err(_) => return server_error(),
+    };
+    if let Err(resp) = lock_event_user(&mut tx, carpool.event_id, user_id).await {
+        return resp;
+    }
+    let sql = select_carpools_sql("FROM carpools c WHERE c.carpool_id = $1 FOR UPDATE");
+    let carpool = match sqlx::query_as::<_, Carpool>(AssertSqlSafe(sql))
+        .bind(*carpool_id)
+        .fetch_optional(&mut *tx)
+        .await
+    {
+        Ok(Some(carpool)) => carpool,
+        Ok(None) => {
+            return HttpResponse::NotFound().json(ErrorResponse {
+                error: "carpool_not_found".into(),
+                details: None,
+            });
+        }
+        Err(_) => return server_error(),
+    };
+
     let was_joined = match sqlx::query(
         "DELETE FROM carpool_passengers WHERE carpool_id = $1 AND user_id = $2 RETURNING user_id",
     )
     .bind(*carpool_id)
     .bind(user_id)
-    .fetch_optional(&state.db)
+    .fetch_optional(&mut *tx)
     .await
     {
         Ok(Some(_)) => true,
@@ -1043,20 +1190,24 @@ pub async fn leave_carpool(
         });
     }
 
-    let new_seats_taken = carpool.seats_taken - 1;
-    match sqlx::query(
-        "UPDATE carpools SET seats_taken = $1, updated_at = now() WHERE carpool_id = $2",
+    let new_seats_taken = match sqlx::query_scalar::<_, i32>(
+        "UPDATE carpools
+         SET seats_taken = GREATEST(seats_taken - 1, 0), updated_at = NOW()
+         WHERE carpool_id = $1
+         RETURNING seats_taken",
     )
-    .bind(new_seats_taken)
     .bind(*carpool_id)
-    .execute(&state.db)
+    .fetch_one(&mut *tx)
     .await
     {
-        Ok(_) => (),
+        Ok(value) => value,
         Err(e) => {
             warn!("Failed to update seats_taken: {}", e);
             return server_error();
         }
+    };
+    if tx.commit().await.is_err() {
+        return server_error();
     }
 
     info!("User {} left carpool {}", user_id, carpool_id);
