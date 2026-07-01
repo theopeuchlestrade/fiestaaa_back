@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-07-01
+
+### Added
+- Added a durable FCM push outbox with recipient-level deduplication, bounded
+  delivery concurrency, retry backoff, terminal failure handling, and delivery
+  metrics.
+- Added timezone-aware event lifecycle fields, owner trash and restore
+  endpoints, automatic archival, and delayed permanent deletion.
+- Added cursor pagination for events, invitations, friends, friend requests,
+  expenses, and carpools.
+
+### Changed
+- Centralized authenticated request identity, active-user validation, and event
+  access checks.
+- Applied keyset pagination defaults of 50 items, with a maximum of 100, and
+  added client adoption metrics.
+- Added an OpenAPI contract snapshot and a CI coverage regression guard.
+- Moved avatar decoding and resizing off the async request executor.
+
+### Fixed
+- Made carpool creation, joining, leaving, seat accounting, and deletion
+  transactional and safe under concurrent requests.
+- Prevented a user from participating in multiple carpools for the same event
+  and replaced carpool N+1 reads with grouped queries.
+- Made event start and effective end instants safe across timezone and daylight
+  saving transitions.
+
+### Dependencies
+- Updated the pinned Rust container image.
+
 ## [0.1.3] - 2026-06-24
 
 ### Dependencies
