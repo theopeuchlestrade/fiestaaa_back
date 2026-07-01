@@ -1,11 +1,6 @@
-use actix_web::{HttpRequest, HttpResponse, Responder, get, web};
-use sqlx::Row;
+use actix_web::{HttpResponse, Responder, get};
 
-use crate::{
-    auth::extract_active_claims_from_auth,
-    models::{ErrorResponse, MeResponse},
-    state::AppState,
-};
+use crate::{auth::AuthenticatedUser, models::MeResponse};
 
 #[utoipa::path(
     get,
@@ -30,45 +25,12 @@ pub async fn hello() -> impl Responder {
     )
 )]
 #[get("/me")]
-pub async fn me(state: web::Data<AppState>, req: HttpRequest) -> impl Responder {
-    match extract_active_claims_from_auth(&req, &state.db, &state.jwt_secret).await {
-        Ok(claims) => {
-            let record = sqlx::query(
-                "SELECT public_id::text AS public_id,
-                        fiestaaa_decrypt_text(email_ciphertext) AS email,
-                        handle,
-                        avatar_url
-                 FROM users
-                 WHERE fiestaaa_email_matches(email_lookup_hash, $1)",
-            )
-            .bind(&claims.sub)
-            .fetch_optional(&state.db)
-            .await;
-
-            match record {
-                Ok(Some(user)) => {
-                    let email: String = user.try_get("email").unwrap_or(claims.sub.clone());
-                    let handle: String = user.try_get("handle").unwrap_or(claims.handle);
-                    let public_id: String = user.try_get("public_id").unwrap_or_default();
-                    let avatar_url: Option<String> = user.try_get("avatar_url").ok();
-                    HttpResponse::Ok().json(MeResponse {
-                        public_id,
-                        email,
-                        handle,
-                        avatar_url,
-                        exp: claims.exp,
-                    })
-                }
-                Ok(None) => HttpResponse::Unauthorized().json(ErrorResponse {
-                    error: "user_not_found".into(),
-                    details: None,
-                }),
-                Err(_) => HttpResponse::InternalServerError().json(ErrorResponse {
-                    error: "db_error".into(),
-                    details: None,
-                }),
-            }
-        }
-        Err(resp) => resp,
-    }
+pub async fn me(user: AuthenticatedUser) -> impl Responder {
+    HttpResponse::Ok().json(MeResponse {
+        public_id: user.public_id.to_string(),
+        email: user.email,
+        handle: user.handle,
+        avatar_url: user.avatar_url,
+        exp: user.exp,
+    })
 }

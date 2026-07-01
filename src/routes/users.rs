@@ -23,6 +23,37 @@ const MAX_AVATAR_DIM: u32 = 512;
 const MAX_SOURCE_AVATAR_DIM: u32 = 4096;
 const MAX_SOURCE_AVATAR_ALLOC_BYTES: u64 = 64 * 1024 * 1024;
 
+enum AvatarProcessError {
+    Invalid,
+    Encode,
+}
+
+fn process_avatar(bytes: Vec<u8>) -> Result<Vec<u8>, AvatarProcessError> {
+    let mut reader = ImageReader::new(std::io::Cursor::new(bytes))
+        .with_guessed_format()
+        .map_err(|_| AvatarProcessError::Invalid)?;
+    let mut limits = Limits::default();
+    limits.max_image_width = Some(MAX_SOURCE_AVATAR_DIM);
+    limits.max_image_height = Some(MAX_SOURCE_AVATAR_DIM);
+    limits.max_alloc = Some(MAX_SOURCE_AVATAR_ALLOC_BYTES);
+    reader.limits(limits);
+
+    let image = reader.decode().map_err(|_| AvatarProcessError::Invalid)?;
+    let resized = image.resize(
+        MAX_AVATAR_DIM,
+        MAX_AVATAR_DIM,
+        image::imageops::FilterType::Triangle,
+    );
+    let mut encoded = Vec::new();
+    resized
+        .write_to(
+            &mut std::io::Cursor::new(&mut encoded),
+            image::ImageFormat::Jpeg,
+        )
+        .map_err(|_| AvatarProcessError::Encode)?;
+    Ok(encoded)
+}
+
 fn avatar_storage_path(
     avatar_upload_dir: &str,
     avatar_base_url: &str,
@@ -250,49 +281,21 @@ pub async fn upload_avatar(
         });
     }
 
-    let mut reader = match ImageReader::new(std::io::Cursor::new(&bytes)).with_guessed_format() {
-        Ok(value) => value,
-        Err(_) => {
-            return HttpResponse::BadRequest().json(ErrorResponse {
-                error: "invalid_image".into(),
-                details: Some("format image non supporté".into()),
-            });
-        }
-    };
-    let mut limits = Limits::default();
-    limits.max_image_width = Some(MAX_SOURCE_AVATAR_DIM);
-    limits.max_image_height = Some(MAX_SOURCE_AVATAR_DIM);
-    limits.max_alloc = Some(MAX_SOURCE_AVATAR_ALLOC_BYTES);
-    reader.limits(limits);
-
-    let img = match reader.decode() {
-        Ok(img) => img,
-        Err(_) => {
+    let encoded = match tokio::task::spawn_blocking(move || process_avatar(bytes)).await {
+        Ok(Ok(encoded)) => encoded,
+        Ok(Err(AvatarProcessError::Invalid)) => {
             return HttpResponse::BadRequest().json(ErrorResponse {
                 error: "invalid_image".into(),
                 details: Some("image trop grande ou format non supporté".into()),
             });
         }
+        Ok(Err(AvatarProcessError::Encode)) | Err(_) => {
+            return HttpResponse::InternalServerError().json(ErrorResponse {
+                error: "encode_error".into(),
+                details: None,
+            });
+        }
     };
-
-    let resized = img.resize(
-        MAX_AVATAR_DIM,
-        MAX_AVATAR_DIM,
-        image::imageops::FilterType::Triangle,
-    );
-    let mut encoded: Vec<u8> = Vec::new();
-    if resized
-        .write_to(
-            &mut std::io::Cursor::new(&mut encoded),
-            image::ImageFormat::Jpeg,
-        )
-        .is_err()
-    {
-        return HttpResponse::InternalServerError().json(ErrorResponse {
-            error: "encode_error".into(),
-            details: None,
-        });
-    }
 
     let filename = format!("{}.jpg", Uuid::new_v4());
     let path = std::path::Path::new(&state.avatar_upload_dir).join(&filename);

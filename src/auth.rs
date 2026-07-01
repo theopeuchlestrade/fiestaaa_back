@@ -1,6 +1,8 @@
 use actix_web::cookie::{Cookie, SameSite, time::Duration};
 use actix_web::http::header::AUTHORIZATION;
-use actix_web::{HttpRequest, HttpResponse};
+use actix_web::{
+    Error, FromRequest, HttpRequest, HttpResponse, dev::Payload, error::InternalError, web,
+};
 use argon2::{
     Argon2,
     password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString, rand_core::OsRng},
@@ -10,12 +12,14 @@ use jsonwebtoken::{
     Algorithm, DecodingKey, EncodingKey, Header, Validation, decode, encode, errors::ErrorKind,
 };
 use sqlx::{Pool, Postgres};
+use std::{future::Future, pin::Pin};
 use uuid::Uuid;
 
 use crate::{
     handles::{looks_like_email, normalize_handle},
     models::{Claims, ErrorResponse},
     security::sha256_hex,
+    state::AppState,
 };
 
 const SESSION_COOKIE_NAME: &str = "fiestaaa_session";
@@ -171,8 +175,22 @@ pub struct UserAuthRow {
 
 #[derive(Debug, Clone, sqlx::FromRow)]
 struct ActiveUserIdentityRow {
+    pub id: i64,
+    pub public_id: Uuid,
     pub email: String,
     pub handle: String,
+    pub avatar_url: Option<String>,
+    pub revoked: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct AuthenticatedUser {
+    pub id: i64,
+    pub public_id: Uuid,
+    pub email: String,
+    pub handle: String,
+    pub avatar_url: Option<String>,
+    pub exp: usize,
 }
 
 pub async fn fetch_user_auth(
@@ -282,25 +300,34 @@ fn extract_token_from_auth_optional(req: &HttpRequest) -> Option<String> {
         })
 }
 
-async fn cleanup_expired_revoked_tokens(db: &Pool<Postgres>) -> sqlx::Result<()> {
-    sqlx::query("DELETE FROM revoked_auth_tokens WHERE expires_at <= NOW()")
+pub async fn cleanup_expired_revoked_tokens(db: &Pool<Postgres>) -> sqlx::Result<u64> {
+    let result = sqlx::query("DELETE FROM revoked_auth_tokens WHERE expires_at <= NOW()")
         .execute(db)
         .await?;
-    Ok(())
+    Ok(result.rows_affected())
 }
 
-async fn find_active_user_by_subject(
+async fn find_active_user_by_subject_and_token(
     db: &Pool<Postgres>,
     subject: &str,
+    token_hash: &str,
 ) -> Result<Option<ActiveUserIdentityRow>, sqlx::Error> {
     let trimmed = subject.trim();
     if looks_like_email(trimmed) {
         return sqlx::query_as::<_, ActiveUserIdentityRow>(
-            "SELECT fiestaaa_decrypt_text(email_ciphertext) AS email, handle
-             FROM users
-             WHERE fiestaaa_email_matches(email_lookup_hash, $1)",
+            "SELECT u.id,
+                    u.public_id,
+                    fiestaaa_decrypt_text(u.email_ciphertext) AS email,
+                    u.handle,
+                    u.avatar_url,
+                    EXISTS(
+                        SELECT 1 FROM revoked_auth_tokens r WHERE r.token_hash = $2
+                    ) AS revoked
+             FROM users u
+             WHERE fiestaaa_email_matches(u.email_lookup_hash, $1)",
         )
         .bind(trimmed)
+        .bind(token_hash)
         .fetch_optional(db)
         .await;
     }
@@ -310,32 +337,20 @@ async fn find_active_user_by_subject(
     };
 
     sqlx::query_as::<_, ActiveUserIdentityRow>(
-        "SELECT fiestaaa_decrypt_text(email_ciphertext) AS email, handle
-         FROM users
-         WHERE public_id = $1",
+        "SELECT u.id,
+                u.public_id,
+                fiestaaa_decrypt_text(u.email_ciphertext) AS email,
+                u.handle,
+                u.avatar_url,
+                EXISTS(
+                    SELECT 1 FROM revoked_auth_tokens r WHERE r.token_hash = $2
+                ) AS revoked
+         FROM users u
+         WHERE u.public_id = $1",
     )
     .bind(public_id)
+    .bind(token_hash)
     .fetch_optional(db)
-    .await
-}
-
-fn normalize_claims_with_user(mut claims: Claims, user: &ActiveUserIdentityRow) -> Claims {
-    claims.sub = user.email.clone();
-    claims.handle = user.handle.clone();
-    claims
-}
-
-async fn is_token_revoked(db: &Pool<Postgres>, token: &str) -> Result<bool, sqlx::Error> {
-    cleanup_expired_revoked_tokens(db).await?;
-    sqlx::query_scalar::<_, bool>(
-        "SELECT EXISTS(
-            SELECT 1
-            FROM revoked_auth_tokens
-            WHERE token_hash = $1
-        )",
-    )
-    .bind(token_hash(token))
-    .fetch_one(db)
     .await
 }
 
@@ -355,13 +370,6 @@ pub async fn revoke_auth_token(
     let Some(expires_at) = expiration_timestamp_to_datetime(claims.exp) else {
         return Ok(());
     };
-
-    cleanup_expired_revoked_tokens(db).await.map_err(|_| {
-        HttpResponse::InternalServerError().json(ErrorResponse {
-            error: "db_error".into(),
-            details: None,
-        })
-    })?;
 
     sqlx::query(
         "INSERT INTO revoked_auth_tokens (token_hash, expires_at)
@@ -403,21 +411,23 @@ pub async fn extract_verified_claims_from_auth(
     db: &Pool<Postgres>,
     secret: &str,
 ) -> Result<Claims, HttpResponse> {
-    let token = extract_token_from_auth(req)?;
-    let revoked = is_token_revoked(db, &token).await.map_err(|_| {
-        HttpResponse::InternalServerError().json(ErrorResponse {
-            error: "db_error".into(),
-            details: None,
+    extract_authenticated_user(req, db, secret)
+        .await
+        .map(|user| Claims {
+            sub: user.email,
+            handle: user.handle,
+            exp: user.exp,
         })
-    })?;
-    if revoked {
-        return Err(HttpResponse::Unauthorized().json(ErrorResponse {
-            error: "revoked_token".into(),
-            details: None,
-        }));
-    }
+}
+
+pub async fn extract_authenticated_user(
+    req: &HttpRequest,
+    db: &Pool<Postgres>,
+    secret: &str,
+) -> Result<AuthenticatedUser, HttpResponse> {
+    let token = extract_token_from_auth(req)?;
     let claims = decode_jwt(&token, secret)?;
-    let Some(user) = find_active_user_by_subject(db, &claims.sub)
+    let Some(user) = find_active_user_by_subject_and_token(db, &claims.sub, &token_hash(&token))
         .await
         .map_err(|_| {
             HttpResponse::InternalServerError().json(ErrorResponse {
@@ -431,7 +441,20 @@ pub async fn extract_verified_claims_from_auth(
             details: None,
         }));
     };
-    Ok(normalize_claims_with_user(claims, &user))
+    if user.revoked {
+        return Err(HttpResponse::Unauthorized().json(ErrorResponse {
+            error: "revoked_token".into(),
+            details: None,
+        }));
+    }
+    Ok(AuthenticatedUser {
+        id: user.id,
+        public_id: user.public_id,
+        email: user.email,
+        handle: user.handle,
+        avatar_url: user.avatar_url,
+        exp: claims.exp,
+    })
 }
 
 pub async fn extract_active_claims_from_auth(
@@ -440,6 +463,26 @@ pub async fn extract_active_claims_from_auth(
     secret: &str,
 ) -> Result<Claims, HttpResponse> {
     extract_verified_claims_from_auth(req, db, secret).await
+}
+
+impl FromRequest for AuthenticatedUser {
+    type Error = Error;
+    type Future = Pin<Box<dyn Future<Output = Result<Self, Self::Error>>>>;
+
+    fn from_request(req: &HttpRequest, _payload: &mut Payload) -> Self::Future {
+        let req = req.clone();
+        let state = req.app_data::<web::Data<AppState>>().cloned();
+        Box::pin(async move {
+            let Some(state) = state else {
+                return Err(actix_web::error::ErrorInternalServerError(
+                    "application state unavailable",
+                ));
+            };
+            extract_authenticated_user(&req, &state.db, &state.jwt_secret)
+                .await
+                .map_err(|response| InternalError::from_response("", response).into())
+        })
+    }
 }
 
 #[cfg(test)]
