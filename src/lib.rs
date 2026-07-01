@@ -8,6 +8,7 @@ pub mod handles;
 pub mod models;
 pub mod notifications;
 pub mod observability;
+pub mod pagination;
 pub mod rate_limit;
 pub mod realtime;
 pub mod repositories;

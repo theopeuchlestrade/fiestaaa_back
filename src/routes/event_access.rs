@@ -1,5 +1,5 @@
 use actix_web::HttpResponse;
-use chrono::{NaiveDateTime, Utc};
+use chrono::Utc;
 use serde::Serialize;
 use sqlx::PgPool;
 
@@ -17,32 +17,11 @@ pub enum EventLifecycleStatus {
     Finished,
 }
 
-impl EventTiming {
-    pub fn start_at(&self) -> NaiveDateTime {
-        self.date_event.and_time(self.start_time)
-    }
-
-    pub fn end_at(&self) -> Option<NaiveDateTime> {
-        self.end_date
-            .zip(self.end_time)
-            .map(|(date, time)| date.and_time(time))
-    }
-}
-
 pub fn status_from_timing(timing: &EventTiming) -> EventLifecycleStatus {
-    let now = Utc::now().naive_utc();
-    let start_at = timing.start_at();
-    if let Some(end_at) = timing.end_at() {
-        if now < start_at {
-            EventLifecycleStatus::Upcoming
-        } else if now <= end_at {
-            EventLifecycleStatus::Ongoing
-        } else {
-            EventLifecycleStatus::Finished
-        }
-    } else if now < start_at {
+    let now = Utc::now();
+    if now < timing.starts_at {
         EventLifecycleStatus::Upcoming
-    } else if now.date() == timing.date_event {
+    } else if now <= timing.effective_ends_at {
         EventLifecycleStatus::Ongoing
     } else {
         EventLifecycleStatus::Finished
