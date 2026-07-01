@@ -15,8 +15,7 @@ use crate::{
         Carpool, CarpoolJoinResponse, CarpoolLeaveResponse, CarpoolPassenger, CarpoolPatchPayload,
         CarpoolPayload, CarpoolView, ErrorResponse, StatusResponse,
     },
-    notifications::{NotificationRequest, enqueue_notifications_tx, notify_users},
-    pagination::{PageRequest, PaginationQuery, json_page, page_request},
+    notifications::{NotificationRequest, notify_users},
     realtime::publish_event,
     routes::event_access::ensure_event_writable,
     state::AppState,
@@ -211,27 +210,18 @@ async fn fetch_carpool_views(
     event_id: i64,
     user_id: Option<i64>,
     sort_by: Option<String>,
-    page: Option<PageRequest>,
 ) -> Result<Vec<CarpoolView>, HttpResponse> {
-    let suffix = if page.is_some() {
-        "FROM carpools c
-         WHERE c.event_id = $1 AND c.carpool_id > $2
-         ORDER BY c.carpool_id
-         LIMIT $3"
-    } else {
-        "FROM carpools c WHERE c.event_id = $1"
-    };
-    let sql = select_carpools_sql(suffix);
-    let mut statement = sqlx::query_as::<_, Carpool>(AssertSqlSafe(sql)).bind(event_id);
-    if let Some(page) = page {
-        statement = statement.bind(page.after_id.unwrap_or(0)).bind(page.limit);
-    }
-    let carpools = statement.fetch_all(db).await.map_err(|_| {
-        HttpResponse::InternalServerError().json(ErrorResponse {
-            error: "db_error".into(),
-            details: None,
-        })
-    })?;
+    let sql = select_carpools_sql("FROM carpools c WHERE c.event_id = $1");
+    let carpools = sqlx::query_as::<_, Carpool>(AssertSqlSafe(sql))
+        .bind(event_id)
+        .fetch_all(db)
+        .await
+        .map_err(|_| {
+            HttpResponse::InternalServerError().json(ErrorResponse {
+                error: "db_error".into(),
+                details: None,
+            })
+        })?;
 
     // Helper function to apply sorting to a list of carpools
     fn apply_sort(list: &mut [Carpool], sort_by: Option<&str>) {
@@ -400,9 +390,7 @@ async fn fetch_carpool_views(
     tag = "carpools",
     params(
         ("event_id" = i64, Path, description = "Event identifier"),
-        ("sort" = Option<String>, Query, description = "Sort criterion: departure_asc, departure_desc, seats_asc, seats_desc, available_seats_asc, available_seats_desc"),
-        ("limit" = Option<i64>, Query, description = "Page size (max 100)"),
-        ("cursor" = Option<String>, Query, description = "Cursor returned in X-Next-Cursor")
+        ("sort" = Option<String>, Query, description = "Sort criterion: departure_asc, departure_desc, seats_asc, seats_desc, available_seats_asc, available_seats_desc")
     ),
     responses(
         (status = 200, description = "Carpool list", body = Vec<CarpoolView>),
@@ -429,26 +417,8 @@ pub async fn list_event_carpools(
         Err(_) => None,
     };
 
-    let pagination = match page_request(&PaginationQuery {
-        limit: query.limit,
-        cursor: query.cursor.clone(),
-    }) {
-        Ok(value) => value,
-        Err(response) => return response,
-    };
-    match fetch_carpool_views(
-        &state.db,
-        *event_id,
-        user_id,
-        query.sort.clone(),
-        pagination,
-    )
-    .await
-    {
-        Ok(carpools) => match pagination {
-            Some(page) => json_page(carpools, page.limit, |item| item.carpool_id.to_string()),
-            None => HttpResponse::Ok().json(carpools),
-        },
+    match fetch_carpool_views(&state.db, *event_id, user_id, query.sort.clone()).await {
+        Ok(carpools) => HttpResponse::Ok().json(carpools),
         Err(resp) => resp,
     }
 }
@@ -457,8 +427,6 @@ pub async fn list_event_carpools(
 pub struct CarpoolListQuery {
     #[serde(default)]
     pub sort: Option<String>,
-    pub limit: Option<i64>,
-    pub cursor: Option<String>,
 }
 
 #[utoipa::path(
@@ -636,7 +604,7 @@ pub async fn create_carpool(
     )
     .await;
 
-    match fetch_carpool_views(&state.db, *event_id, None, None, None).await {
+    match fetch_carpool_views(&state.db, *event_id, None, None).await {
         Ok(views) => {
             let view = views.iter().find(|v| v.carpool_id == carpool_id);
             match view {
@@ -783,7 +751,7 @@ pub async fn update_carpool(
     )
     .await;
 
-    match fetch_carpool_views(&state.db, current.event_id, None, None, None).await {
+    match fetch_carpool_views(&state.db, current.event_id, None, None).await {
         Ok(views) => {
             let view = views.iter().find(|v| v.carpool_id == *carpool_id);
             match view {
@@ -853,14 +821,28 @@ pub async fn delete_carpool(
             return server_error();
         }
     }
-    if !passenger_ids.is_empty() {
+    if tx.commit().await.is_err() {
+        return server_error();
+    }
+
+    info!("Carpool {} deleted", carpool_id);
+
+    publish_event(
+        &state.redis_client,
+        current.event_id,
+        &json!({"type": "carpool_deleted", "carpool_id": *carpool_id}),
+    )
+    .await;
+
+    if !passenger_ids.is_empty() && state.notifications.is_enabled() {
         let body = format!(
             "Le covoiturage au départ de {} a été annulé par le conducteur",
             current.origin
         );
         let dedup = format!("carpool_cancelled:{}", *carpool_id);
-        if enqueue_notifications_tx(
-            &mut tx,
+        notify_users(
+            &state.notifications,
+            &state.db,
             &passenger_ids,
             NotificationRequest {
                 title: "Covoiturage annulé",
@@ -874,24 +856,8 @@ pub async fn delete_carpool(
                 dedup_ttl: Some(300),
             },
         )
-        .await
-        .is_err()
-        {
-            return server_error();
-        }
+        .await;
     }
-    if tx.commit().await.is_err() {
-        return server_error();
-    }
-
-    info!("Carpool {} deleted", carpool_id);
-
-    publish_event(
-        &state.redis_client,
-        current.event_id,
-        &json!({"type": "carpool_deleted", "carpool_id": *carpool_id}),
-    )
-    .await;
 
     HttpResponse::Ok().json(StatusResponse {
         status: "deleted".into(),
@@ -1094,38 +1060,6 @@ pub async fn join_carpool(
             return server_error();
         }
     }
-    let passenger_handle =
-        match sqlx::query_scalar::<_, String>("SELECT handle FROM users WHERE id = $1")
-            .bind(user_id)
-            .fetch_optional(&mut *tx)
-            .await
-        {
-            Ok(Some(handle)) => handle,
-            Ok(None) => "Un utilisateur".to_string(),
-            Err(_) => return server_error(),
-        };
-    let body = format!("{} a rejoint votre covoiturage", passenger_handle);
-    let dedup = format!("carpool_join:{}:{}", *carpool_id, user_id);
-    if enqueue_notifications_tx(
-        &mut tx,
-        &[carpool.driver_id],
-        NotificationRequest {
-            title: "Nouveau passager",
-            body: body.as_str(),
-            data: json!({
-                "type": "carpool_joined",
-                "event_id": carpool.event_id,
-                "carpool_id": *carpool_id
-            }),
-            dedup_base_key: Some(dedup.as_str()),
-            dedup_ttl: Some(300),
-        },
-    )
-    .await
-    .is_err()
-    {
-        return server_error();
-    }
     if tx.commit().await.is_err() {
         return server_error();
     }
@@ -1138,6 +1072,37 @@ pub async fn join_carpool(
         &json!({"type": "carpool_joined", "carpool_id": *carpool_id, "user_id": user_id}),
     )
     .await;
+
+    if state.notifications.is_enabled() {
+        let passenger_handle =
+            match sqlx::query_scalar::<_, String>("SELECT handle FROM users WHERE id = $1")
+                .bind(user_id)
+                .fetch_optional(&state.db)
+                .await
+            {
+                Ok(Some(handle)) => handle,
+                _ => "Un utilisateur".to_string(),
+            };
+        let body = format!("{} a rejoint votre covoiturage", passenger_handle);
+        let dedup = format!("carpool_join:{}:{}", *carpool_id, user_id);
+        notify_users(
+            &state.notifications,
+            &state.db,
+            &[carpool.driver_id],
+            NotificationRequest {
+                title: "Nouveau passager",
+                body: body.as_str(),
+                data: json!({
+                    "type": "carpool_joined",
+                    "event_id": carpool.event_id,
+                    "carpool_id": *carpool_id
+                }),
+                dedup_base_key: Some(dedup.as_str()),
+                dedup_ttl: Some(300),
+            },
+        )
+        .await;
+    }
 
     HttpResponse::Ok().json(CarpoolJoinResponse {
         success: true,
