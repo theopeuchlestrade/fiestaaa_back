@@ -14,7 +14,8 @@ use super::*;
         (status = 404, description = "Event not found", body = ErrorResponse)
     ),
     params(
-        ("event_id" = i64, Path, description = "Event identifier")
+        ("event_id" = i64, Path, description = "Event identifier"),
+        PaginationQuery
     )
 )]
 #[get("/events/{event_id}/expenses")]
@@ -22,13 +23,21 @@ pub async fn list_event_expenses(
     state: web::Data<AppState>,
     req: HttpRequest,
     event_id: web::Path<i64>,
+    query: web::Query<PaginationQuery>,
 ) -> impl Responder {
     if let Err(resp) = ensure_event_member(&req, state.get_ref(), *event_id).await {
         return resp;
     }
 
-    match fetch_event_expenses(&state.db, *event_id).await {
-        Ok(expenses) => HttpResponse::Ok().json(expenses),
+    let pagination = match page_request(&query) {
+        Ok(value) => value,
+        Err(response) => return response,
+    };
+    match fetch_event_expenses(&state.db, *event_id, pagination).await {
+        Ok(expenses) => match pagination {
+            Some(page) => json_page(expenses, page.limit, |item| item.expense_id.to_string()),
+            None => HttpResponse::Ok().json(expenses),
+        },
         Err(resp) => resp,
     }
 }
@@ -375,17 +384,34 @@ async fn fetch_event_expense_view(
 async fn fetch_event_expenses(
     db: &PgPool,
     event_id: i64,
+    page: Option<crate::pagination::PageRequest>,
 ) -> Result<Vec<EventExpenseView>, HttpResponse> {
-    let expense_ids = sqlx::query_scalar::<_, i64>(
-        "SELECT expense_id
+    let expense_ids = if let Some(page) = page {
+        sqlx::query_scalar::<_, i64>(
+            "SELECT expense_id
+             FROM event_expenses
+             WHERE event_id = $1 AND ($2::BIGINT IS NULL OR expense_id < $2)
+             ORDER BY expense_id DESC
+             LIMIT $3",
+        )
+        .bind(event_id)
+        .bind(page.after_id)
+        .bind(page.limit)
+        .fetch_all(db)
+        .await
+        .map_err(|_| server_error())?
+    } else {
+        sqlx::query_scalar::<_, i64>(
+            "SELECT expense_id
          FROM event_expenses
          WHERE event_id = $1
          ORDER BY expense_date DESC, expense_id DESC",
-    )
-    .bind(event_id)
-    .fetch_all(db)
-    .await
-    .map_err(|_| server_error())?;
+        )
+        .bind(event_id)
+        .fetch_all(db)
+        .await
+        .map_err(|_| server_error())?
+    };
 
     fetch_event_expenses_by_ids(db, &expense_ids).await
 }
@@ -474,7 +500,7 @@ async fn build_event_expenses_summary(
 ) -> Result<EventExpensesSummaryView, HttpResponse> {
     let _ = fetch_event_timing(db, event_id).await?;
     let members = fetch_event_member_directory(db, event_id).await?;
-    let expenses = fetch_event_expenses(db, event_id).await?;
+    let expenses = fetch_event_expenses(db, event_id, None).await?;
 
     let mut balances_by_user: HashMap<i64, (i64, i64)> = members
         .keys()
