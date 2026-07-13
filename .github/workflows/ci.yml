@@ -151,6 +151,18 @@ jobs:
           mkdir -p coverage
           cargo llvm-cov --locked --all-targets --lcov --output-path coverage/lcov.info -- --test-threads=1
 
+      - name: Enforce 58% line coverage
+        run: |
+          awk -F: '
+            /^LF:/ { total += $2 }
+            /^LH:/ { hit += $2 }
+            END {
+              coverage = total == 0 ? 0 : (100 * hit / total)
+              printf "Rust line coverage: %.2f%% (%d/%d)\n", coverage, hit, total
+              if (coverage < 58) exit 1
+            }
+          ' coverage/lcov.info
+
       - name: Upload coverage report
         if: always()
         uses: actions/upload-artifact@v7

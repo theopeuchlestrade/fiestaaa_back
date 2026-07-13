@@ -158,6 +158,7 @@ TEST_DATABASE_URL=postgres://postgres:postgres@127.0.0.1:5433/fiestaaa_test \
 ```
 
 CI uploads the generated `coverage/lcov.info` report as a workflow artifact.
+It also enforces a 58% line-coverage floor to prevent unintentional regressions.
 
 ### OpenAPI Documentation
 
