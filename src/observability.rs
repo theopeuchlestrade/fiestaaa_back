@@ -11,6 +11,37 @@ use std::rc::Rc;
 use std::task::{Context, Poll};
 use std::time::Instant;
 
+const UNKNOWN_CLIENT_VERSION: &str = "unknown";
+const INVALID_CLIENT_VERSION: &str = "invalid";
+const OTHER_FLUTTER_CLIENT_VERSION: &str = "flutter/other";
+
+fn client_version_bucket(raw: Option<&str>) -> &'static str {
+    let Some(raw) = raw.map(str::trim).filter(|value| !value.is_empty()) else {
+        return UNKNOWN_CLIENT_VERSION;
+    };
+    let Some(version) = raw.strip_prefix("flutter/") else {
+        return INVALID_CLIENT_VERSION;
+    };
+    let mut parts = version.split('.');
+    let (Some(major), Some(minor), Some(patch), None) =
+        (parts.next(), parts.next(), parts.next(), parts.next())
+    else {
+        return INVALID_CLIENT_VERSION;
+    };
+    if [major, minor, patch]
+        .iter()
+        .any(|part| part.is_empty() || !part.bytes().all(|byte| byte.is_ascii_digit()))
+    {
+        return INVALID_CLIENT_VERSION;
+    }
+
+    match (major, minor) {
+        ("0", "1") => "flutter/0.1.x",
+        ("0", "2") => "flutter/0.2.x",
+        _ => OTHER_FLUTTER_CLIENT_VERSION,
+    }
+}
+
 static HTTP_REQUESTS_TOTAL: Lazy<IntCounterVec> = Lazy::new(|| {
     register_int_counter_vec!(
         "fiestaaa_http_requests_total",
@@ -130,12 +161,11 @@ where
         } else {
             "legacy"
         };
-        let client_version = req
-            .headers()
-            .get("x-fiestaaa-client-version")
-            .and_then(|value| value.to_str().ok())
-            .unwrap_or("unknown")
-            .to_owned();
+        let client_version = client_version_bucket(
+            req.headers()
+                .get("x-fiestaaa-client-version")
+                .and_then(|value| value.to_str().ok()),
+        );
 
         Box::pin(async move {
             let res = service.call(req).await?;
@@ -155,7 +185,7 @@ where
                 .observe(elapsed);
             if method == "GET" {
                 API_LIST_CLIENTS_TOTAL
-                    .with_label_values(&[pagination_mode, &client_version])
+                    .with_label_values(&[pagination_mode, client_version])
                     .inc();
             }
 
@@ -223,7 +253,7 @@ pub fn capture_message(level: sentry::Level, message: &str) {
 
 #[cfg(test)]
 mod tests {
-    use super::{metrics_authorized, record_auth_error, render_prometheus};
+    use super::{client_version_bucket, metrics_authorized, record_auth_error, render_prometheus};
     use actix_web::test::TestRequest;
 
     #[test]
@@ -235,6 +265,25 @@ mod tests {
         assert!(metrics_authorized(&req, Some("secret")));
         assert!(!metrics_authorized(&req, Some("other")));
         assert!(!metrics_authorized(&req, None));
+    }
+
+    #[test]
+    fn client_versions_are_reduced_to_bounded_buckets() {
+        assert_eq!(
+            client_version_bucket(Some("flutter/0.2.0")),
+            "flutter/0.2.x"
+        );
+        assert_eq!(
+            client_version_bucket(Some("flutter/0.2.99")),
+            "flutter/0.2.x"
+        );
+        assert_eq!(
+            client_version_bucket(Some("flutter/12.4.1")),
+            "flutter/other"
+        );
+        assert_eq!(client_version_bucket(Some("custom/1.0.0")), "invalid");
+        assert_eq!(client_version_bucket(Some("flutter/not-semver")), "invalid");
+        assert_eq!(client_version_bucket(None), "unknown");
     }
 
     #[test]
