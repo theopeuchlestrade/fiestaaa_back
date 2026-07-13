@@ -18,7 +18,7 @@ pub async fn fetch_event_timing(db: &PgPool, event_id: i64) -> ApiResult<EventTi
     .bind(event_id)
     .fetch_optional(db)
     .await
-    .map_err(|_| ApiError::database())?;
+    .map_err(|error| ApiError::database_with_source(&error))?;
 
     row.map(|(starts_at, effective_ends_at)| EventTiming {
         starts_at,
@@ -34,7 +34,7 @@ pub async fn fetch_event_owner_id(db: &PgPool, event_id: i64) -> ApiResult<i64> 
     .bind(event_id)
     .fetch_optional(db)
     .await
-    .map_err(|_| ApiError::database())?
+    .map_err(|error| ApiError::database_with_source(&error))?
     .ok_or_else(|| ApiError::not_found("event_not_found"))
 }
 
@@ -45,7 +45,7 @@ pub async fn fetch_user_id_by_email(db: &PgPool, email: &str) -> ApiResult<Optio
     .bind(email)
     .fetch_optional(db)
     .await
-    .map_err(|_| ApiError::database())
+    .map_err(|error| ApiError::database_with_source(&error))
 }
 
 pub async fn is_accepted_event_member(db: &PgPool, event_id: i64, email: &str) -> ApiResult<bool> {
@@ -64,5 +64,5 @@ pub async fn is_accepted_event_member(db: &PgPool, event_id: i64, email: &str) -
     .bind(email)
     .fetch_one(db)
     .await
-    .map_err(|_| ApiError::database())
+    .map_err(|error| ApiError::database_with_source(&error))
 }

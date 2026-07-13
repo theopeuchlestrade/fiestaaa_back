@@ -185,7 +185,9 @@ async fn fetch_request_view(db: &PgPool, id: i64) -> Result<FriendRequest, HttpR
     .map_err(|_| db_error())
 }
 
+#[track_caller]
 fn db_error() -> HttpResponse {
+    crate::observability::capture_internal_failure("friend database operation failed");
     HttpResponse::InternalServerError().json(ErrorResponse {
         error: "db_error".into(),
         details: None,

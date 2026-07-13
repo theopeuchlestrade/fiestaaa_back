@@ -959,7 +959,9 @@ async fn fetch_user_id(db: &PgPool, email: &str) -> Result<i64, HttpResponse> {
     }
 }
 
+#[track_caller]
 fn server_error() -> HttpResponse {
+    crate::observability::capture_internal_failure("event database operation failed");
     HttpResponse::InternalServerError().json(ErrorResponse {
         error: "db_error".into(),
         details: None,

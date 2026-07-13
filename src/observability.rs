@@ -1,5 +1,6 @@
 use actix_web::body::MessageBody;
 use actix_web::dev::{Service, ServiceRequest, ServiceResponse, Transform};
+use actix_web::http::header::{HeaderName, HeaderValue};
 use actix_web::{Error, HttpRequest};
 use futures_util::future::{LocalBoxFuture, Ready, ready};
 use once_cell::sync::Lazy;
@@ -10,6 +11,9 @@ use prometheus::{
 use std::rc::Rc;
 use std::task::{Context, Poll};
 use std::time::Instant;
+use uuid::Uuid;
+
+const REQUEST_ID_HEADER: HeaderName = HeaderName::from_static("x-request-id");
 
 const UNKNOWN_CLIENT_VERSION: &str = "unknown";
 const INVALID_CLIENT_VERSION: &str = "invalid";
@@ -149,9 +153,14 @@ where
         self.service.poll_ready(ctx)
     }
 
-    fn call(&self, req: ServiceRequest) -> Self::Future {
+    fn call(&self, mut req: ServiceRequest) -> Self::Future {
         let service = Rc::clone(&self.service);
         let start = Instant::now();
+        let request_id = Uuid::new_v4().to_string();
+        req.headers_mut().insert(
+            REQUEST_ID_HEADER,
+            HeaderValue::from_str(&request_id).expect("UUID is a valid header value"),
+        );
         let pagination_mode = if req
             .query_string()
             .split('&')
@@ -168,7 +177,7 @@ where
         );
 
         Box::pin(async move {
-            let res = service.call(req).await?;
+            let mut res = service.call(req).await?;
             let method = res.request().method().as_str().to_owned();
             let route = res
                 .request()
@@ -192,9 +201,17 @@ where
             if res.status().is_server_error() {
                 capture_message(
                     sentry::Level::Error,
-                    &format!("HTTP {} {} returned {}", method, route, status),
+                    &format!(
+                        "HTTP {} {} returned {} (request_id={})",
+                        method, route, status, request_id
+                    ),
                 );
             }
+
+            res.headers_mut().insert(
+                REQUEST_ID_HEADER,
+                HeaderValue::from_str(&request_id).expect("UUID is a valid header value"),
+            );
 
             Ok(res)
         })
@@ -251,20 +268,61 @@ pub fn capture_message(level: sentry::Level, message: &str) {
     sentry::capture_message(message, level);
 }
 
+pub fn capture_internal_error(context: &str, error: &dyn std::fmt::Display) {
+    let message = format!("{context}: {error}");
+    log::error!("{message}");
+    capture_message(sentry::Level::Error, &message);
+}
+
+#[track_caller]
+pub fn capture_internal_failure(context: &str) {
+    let caller = std::panic::Location::caller();
+    let message = format!(
+        "{context} at {}:{}:{}",
+        caller.file(),
+        caller.line(),
+        caller.column()
+    );
+    log::error!("{message}");
+    capture_message(sentry::Level::Error, &message);
+}
+
 #[cfg(test)]
 mod tests {
     use super::{client_version_bucket, metrics_authorized, record_auth_error, render_prometheus};
-    use actix_web::test::TestRequest;
+    use actix_web::{App, HttpResponse, test as actix_test, web};
+    use uuid::Uuid;
 
     #[test]
     fn metrics_require_configured_bearer_token() {
-        let req = TestRequest::default()
+        let req = actix_test::TestRequest::default()
             .insert_header(("Authorization", "Bearer secret"))
             .to_http_request();
 
         assert!(metrics_authorized(&req, Some("secret")));
         assert!(!metrics_authorized(&req, Some("other")));
         assert!(!metrics_authorized(&req, None));
+    }
+
+    #[actix_web::test]
+    async fn middleware_adds_a_request_id_to_responses() {
+        let app = actix_test::init_service(App::new().wrap(super::MetricsMiddleware).route(
+            "/test",
+            web::get().to(|| async { HttpResponse::NoContent().finish() }),
+        ))
+        .await;
+        let response = actix_test::call_service(
+            &app,
+            actix_test::TestRequest::get().uri("/test").to_request(),
+        )
+        .await;
+
+        let request_id = response
+            .headers()
+            .get("x-request-id")
+            .and_then(|value| value.to_str().ok())
+            .expect("request ID response header");
+        assert!(Uuid::parse_str(request_id).is_ok());
     }
 
     #[test]
