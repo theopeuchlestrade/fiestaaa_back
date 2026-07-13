@@ -77,14 +77,32 @@ where
         .map_err(|_| ConfigValidationError(format!("{name} a une valeur invalide: {value}")))
 }
 
-fn read_positive_u32_env(name: &str, default: u32) -> Result<u32, ConfigValidationError> {
-    let value = read_parsed_env(name, default)?;
-    if value == 0 {
+fn require_positive<T>(name: &str, value: T) -> Result<T, ConfigValidationError>
+where
+    T: Copy + Default + PartialOrd,
+{
+    if value <= T::default() {
         return Err(ConfigValidationError(format!(
             "{name} doit être strictement positif"
         )));
     }
     Ok(value)
+}
+
+fn read_positive_u32_env(name: &str, default: u32) -> Result<u32, ConfigValidationError> {
+    require_positive(name, read_parsed_env(name, default)?)
+}
+
+fn read_positive_u64_env(name: &str, default: u64) -> Result<u64, ConfigValidationError> {
+    require_positive(name, read_parsed_env(name, default)?)
+}
+
+fn read_positive_usize_env(name: &str, default: usize) -> Result<usize, ConfigValidationError> {
+    require_positive(name, read_parsed_env(name, default)?)
+}
+
+fn read_positive_i64_env(name: &str, default: i64) -> Result<i64, ConfigValidationError> {
+    require_positive(name, read_parsed_env(name, default)?)
 }
 
 fn read_unit_f32_env(name: &str, default: f32) -> Result<f32, ConfigValidationError> {
@@ -166,7 +184,6 @@ pub struct AppConfig {
     pub avatar_base_url: String,
     pub redis_url: Option<String>,
     pub fcm_server_key: Option<String>,
-    pub fcm_vapid_key: Option<String>,
     pub notification_dedup_ttl_seconds: u64,
     pub fcm_service_account_path: Option<String>,
     pub fcm_project_id: Option<String>,
@@ -179,6 +196,7 @@ pub struct AppConfig {
     pub apple_app_id: Option<String>,
     pub apple_service_id: Option<String>,
     pub cors_allowed_origins: Vec<String>,
+    pub enforce_pagination_defaults: bool,
     pub auth_rate_limit_max_attempts: usize,
     pub auth_rate_limit_window_seconds: u64,
     pub invitation_rate_limit_max_attempts: usize,
@@ -244,20 +262,18 @@ impl AppConfig {
         let fcm_server_key = std::env::var("FCM_SERVER_KEY")
             .ok()
             .filter(|v| !v.trim().is_empty());
-        let fcm_vapid_key = std::env::var("FIESTAAA_FCM_VAPID_KEY")
-            .ok()
-            .filter(|v| !v.trim().is_empty());
         let notification_dedup_ttl_seconds =
-            read_parsed_env("NOTIFICATION_DEDUP_TTL_SECONDS", 300)?;
+            read_positive_u64_env("NOTIFICATION_DEDUP_TTL_SECONDS", 300)?;
         let fcm_service_account_path = std::env::var("FCM_SERVICE_ACCOUNT_PATH")
             .ok()
             .filter(|v| !v.trim().is_empty());
         let fcm_project_id = std::env::var("FCM_PROJECT_ID")
             .ok()
             .filter(|v| !v.trim().is_empty());
-        let event_cleanup_days = read_parsed_env("EVENT_CLEANUP_DAYS", 7)?;
-        let event_purge_days = read_parsed_env("EVENT_PURGE_DAYS", 30)?;
-        let event_cleanup_interval_hours = read_parsed_env("EVENT_CLEANUP_INTERVAL_HOURS", 1)?;
+        let event_cleanup_days = read_positive_i64_env("EVENT_CLEANUP_DAYS", 7)?;
+        let event_purge_days = read_positive_i64_env("EVENT_PURGE_DAYS", 30)?;
+        let event_cleanup_interval_hours =
+            read_positive_u64_env("EVENT_CLEANUP_INTERVAL_HOURS", 1)?;
         let google_client_id = std::env::var("FIESTAAA_GOOGLE_WEB_CLIENT_ID")
             .ok()
             .filter(|v| !v.trim().is_empty());
@@ -279,17 +295,21 @@ impl AppConfig {
             &app_base_url,
             is_production,
         )?;
-        let auth_rate_limit_max_attempts = read_parsed_env("AUTH_RATE_LIMIT_MAX_ATTEMPTS", 20)?;
-        let auth_rate_limit_window_seconds = read_parsed_env("AUTH_RATE_LIMIT_WINDOW_SECONDS", 60)?;
+        let enforce_pagination_defaults = read_bool_env("ENFORCE_PAGINATION_DEFAULTS", false)?;
+        let auth_rate_limit_max_attempts =
+            read_positive_usize_env("AUTH_RATE_LIMIT_MAX_ATTEMPTS", 20)?;
+        let auth_rate_limit_window_seconds =
+            read_positive_u64_env("AUTH_RATE_LIMIT_WINDOW_SECONDS", 60)?;
         let invitation_rate_limit_max_attempts =
-            read_parsed_env("INVITATION_RATE_LIMIT_MAX_ATTEMPTS", 10)?;
+            read_positive_usize_env("INVITATION_RATE_LIMIT_MAX_ATTEMPTS", 10)?;
         let invitation_rate_limit_window_seconds =
-            read_parsed_env("INVITATION_RATE_LIMIT_WINDOW_SECONDS", 300)?;
+            read_positive_u64_env("INVITATION_RATE_LIMIT_WINDOW_SECONDS", 300)?;
         let enable_swagger_ui = read_bool_env("ENABLE_SWAGGER_UI", false)?;
         let metrics_bearer_token = std::env::var("METRICS_BEARER_TOKEN")
             .ok()
             .filter(|v| !v.trim().is_empty());
-        let user_metrics_refresh_seconds = read_parsed_env("USER_METRICS_REFRESH_SECONDS", 300)?;
+        let user_metrics_refresh_seconds =
+            read_positive_u64_env("USER_METRICS_REFRESH_SECONDS", 300)?;
         let sentry_dsn = std::env::var("SENTRY_DSN")
             .ok()
             .filter(|v| !v.trim().is_empty());
@@ -317,7 +337,6 @@ impl AppConfig {
             avatar_base_url,
             redis_url,
             fcm_server_key,
-            fcm_vapid_key,
             notification_dedup_ttl_seconds,
             fcm_service_account_path,
             fcm_project_id,
@@ -330,6 +349,7 @@ impl AppConfig {
             apple_app_id,
             apple_service_id,
             cors_allowed_origins,
+            enforce_pagination_defaults,
             auth_rate_limit_max_attempts,
             auth_rate_limit_window_seconds,
             invitation_rate_limit_max_attempts,
@@ -346,7 +366,14 @@ impl AppConfig {
 
 #[cfg(test)]
 mod tests {
-    use super::{default_cors_allowed_origins, resolve_cors_allowed_origins};
+    use super::{default_cors_allowed_origins, require_positive, resolve_cors_allowed_origins};
+
+    #[test]
+    fn positive_runtime_values_reject_zero_and_negative_numbers() {
+        assert!(require_positive("TTL", 1_u64).is_ok());
+        assert!(require_positive("TTL", 0_u64).is_err());
+        assert!(require_positive("DAYS", -1_i64).is_err());
+    }
 
     #[test]
     fn default_cors_allowed_origins_trims_and_deduplicates_app_base_url() {
