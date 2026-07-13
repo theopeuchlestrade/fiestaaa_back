@@ -27,6 +27,7 @@ async fn main() -> std::io::Result<()> {
     // Config + DB
     let cfg = config::AppConfig::try_from_env()
         .map_err(|err| std::io::Error::new(std::io::ErrorKind::InvalidInput, err))?;
+    fiestaaa_back::pagination::configure_defaults(cfg.enforce_pagination_defaults);
     let _sentry_guard = cfg.sentry_dsn.as_ref().map(|dsn| {
         sentry::init((
             dsn.as_str(),

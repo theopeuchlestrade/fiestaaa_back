@@ -1,15 +1,15 @@
 use actix_web::HttpResponse;
-use once_cell::sync::Lazy;
 use serde::Deserialize;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::models::ErrorResponse;
 
 pub const MAX_PAGE_SIZE: i64 = 100;
-static ENFORCE_DEFAULTS: Lazy<bool> = Lazy::new(|| {
-    std::env::var("ENFORCE_PAGINATION_DEFAULTS")
-        .map(|value| matches!(value.as_str(), "1" | "true" | "TRUE"))
-        .unwrap_or(false)
-});
+static ENFORCE_DEFAULTS: AtomicBool = AtomicBool::new(false);
+
+pub fn configure_defaults(enforce: bool) {
+    ENFORCE_DEFAULTS.store(enforce, Ordering::Relaxed);
+}
 
 #[derive(Debug, Default, Deserialize, utoipa::IntoParams)]
 pub struct PaginationQuery {
@@ -26,7 +26,8 @@ pub struct PageRequest {
 }
 
 pub fn page_request(query: &PaginationQuery) -> Result<Option<PageRequest>, HttpResponse> {
-    if query.limit.is_none() && query.cursor.is_none() && !*ENFORCE_DEFAULTS {
+    if query.limit.is_none() && query.cursor.is_none() && !ENFORCE_DEFAULTS.load(Ordering::Relaxed)
+    {
         return Ok(None);
     }
     let limit = query.limit.unwrap_or(50);
