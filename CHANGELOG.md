@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-07-13
+
 ### Added
 - Added per-request identifiers to API responses, access logs, and Sentry
   reports so production failures can be correlated without exposing database
