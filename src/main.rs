@@ -121,7 +121,10 @@ async fn main() -> std::io::Result<()> {
                 CONTENT_TYPE,
                 HeaderName::from_static("x-fiestaaa-client-version"),
             ])
-            .expose_headers(vec![HeaderName::from_static("x-next-cursor")])
+            .expose_headers(vec![
+                HeaderName::from_static("x-next-cursor"),
+                HeaderName::from_static("x-request-id"),
+            ])
             .supports_credentials()
             .max_age(3600);
         for origin in &cfg.cors_allowed_origins {
@@ -146,7 +149,9 @@ async fn main() -> std::io::Result<()> {
         App::new()
             .app_data(state.clone())
             .wrap(observability::MetricsMiddleware)
-            .wrap(Logger::new(r#"%a "%m %U" %s %b %T"#))
+            .wrap(Logger::new(
+                r#"%a "%m %U" %s %b %T request_id=%{x-request-id}i"#,
+            ))
             .wrap(default_headers)
             .wrap(cors)
             .configure(routes::configure)

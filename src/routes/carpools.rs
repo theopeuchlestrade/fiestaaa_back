@@ -142,7 +142,9 @@ async fn ensure_carpool_driver(
     }
 }
 
+#[track_caller]
 fn server_error() -> HttpResponse {
+    crate::observability::capture_internal_failure("carpool database operation failed");
     HttpResponse::InternalServerError().json(ErrorResponse {
         error: "internal_error".into(),
         details: None,

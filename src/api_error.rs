@@ -37,6 +37,12 @@ impl ApiError {
     }
 
     pub fn database() -> Self {
+        crate::observability::capture_internal_failure("database operation failed");
+        Self::new(StatusCode::INTERNAL_SERVER_ERROR, "db_error", None)
+    }
+
+    pub fn database_with_source(error: &dyn fmt::Display) -> Self {
+        crate::observability::capture_internal_error("database operation failed", error);
         Self::new(StatusCode::INTERNAL_SERVER_ERROR, "db_error", None)
     }
 }
