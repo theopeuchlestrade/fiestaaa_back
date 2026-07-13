@@ -188,7 +188,7 @@ mod tests {
         let document = serde_json::to_string_pretty(&ApiDoc::openapi()).expect("OpenAPI JSON");
         assert_eq!(
             sha256_hex(&document),
-            "2e37030379a43e47afcaea3f09fc607a44181b6d7590a82a0ea96cacc6a143c0",
+            "3c257e8f3b918ccd0dfbe53c82014d313f30ef05d4c360d07c54a52a62366b96",
             "OpenAPI changed: review the generated contract, then update this hash"
         );
     }
