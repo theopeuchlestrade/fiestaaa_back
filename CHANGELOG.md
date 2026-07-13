@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Added per-request identifiers to API responses, access logs, and Sentry
+  reports so production failures can be correlated without exposing database
+  details to clients.
+
+### Changed
+- Bounded client-version Prometheus labels to a fixed set of buckets to prevent
+  attacker-controlled metric cardinality growth.
+- Validated positive cleanup, refresh, notification, pagination, and rate-limit
+  settings at startup so invalid runtime configuration fails fast.
+- Enforced a 58 percent backend line-coverage floor in CI.
+
+### Dependencies
+- Updated the Rust builder image, Cargo dependencies, and Docker build GitHub
+  Actions.
+
 ## [0.2.0] - 2026-07-01
 
 ### Added
