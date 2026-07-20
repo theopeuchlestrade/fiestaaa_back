@@ -187,7 +187,16 @@ jobs:
           tool: cargo-audit
 
       - name: Audit dependencies
-        run: cargo audit -D warnings
+        run: |
+          # spin 0.9.8 is yanked upstream but remains required by the current
+          # jsonwebtoken/RSA dependency chain. Keep every other audit warning
+          # fatal and allow only this exact transitive yanked package.
+          cargo audit -D warnings --no-yanked
+          cargo audit --format json | jq -e '
+            [(.warnings.yanked // [])[]
+              | select(.package.name != "spin" or .package.version != "0.9.8")]
+            | length == 0
+          '
 
   container-build:
     name: Container Build & Scan
