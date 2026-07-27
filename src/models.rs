@@ -353,6 +353,7 @@ pub struct EventCustomItemPayload {
 
 #[derive(Debug, Serialize, Deserialize, ToSchema, FromRow)]
 pub struct Invitation {
+    pub invitation_id: Option<i64>,
     pub event_id: i64,
     pub user_id: Option<i64>,
     pub email: String,

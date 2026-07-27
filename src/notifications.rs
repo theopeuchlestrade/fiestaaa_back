@@ -89,7 +89,12 @@ impl NotificationOutboxWorker {
 
     async fn process_batch(&self) -> Result<(), sqlx::Error> {
         let rows = sqlx::query_as::<_, NotificationOutboxRow>(
-            "WITH picked AS (
+            "WITH purged AS (
+                 DELETE FROM notification_outbox
+                 WHERE status IN ('sent', 'dead')
+                   AND COALESCE(sent_at, created_at) < NOW() - INTERVAL '30 days'
+             ),
+             picked AS (
                  SELECT id
                  FROM notification_outbox
                  WHERE (
@@ -432,21 +437,17 @@ impl NotificationService {
         if let Some(client) = self.redis_client.as_ref()
             && let Ok(mut conn) = client.get_multiplexed_async_connection().await
         {
-            let inserted: redis::RedisResult<i32> = redis::cmd("SETNX")
+            let inserted: redis::RedisResult<Option<String>> = redis::cmd("SET")
                 .arg(key)
                 .arg("1")
+                .arg("NX")
+                .arg("EX")
+                .arg(ttl_seconds.max(1))
                 .query_async(&mut conn)
                 .await;
             match inserted {
-                Ok(1) => {
-                    let _ = redis::cmd("EXPIRE")
-                        .arg(key)
-                        .arg(ttl_seconds as i64)
-                        .query_async::<()>(&mut conn)
-                        .await;
-                    return false;
-                }
-                Ok(_) => return true,
+                Ok(Some(_)) => return false,
+                Ok(None) => return true,
                 Err(err) => {
                     warn!("redis throttle error: {err}");
                     observability::record_push_error("throttle_redis_error");
@@ -611,7 +612,7 @@ pub async fn tokens_by_user_ids(
 }
 
 pub async fn notify_users(
-    _service: &NotificationService,
+    service: &NotificationService,
     db: &Pool<Postgres>,
     user_ids: &[i64],
     request: NotificationRequest<'_>,
@@ -621,21 +622,45 @@ pub async fn notify_users(
         body,
         data,
         dedup_base_key,
-        dedup_ttl: _,
+        dedup_ttl,
     } = request;
+    let dedup_ttl = dedup_ttl.unwrap_or(service.default_dedup_ttl_seconds);
 
     for user_id in user_ids {
         let dedup_key = dedup_base_key.map(|base| format!("{base}:{user_id}"));
         if let Err(error) = sqlx::query(
-            "INSERT INTO notification_outbox (user_id, title, body, data, dedup_key)
-             VALUES ($1, $2, $3, $4, $5)
-             ON CONFLICT (dedup_key) WHERE dedup_key IS NOT NULL DO NOTHING",
+            "INSERT INTO notification_outbox (
+                 user_id, title, body, data, dedup_key, dedup_expires_at
+             )
+             VALUES (
+                 $1, $2, $3, $4, $5,
+                 CASE WHEN $5::TEXT IS NULL
+                      THEN NULL
+                      ELSE NOW() + make_interval(secs => $6::DOUBLE PRECISION)
+                 END
+             )
+             ON CONFLICT (dedup_key) WHERE dedup_key IS NOT NULL DO UPDATE
+             SET user_id = EXCLUDED.user_id,
+                 title = EXCLUDED.title,
+                 body = EXCLUDED.body,
+                 data = EXCLUDED.data,
+                 status = 'pending',
+                 attempts = 0,
+                 available_at = NOW(),
+                 locked_at = NULL,
+                 sent_at = NULL,
+                 last_error = NULL,
+                 created_at = NOW(),
+                 dedup_expires_at = EXCLUDED.dedup_expires_at
+             WHERE notification_outbox.dedup_expires_at IS NULL
+                OR notification_outbox.dedup_expires_at <= NOW()",
         )
         .bind(user_id)
         .bind(title)
         .bind(body)
         .bind(&data)
         .bind(dedup_key)
+        .bind(dedup_ttl as f64)
         .execute(db)
         .await
         {
@@ -650,20 +675,44 @@ pub async fn enqueue_notifications_tx(
     user_ids: &[i64],
     request: NotificationRequest<'_>,
 ) -> Result<(), sqlx::Error> {
+    let dedup_ttl = request.dedup_ttl.unwrap_or(300);
     for user_id in user_ids {
         let dedup_key = request
             .dedup_base_key
             .map(|base| format!("{base}:{user_id}"));
         sqlx::query(
-            "INSERT INTO notification_outbox (user_id, title, body, data, dedup_key)
-             VALUES ($1, $2, $3, $4, $5)
-             ON CONFLICT (dedup_key) WHERE dedup_key IS NOT NULL DO NOTHING",
+            "INSERT INTO notification_outbox (
+                 user_id, title, body, data, dedup_key, dedup_expires_at
+             )
+             VALUES (
+                 $1, $2, $3, $4, $5,
+                 CASE WHEN $5::TEXT IS NULL
+                      THEN NULL
+                      ELSE NOW() + make_interval(secs => $6::DOUBLE PRECISION)
+                 END
+             )
+             ON CONFLICT (dedup_key) WHERE dedup_key IS NOT NULL DO UPDATE
+             SET user_id = EXCLUDED.user_id,
+                 title = EXCLUDED.title,
+                 body = EXCLUDED.body,
+                 data = EXCLUDED.data,
+                 status = 'pending',
+                 attempts = 0,
+                 available_at = NOW(),
+                 locked_at = NULL,
+                 sent_at = NULL,
+                 last_error = NULL,
+                 created_at = NOW(),
+                 dedup_expires_at = EXCLUDED.dedup_expires_at
+             WHERE notification_outbox.dedup_expires_at IS NULL
+                OR notification_outbox.dedup_expires_at <= NOW()",
         )
         .bind(user_id)
         .bind(request.title)
         .bind(request.body)
         .bind(&request.data)
         .bind(dedup_key)
+        .bind(dedup_ttl as f64)
         .execute(&mut **tx)
         .await?;
     }

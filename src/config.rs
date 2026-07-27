@@ -126,6 +126,30 @@ fn required_secret_env(name: &str, min_len: usize) -> Result<String, ConfigValid
     Ok(trimmed.to_string())
 }
 
+fn is_placeholder_secret(value: &str) -> bool {
+    let normalized = value.trim().to_ascii_lowercase();
+    [
+        "change_me",
+        "changeme",
+        "replace_me",
+        "replace-with",
+        "your_",
+        "example",
+        "secret",
+    ]
+    .iter()
+    .any(|marker| normalized.contains(marker))
+}
+
+fn validate_production_secret(name: &str, value: &str) -> Result<(), ConfigValidationError> {
+    if is_placeholder_secret(value) {
+        return Err(ConfigValidationError(format!(
+            "{name} contient une valeur d'exemple interdite en production"
+        )));
+    }
+    Ok(())
+}
+
 fn parse_cors_allowed_origins(raw: &str) -> Vec<String> {
     raw.split(',')
         .filter_map(|s| {
@@ -228,6 +252,16 @@ impl AppConfig {
         let jwt_secret = required_secret_env("JWT_SECRET", 32)?;
         let data_encryption_key = required_secret_env("DATA_ENCRYPTION_KEY", 32)?;
         let data_lookup_key = required_secret_env("DATA_LOOKUP_KEY", 32)?;
+        if is_production {
+            validate_production_secret("JWT_SECRET", &jwt_secret)?;
+            validate_production_secret("DATA_ENCRYPTION_KEY", &data_encryption_key)?;
+            validate_production_secret("DATA_LOOKUP_KEY", &data_lookup_key)?;
+            if database_url.contains("postgres:postgres") {
+                return Err(ConfigValidationError(
+                    "DATABASE_URL utilise les identifiants d'exemple en production".into(),
+                ));
+            }
+        }
         let admin_emails_raw = std::env::var("ADMIN_EMAILS").unwrap_or_default();
         let admin_emails = admin_emails_raw
             .split(',')
@@ -252,6 +286,19 @@ impl AppConfig {
         let invitation_email_api_key = load_resend_api_key();
         let app_base_url =
             std::env::var("APP_BASE_URL").unwrap_or_else(|_| "https://fiestaaa.app".into());
+        if is_production {
+            if invitation_email_sender.is_none() || invitation_email_api_key.is_none() {
+                return Err(ConfigValidationError(
+                    "INVITATION_EMAIL_SENDER et RESEND_API_KEY sont obligatoires en production"
+                        .into(),
+                ));
+            }
+            if !app_base_url.starts_with("https://") {
+                return Err(ConfigValidationError(
+                    "APP_BASE_URL doit utiliser HTTPS en production".into(),
+                ));
+            }
+        }
         let avatar_upload_dir =
             std::env::var("AVATAR_UPLOAD_DIR").unwrap_or_else(|_| "./uploads/avatars".into());
         let avatar_base_url = std::env::var("AVATAR_BASE_URL")
@@ -295,7 +342,8 @@ impl AppConfig {
             &app_base_url,
             is_production,
         )?;
-        let enforce_pagination_defaults = read_bool_env("ENFORCE_PAGINATION_DEFAULTS", false)?;
+        let enforce_pagination_defaults =
+            read_bool_env("ENFORCE_PAGINATION_DEFAULTS", is_production)?;
         let auth_rate_limit_max_attempts =
             read_positive_usize_env("AUTH_RATE_LIMIT_MAX_ATTEMPTS", 20)?;
         let auth_rate_limit_window_seconds =
@@ -308,6 +356,9 @@ impl AppConfig {
         let metrics_bearer_token = std::env::var("METRICS_BEARER_TOKEN")
             .ok()
             .filter(|v| !v.trim().is_empty());
+        if is_production && let Some(token) = metrics_bearer_token.as_deref() {
+            validate_production_secret("METRICS_BEARER_TOKEN", token)?;
+        }
         let user_metrics_refresh_seconds =
             read_positive_u64_env("USER_METRICS_REFRESH_SECONDS", 300)?;
         let sentry_dsn = std::env::var("SENTRY_DSN")
@@ -366,7 +417,10 @@ impl AppConfig {
 
 #[cfg(test)]
 mod tests {
-    use super::{default_cors_allowed_origins, require_positive, resolve_cors_allowed_origins};
+    use super::{
+        default_cors_allowed_origins, is_placeholder_secret, require_positive,
+        resolve_cors_allowed_origins, validate_production_secret,
+    };
 
     #[test]
     fn positive_runtime_values_reject_zero_and_negative_numbers() {
@@ -419,5 +473,16 @@ mod tests {
             .expect("development defaults");
 
         assert!(origins.contains(&"http://localhost:5001".to_string()));
+    }
+
+    #[test]
+    fn production_secrets_reject_known_placeholders() {
+        assert!(is_placeholder_secret(
+            "change_me_and_keep_private_32_chars_min"
+        ));
+        assert!(validate_production_secret("JWT_SECRET", "replace-with-a-random-value").is_err());
+        assert!(
+            validate_production_secret("JWT_SECRET", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa").is_ok()
+        );
     }
 }

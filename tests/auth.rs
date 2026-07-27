@@ -86,6 +86,17 @@ async fn pending_token_hash_for(pool: &sqlx::PgPool, email: &str) -> sqlx::Resul
     .await
 }
 
+async fn stored_pending_token_for(pool: &sqlx::PgPool, email: &str) -> sqlx::Result<String> {
+    sqlx::query_scalar(
+        "SELECT fiestaaa_decrypt_text(verification_token_ciphertext)
+         FROM pending_registrations
+         WHERE fiestaaa_email_matches(email_lookup_hash, $1)",
+    )
+    .bind(email)
+    .fetch_one(pool)
+    .await
+}
+
 async fn mock_google_tokeninfo(req: HttpRequest) -> HttpResponse {
     let query = req.query_string();
     if query.contains("id_token=valid-google-id-token") {
@@ -791,7 +802,7 @@ async fn register_hides_duplicate_email_state() -> Result<(), Box<dyn Error>> {
 }
 
 #[tokio::test]
-async fn register_refreshes_existing_pending_registration_token() -> Result<(), Box<dyn Error>> {
+async fn register_reuses_existing_pending_registration_token() -> Result<(), Box<dyn Error>> {
     let Some(pool) = obtain_pool().await else {
         eprintln!("Skipping auth tests: FIESTAAA_SKIP_DB_TESTS=1");
         return Ok(());
@@ -812,7 +823,7 @@ async fn register_refreshes_existing_pending_registration_token() -> Result<(), 
     )
     .await;
     assert_eq!(first_resp.status(), StatusCode::CREATED);
-    let first_token = pending_token_for(&pool, email).await?;
+    let first_token = stored_pending_token_for(&pool, email).await?;
 
     let second_resp = test::call_service(
         &app,
@@ -833,8 +844,10 @@ async fn register_refreshes_existing_pending_registration_token() -> Result<(), 
         Some("verification_pending")
     );
 
+    let second_token = stored_pending_token_for(&pool, email).await?;
+    assert_eq!(second_token, first_token);
     let second_token_hash = pending_token_hash_for(&pool, email).await?;
-    assert_ne!(second_token_hash, sha256_hex(&first_token));
+    assert_eq!(second_token_hash, sha256_hex(&first_token));
 
     let old_token_resp = test::call_service(
         &app,
@@ -844,11 +857,13 @@ async fn register_refreshes_existing_pending_registration_token() -> Result<(), 
             .to_request(),
     )
     .await;
-    assert_eq!(old_token_resp.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(old_token_resp.status(), StatusCode::OK);
     let old_token_body: Value = test::read_body_json(old_token_resp).await;
     assert_eq!(
-        old_token_body.get("error").and_then(|value| value.as_str()),
-        Some("invalid_token")
+        old_token_body
+            .get("status")
+            .and_then(|value| value.as_str()),
+        Some("setup_required")
     );
 
     let pending_count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM pending_registrations")

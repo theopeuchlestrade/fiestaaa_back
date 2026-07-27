@@ -108,7 +108,9 @@ pub async fn list_events(
 
     let mut statement = sqlx::query_as::<_, Event>(AssertSqlSafe(sql)).bind(user_id);
     if let Some(page) = pagination {
-        statement = statement.bind(page.after_id.unwrap_or(0)).bind(page.limit);
+        statement = statement
+            .bind(page.after_id.unwrap_or(0))
+            .bind(page.fetch_limit());
     }
     let res = statement.fetch_all(&state.db).await;
 

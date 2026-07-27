@@ -166,6 +166,7 @@ async fn invitations_crud_flow() -> Result<(), Box<dyn Error>> {
     assert_eq!(resp.status(), StatusCode::CREATED);
     let created: Invitation = test::read_body_json(resp).await;
     assert_eq!(created.status, "Waiting");
+    let invitation_id = created.invitation_id.expect("stable invitation id");
 
     // List invitations
     let resp = test::call_service(
@@ -225,7 +226,7 @@ async fn invitations_crud_flow() -> Result<(), Box<dyn Error>> {
         test::TestRequest::delete()
             .uri(&format!(
                 "/events/{}/invitations/{}",
-                event_id, invitee_email
+                event_id, invitation_id
             ))
             .insert_header(("Authorization", format!("Bearer {}", owner_token.clone())))
             .to_request(),
