@@ -1,0 +1,6734 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "fiestaaa_back",
+    "description": "Backend API for Fiestaaa",
+    "license": {
+      "name": "AGPL-3.0-only",
+      "identifier": "AGPL-3.0-only"
+    },
+    "version": "0.2.1"
+  },
+  "paths": {
+    "/": {
+      "get": {
+        "tags": [
+          "root"
+        ],
+        "operationId": "hello",
+        "responses": {
+          "200": {
+            "description": "API heartbeat information",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/auth/complete-registration": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "operationId": "complete_registration",
+        "parameters": [
+          {
+            "name": "X-Fiestaaa-Auth-Response",
+            "in": "header",
+            "description": "Set to `bearer` to include the session token in the JSON body for native clients. Omit for cookie-only web sessions.",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CompleteRegistrationPayload"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Registration completed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid payload or token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Email or handle already taken",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "Expired token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Database or token creation error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/auth/login": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "operationId": "login",
+        "parameters": [
+          {
+            "name": "X-Fiestaaa-Auth-Response",
+            "in": "header",
+            "description": "Set to `bearer` to include the session token in the JSON body for native clients. Omit for cookie-only web sessions.",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginPayload"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Valid credentials",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Invalid credentials",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Database or token creation error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/auth/logout": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "operationId": "logout",
+        "responses": {
+          "200": {
+            "description": "Session invalidated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StatusResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/auth/oauth/{provider}": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "operationId": "oauth_login",
+        "parameters": [
+          {
+            "name": "provider",
+            "in": "path",
+            "description": "oauth provider (google)",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Fiestaaa-Auth-Response",
+            "in": "header",
+            "description": "Set to `bearer` to include the session token in the JSON body for native clients. Omit for cookie-only web sessions.",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OAuthPayload"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Valid provider token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid payload or provider",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Invalid provider token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Database or token creation error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/auth/register": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "operationId": "register",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegisterPayload"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Registration pending email verification",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StatusResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid payload",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many attempts",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Database or hashing error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/auth/verify-email": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "operationId": "verify_email",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VerifyEmailPayload"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Email verified and registration can be completed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StatusResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "Expired token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Database error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/carpools/{carpool_id}": {
+      "delete": {
+        "tags": [
+          "carpools"
+        ],
+        "operationId": "delete_carpool",
+        "parameters": [
+          {
+            "name": "carpool_id",
+            "in": "path",
+            "description": "Carpool identifier",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Carpool deleted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StatusResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Carpool not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "carpools"
+        ],
+        "operationId": "update_carpool",
+        "parameters": [
+          {
+            "name": "carpool_id",
+            "in": "path",
+            "description": "Carpool identifier",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CarpoolPatchPayload"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Carpool updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CarpoolView"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid payload",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Carpool not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/carpools/{carpool_id}/join": {
+      "post": {
+        "tags": [
+          "carpools"
+        ],
+        "operationId": "join_carpool",
+        "parameters": [
+          {
+            "name": "carpool_id",
+            "in": "path",
+            "description": "Carpool identifier",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Joined successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CarpoolJoinResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "No seats available",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Carpool not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Already joined",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "carpools"
+        ],
+        "operationId": "leave_carpool",
+        "parameters": [
+          {
+            "name": "carpool_id",
+            "in": "path",
+            "description": "Carpool identifier",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Left successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CarpoolLeaveResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Not joined",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Carpool not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/events": {
+      "get": {
+        "tags": [
+          "events"
+        ],
+        "operationId": "list_events",
+        "responses": {
+          "200": {
+            "description": "Event list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Event"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Database error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "events"
+        ],
+        "operationId": "create_event",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EventPayload"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Event created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Event"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid payload",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Database error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/events/trash": {
+      "get": {
+        "tags": [
+          "events"
+        ],
+        "operationId": "list_trashed_events",
+        "responses": {
+          "200": {
+            "description": "Recoverable events",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Event"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/events/{event_id}": {
+      "get": {
+        "tags": [
+          "events"
+        ],
+        "operationId": "get_event",
+        "parameters": [
+          {
+            "name": "event_id",
+            "in": "path",
+            "description": "Event identifier",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Event found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Event"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Unauthorized access",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Event not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "events"
+        ],
+        "operationId": "replace_event",
+        "parameters": [
+          {
+            "name": "event_id",
+            "in": "path",
+            "description": "Event identifier",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EventPayload"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Event updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Event"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid payload",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Event not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Database error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "events"
+        ],
+        "operationId": "delete_event",
+        "parameters": [
+          {
+            "name": "event_id",
+            "in": "path",
+            "description": "Event identifier",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Event deleted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StatusResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Event not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Database error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "events"
+        ],
+        "operationId": "update_event",
+        "parameters": [
+          {
+            "name": "event_id",
+            "in": "path",
+            "description": "Event identifier",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EventPatchPayload"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Event modified",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Event"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid payload",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Event not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Database error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/events/{event_id}/carpools": {
+      "get": {
+        "tags": [
+          "carpools"
+        ],
+        "operationId": "list_event_carpools",
+        "parameters": [
+          {
+            "name": "event_id",
+            "in": "path",
+            "description": "Event identifier",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "sort",
+            "in": "query",
+            "description": "Sort criterion: departure_asc, departure_desc, seats_asc, seats_desc, available_seats_asc, available_seats_desc",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Page size (max 100)",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "description": "Cursor returned in X-Next-Cursor",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Carpool list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/CarpoolView"
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Event not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "carpools"
+        ],
+        "operationId": "create_carpool",
+        "parameters": [
+          {
+            "name": "event_id",
+            "in": "path",
+            "description": "Event identifier",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CarpoolPayload"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Carpool created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CarpoolView"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid payload",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Event not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/events/{event_id}/expenses": {
+      "get": {
+        "tags": [
+          "events"
+        ],
+        "operationId": "list_event_expenses",
+        "parameters": [
+          {
+            "name": "event_id",
+            "in": "path",
+            "description": "Event identifier",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Number of items to return. When omitted with cursor, the default is 50.",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "description": "Opaque cursor returned by the previous response.",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Event shared expenses",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/EventExpenseView"
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Event not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "events"
+        ],
+        "operationId": "create_event_expense",
+        "parameters": [
+          {
+            "name": "event_id",
+            "in": "path",
+            "description": "Event identifier",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EventExpensePayload"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Expense created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EventExpenseView"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid payload",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Event not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/events/{event_id}/expenses/summary": {
+      "get": {
+        "tags": [
+          "events"
+        ],
+        "operationId": "get_event_expenses_summary",
+        "parameters": [
+          {
+            "name": "event_id",
+            "in": "path",
+            "description": "Event identifier",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Shared expense summary",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EventExpensesSummaryView"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Event not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/events/{event_id}/expenses/{expense_id}": {
+      "delete": {
+        "tags": [
+          "events"
+        ],
+        "operationId": "delete_event_expense",
+        "parameters": [
+          {
+            "name": "event_id",
+            "in": "path",
+            "description": "Event identifier",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "expense_id",
+            "in": "path",
+            "description": "Expense identifier",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Expense deleted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StatusResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Expense not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/events/{event_id}/invitations": {
+      "get": {
+        "tags": [
+          "invitations"
+        ],
+        "operationId": "list_event_invitations",
+        "parameters": [
+          {
+            "name": "event_id",
+            "in": "path",
+            "description": "Event identifier",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Page size (max 100)",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "description": "Cursor returned in X-Next-Cursor",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Event invitations",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Invitation"
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Event not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "invitations"
+        ],
+        "operationId": "create_invitation",
+        "parameters": [
+          {
+            "name": "event_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InvitationPayload"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Invitation created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Invitation"
+                }
+              }
+            }
+          },
+          "202": {
+            "description": "Email invitation accepted for processing",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StatusResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid payload",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Event or user not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Existing invitation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many email invitations",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/events/{event_id}/invitations/{identifier}": {
+      "delete": {
+        "tags": [
+          "invitations"
+        ],
+        "operationId": "delete_invitation",
+        "parameters": [
+          {
+            "name": "event_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "email",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Invitation deleted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StatusResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Invitation not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/events/{event_id}/items": {
+      "get": {
+        "tags": [
+          "events"
+        ],
+        "operationId": "list_event_items",
+        "parameters": [
+          {
+            "name": "event_id",
+            "in": "path",
+            "description": "Event identifier",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "scope",
+            "in": "query",
+            "description": "Filter: all, mine, to_cover, completed",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Items configured for the event",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/EventItemView"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid scope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Access restricted to event members",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Event not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Database error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "events"
+        ],
+        "operationId": "attach_event_item",
+        "parameters": [
+          {
+            "name": "event_id",
+            "in": "path",
+            "description": "Event identifier",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EventItemAttachPayload"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Item attached to the event",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EventItemView"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid payload",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Event or item not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Database error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/events/{event_id}/items/contributions": {
+      "get": {
+        "tags": [
+          "events"
+        ],
+        "operationId": "list_event_item_contributions",
+        "parameters": [
+          {
+            "name": "event_id",
+            "in": "path",
+            "description": "Event identifier",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Event item contributions",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ItemContribution"
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Event not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/events/{event_id}/items/custom": {
+      "post": {
+        "tags": [
+          "events"
+        ],
+        "operationId": "create_custom_event_item",
+        "parameters": [
+          {
+            "name": "event_id",
+            "in": "path",
+            "description": "Event identifier",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EventCustomItemPayload"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Custom item added or updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EventItemView"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid payload",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Event not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Database error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/events/{event_id}/items/{item_id}": {
+      "delete": {
+        "tags": [
+          "events"
+        ],
+        "operationId": "delete_event_item",
+        "parameters": [
+          {
+            "name": "event_id",
+            "in": "path",
+            "description": "Event identifier",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "item_id",
+            "in": "path",
+            "description": "Item identifier",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Item deleted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StatusResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Deletion not possible",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Item not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Database error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/events/{event_id}/items/{item_id}/reserve": {
+      "post": {
+        "tags": [
+          "events"
+        ],
+        "operationId": "reserve_event_item",
+        "parameters": [
+          {
+            "name": "event_id",
+            "in": "path",
+            "description": "Event identifier",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "item_id",
+            "in": "path",
+            "description": "Referenced item identifier",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EventItemReservationPayload"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Quantity reserved",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EventItemView"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid quantity or maximum exceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Event, item, or user not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Database error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/events/{event_id}/my-qr-code": {
+      "get": {
+        "tags": [
+          "qr_codes"
+        ],
+        "operationId": "generate_my_qr_code",
+        "parameters": [
+          {
+            "name": "event_id",
+            "in": "path",
+            "description": "Event identifier",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "QR code token generated or retrieved",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QRCodeGenerateResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Unauthorized or invalid invitation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Event not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/events/{event_id}/polls": {
+      "get": {
+        "tags": [
+          "events"
+        ],
+        "operationId": "list_event_polls",
+        "parameters": [
+          {
+            "name": "event_id",
+            "in": "path",
+            "description": "Event identifier",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Polls associated with the event",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/PollView"
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Event not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "events"
+        ],
+        "operationId": "create_event_poll",
+        "parameters": [
+          {
+            "name": "event_id",
+            "in": "path",
+            "description": "Event identifier",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EventPollCreatePayload"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Poll created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PollView"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid payload",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Event not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/events/{event_id}/polls/{poll_id}": {
+      "delete": {
+        "tags": [
+          "events"
+        ],
+        "operationId": "delete_event_poll",
+        "parameters": [
+          {
+            "name": "event_id",
+            "in": "path",
+            "description": "Event identifier",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "poll_id",
+            "in": "path",
+            "description": "Poll identifier",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Poll deleted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StatusResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Poll not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/events/{event_id}/polls/{poll_id}/vote": {
+      "post": {
+        "tags": [
+          "events"
+        ],
+        "operationId": "vote_event_poll",
+        "parameters": [
+          {
+            "name": "event_id",
+            "in": "path",
+            "description": "Event identifier",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "poll_id",
+            "in": "path",
+            "description": "Poll identifier",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EventPollVotePayload"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Vote saved",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PollView"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid payload",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Poll not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "Poll expired",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/events/{event_id}/qr-scan-stats": {
+      "get": {
+        "tags": [
+          "qr_codes"
+        ],
+        "operationId": "get_qr_scan_stats",
+        "parameters": [
+          {
+            "name": "event_id",
+            "in": "path",
+            "description": "Event identifier",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Scan statistics",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QRCodeStatsResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Event not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/events/{event_id}/restore": {
+      "post": {
+        "tags": [
+          "events"
+        ],
+        "operationId": "restore_event",
+        "parameters": [
+          {
+            "name": "event_id",
+            "in": "path",
+            "description": "Event identifier",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Event restored",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Event"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Event not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/events/{event_id}/scan-qr": {
+      "post": {
+        "tags": [
+          "qr_codes"
+        ],
+        "operationId": "scan_qr_code",
+        "parameters": [
+          {
+            "name": "event_id",
+            "in": "path",
+            "description": "Event identifier",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/QRCodeScanPayload"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "QR code scanned successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QRCodeScanResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "QR code not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "QR code already scanned",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/events/{event_id}/share": {
+      "post": {
+        "tags": [
+          "events"
+        ],
+        "operationId": "create_share_link",
+        "parameters": [
+          {
+            "name": "event_id",
+            "in": "path",
+            "description": "Event identifier",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Share link generated. This is a bearer token: any authenticated user who obtains it can claim it until expiration or consumption.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ShareTokenResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Event not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Database error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/friends/requests": {
+      "get": {
+        "tags": [
+          "friends"
+        ],
+        "operationId": "list_friend_requests",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Page size (max 100)",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "description": "Cursor returned in X-Next-Cursor",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Friend requests",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/FriendRequest"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "friends"
+        ],
+        "operationId": "create_friend_request",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FriendRequestPayload"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Request sent",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FriendRequest"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid payload",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "User not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Already friends or existing request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/friends/requests/{id}": {
+      "patch": {
+        "tags": [
+          "friends"
+        ],
+        "operationId": "respond_friend_request",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FriendRequestActionPayload"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Request updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FriendRequest"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid payload",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Request not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Already handled",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/friends/search": {
+      "get": {
+        "tags": [
+          "friends"
+        ],
+        "operationId": "search_friends",
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "description": "Search by identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Number of results (max 15)",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Search results",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/FriendSearchResult"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/friends/{identifier}": {
+      "delete": {
+        "tags": [
+          "friends"
+        ],
+        "operationId": "delete_friend",
+        "parameters": [
+          {
+            "name": "identifier",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Friend removed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StatusResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Friend not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/geo/address-search": {
+      "get": {
+        "tags": [
+          "events"
+        ],
+        "operationId": "search_address",
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "description": "Address or place to search",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Maximum number of suggestions (1-10)",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Geocoded suggestions",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/AddressSuggestion"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Query too short",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Geocoding service unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/handles/availability": {
+      "get": {
+        "tags": [
+          "users"
+        ],
+        "operationId": "check_handle_availability",
+        "parameters": [
+          {
+            "name": "handle",
+            "in": "query",
+            "description": "Handle to check",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Handle availability",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HandleAvailabilityResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid handle",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/health": {
+      "get": {
+        "tags": [
+          "health"
+        ],
+        "operationId": "health",
+        "responses": {
+          "200": {
+            "description": "Database reachable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Database unreachable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/items": {
+      "get": {
+        "tags": [
+          "items"
+        ],
+        "operationId": "list_items",
+        "responses": {
+          "200": {
+            "description": "Item list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Item"
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Database error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "items"
+        ],
+        "operationId": "create_item",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ItemPayload"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Item created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Item"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid payload or unknown type",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Database error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/items/{item_id}": {
+      "put": {
+        "tags": [
+          "items"
+        ],
+        "operationId": "replace_item",
+        "parameters": [
+          {
+            "name": "item_id",
+            "in": "path",
+            "description": "Item identifier",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ItemPayload"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Item updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Item"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid payload or unknown type",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Item not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Database error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "items"
+        ],
+        "operationId": "delete_item",
+        "parameters": [
+          {
+            "name": "item_id",
+            "in": "path",
+            "description": "Item identifier",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Item deleted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StatusResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Item not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Database error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "items"
+        ],
+        "operationId": "update_item",
+        "parameters": [
+          {
+            "name": "item_id",
+            "in": "path",
+            "description": "Item identifier",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ItemPatchPayload"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Item modified",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Item"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid payload or unknown type",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Item not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Database error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/me": {
+      "get": {
+        "tags": [
+          "root"
+        ],
+        "operationId": "me",
+        "responses": {
+          "200": {
+            "description": "Connected user information",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MeResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "users"
+        ],
+        "operationId": "delete_account",
+        "responses": {
+          "200": {
+            "description": "Account deleted successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StatusResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "User not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/me/avatar": {
+      "post": {
+        "tags": [
+          "users"
+        ],
+        "operationId": "upload_avatar",
+        "responses": {
+          "200": {
+            "description": "Avatar updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MeResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid file",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "File too large",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/me/devices": {
+      "post": {
+        "tags": [
+          "notifications"
+        ],
+        "operationId": "register_device",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeviceRegisterPayload"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Token saved",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StatusResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid payload",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Database error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/me/devices/refresh": {
+      "post": {
+        "tags": [
+          "notifications"
+        ],
+        "operationId": "refresh_device",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeviceRefreshPayload"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Token refreshed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StatusResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid payload",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Database error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/me/devices/revoke": {
+      "post": {
+        "tags": [
+          "notifications"
+        ],
+        "operationId": "delete_device",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeviceDeletePayload"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Token deleted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StatusResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/me/friends": {
+      "get": {
+        "tags": [
+          "friends"
+        ],
+        "operationId": "list_friends",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Page size (max 100)",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "description": "Cursor returned in X-Next-Cursor",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Friend list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Friend"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/me/handle": {
+      "patch": {
+        "tags": [
+          "users"
+        ],
+        "operationId": "update_handle",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HandleUpdatePayload"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Handle updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MeResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid handle",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Handle already taken",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/my/invitations": {
+      "get": {
+        "tags": [
+          "invitations"
+        ],
+        "operationId": "list_my_invitations",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Page size (max 100)",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "description": "Cursor returned in X-Next-Cursor",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "User invitations",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Invitation"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/my/invitations/{event_id}": {
+      "patch": {
+        "tags": [
+          "invitations"
+        ],
+        "operationId": "respond_invitation",
+        "parameters": [
+          {
+            "name": "event_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InvitationPatchPayload"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Invitation updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Invitation"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid payload",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Invitation not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/payment-providers": {
+      "get": {
+        "tags": [
+          "payment-providers"
+        ],
+        "operationId": "list_payment_providers",
+        "responses": {
+          "200": {
+            "description": "Payment provider list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/PaymentProvider"
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Database error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "payment-providers"
+        ],
+        "operationId": "create_payment_provider",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PaymentProviderPayload"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Payment provider created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaymentProvider"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid payload",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Database error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/payment-providers/{provider_id}": {
+      "put": {
+        "tags": [
+          "payment-providers"
+        ],
+        "operationId": "replace_payment_provider",
+        "parameters": [
+          {
+            "name": "provider_id",
+            "in": "path",
+            "description": "Provider identifier",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PaymentProviderPayload"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Payment provider updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaymentProvider"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid payload",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Provider not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Database error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "payment-providers"
+        ],
+        "operationId": "delete_payment_provider",
+        "parameters": [
+          {
+            "name": "provider_id",
+            "in": "path",
+            "description": "Provider identifier",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Provider deleted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StatusResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Provider not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Database error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "payment-providers"
+        ],
+        "operationId": "update_payment_provider",
+        "parameters": [
+          {
+            "name": "provider_id",
+            "in": "path",
+            "description": "Provider identifier",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PaymentProviderPatchPayload"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Payment provider modified",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaymentProvider"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid payload",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Provider not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Database error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/share/claim": {
+      "post": {
+        "tags": [
+          "events"
+        ],
+        "operationId": "claim_share_link",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ShareClaimPayload"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Link consumed and event accessible",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ShareClaimResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Missing token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Link not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "Link already consumed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Database error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/ws-ticket": {
+      "get": {
+        "tags": [
+          "notifications"
+        ],
+        "operationId": "issue_realtime_ticket",
+        "parameters": [
+          {
+            "name": "event_id",
+            "in": "query",
+            "description": "Target event identifier",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Ephemeral realtime ticket",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RealtimeTicketResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Access denied",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Event not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "AddressSuggestion": {
+        "type": "object",
+        "required": [
+          "label",
+          "latitude",
+          "longitude"
+        ],
+        "properties": {
+          "label": {
+            "type": "string"
+          },
+          "latitude": {
+            "type": "number",
+            "format": "double"
+          },
+          "longitude": {
+            "type": "number",
+            "format": "double"
+          }
+        }
+      },
+      "Carpool": {
+        "type": "object",
+        "required": [
+          "carpool_id",
+          "event_id",
+          "driver_id",
+          "origin",
+          "depart_at",
+          "seats_total",
+          "seats_taken",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "carpool_id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "depart_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "driver_id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "event_id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "notes": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "origin": {
+            "type": "string"
+          },
+          "origin_latitude": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "origin_longitude": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "seats_taken": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "seats_total": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "CarpoolJoinResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "seats_taken",
+          "seats_total",
+          "message"
+        ],
+        "properties": {
+          "message": {
+            "type": "string"
+          },
+          "seats_taken": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "seats_total": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "success": {
+            "type": "boolean"
+          }
+        }
+      },
+      "CarpoolLeaveResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "seats_taken",
+          "seats_total",
+          "message"
+        ],
+        "properties": {
+          "message": {
+            "type": "string"
+          },
+          "seats_taken": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "seats_total": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "success": {
+            "type": "boolean"
+          }
+        }
+      },
+      "CarpoolPassenger": {
+        "type": "object",
+        "required": [
+          "user_id",
+          "joined_at"
+        ],
+        "properties": {
+          "avatar_url": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "handle": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "joined_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "user_id": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "CarpoolPatchPayload": {
+        "type": "object",
+        "properties": {
+          "depart_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "notes": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "origin": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "origin_latitude": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "origin_longitude": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "seats_total": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          }
+        }
+      },
+      "CarpoolPayload": {
+        "type": "object",
+        "required": [
+          "origin",
+          "depart_at",
+          "seats_total"
+        ],
+        "properties": {
+          "depart_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "notes": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "origin": {
+            "type": "string"
+          },
+          "origin_latitude": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "origin_longitude": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "seats_total": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
+      "CarpoolView": {
+        "type": "object",
+        "required": [
+          "carpool_id",
+          "event_id",
+          "driver_id",
+          "origin",
+          "depart_at",
+          "seats_total",
+          "seats_taken",
+          "created_at",
+          "updated_at",
+          "passengers"
+        ],
+        "properties": {
+          "carpool_id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "depart_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "driver_avatar_url": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "driver_handle": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "driver_id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "event_id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "notes": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "origin": {
+            "type": "string"
+          },
+          "origin_latitude": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "origin_longitude": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "passengers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CarpoolPassenger"
+            }
+          },
+          "seats_taken": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "seats_total": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "CompleteRegistrationPayload": {
+        "type": "object",
+        "required": [
+          "token",
+          "password"
+        ],
+        "properties": {
+          "handle": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "password": {
+            "type": "string"
+          },
+          "token": {
+            "type": "string"
+          }
+        }
+      },
+      "DeviceDeletePayload": {
+        "type": "object",
+        "required": [
+          "token"
+        ],
+        "properties": {
+          "token": {
+            "type": "string"
+          }
+        }
+      },
+      "DeviceRefreshPayload": {
+        "type": "object",
+        "required": [
+          "old_token",
+          "new_token"
+        ],
+        "properties": {
+          "app_version": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "locale": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "new_token": {
+            "type": "string"
+          },
+          "old_token": {
+            "type": "string"
+          },
+          "platform": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "DeviceRegisterPayload": {
+        "type": "object",
+        "required": [
+          "token",
+          "platform"
+        ],
+        "properties": {
+          "app_version": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Application version for diagnostics"
+          },
+          "locale": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Preferred language (for example: fr-FR)"
+          },
+          "platform": {
+            "type": "string",
+            "description": "Device platform: ios, android, or web"
+          },
+          "token": {
+            "type": "string",
+            "description": "FCM token returned by firebase_messaging"
+          }
+        }
+      },
+      "ErrorResponse": {
+        "type": "object",
+        "required": [
+          "error"
+        ],
+        "properties": {
+          "details": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "error": {
+            "type": "string"
+          }
+        }
+      },
+      "Event": {
+        "type": "object",
+        "required": [
+          "event_id",
+          "name_event",
+          "description",
+          "date_event",
+          "start_time",
+          "timezone",
+          "start_at",
+          "effective_end_at",
+          "lifecycle_status",
+          "address",
+          "owner_email"
+        ],
+        "properties": {
+          "address": {
+            "type": "string"
+          },
+          "date_event": {
+            "type": "string",
+            "format": "date"
+          },
+          "deleted_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "deletion_reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "description": {
+            "type": "string"
+          },
+          "effective_end_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "enabled_features": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "end_date": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date"
+          },
+          "end_time": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "event_id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "invitation_deadline": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date"
+          },
+          "latitude": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "lifecycle_status": {
+            "type": "string"
+          },
+          "longitude": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "name_event": {
+            "type": "string"
+          },
+          "owner_email": {
+            "type": "string"
+          },
+          "payment_identifier": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "payment_per_person": {
+            "type": "boolean"
+          },
+          "payment_provider_id": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          },
+          "payment_requested_amount": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "playlist_provider": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "playlist_url": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "purge_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "start_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "start_time": {
+            "type": "string"
+          },
+          "timezone": {
+            "type": "string"
+          }
+        }
+      },
+      "EventCustomItemPayload": {
+        "type": "object",
+        "required": [
+          "name_item",
+          "max_quantity"
+        ],
+        "properties": {
+          "item_kind": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "max_quantity": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "name_item": {
+            "type": "string"
+          },
+          "unit_label": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "EventExpenseBalanceView": {
+        "type": "object",
+        "required": [
+          "user_id",
+          "paid_cents",
+          "owed_cents",
+          "balance_cents"
+        ],
+        "properties": {
+          "avatar_url": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "balance_cents": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "handle": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "owed_cents": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "paid_cents": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "user_id": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "EventExpenseParticipantView": {
+        "type": "object",
+        "required": [
+          "user_id"
+        ],
+        "properties": {
+          "avatar_url": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "handle": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "user_id": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "EventExpensePayload": {
+        "type": "object",
+        "required": [
+          "title",
+          "amount_cents",
+          "participant_user_ids"
+        ],
+        "properties": {
+          "amount_cents": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "expense_date": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "note": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "paid_by_user_id": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "participant_user_ids": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          "title": {
+            "type": "string"
+          }
+        }
+      },
+      "EventExpenseSettlementView": {
+        "type": "object",
+        "required": [
+          "from_user_id",
+          "to_user_id",
+          "amount_cents"
+        ],
+        "properties": {
+          "amount_cents": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "from_handle": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "from_user_id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "to_handle": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "to_user_id": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "EventExpenseView": {
+        "type": "object",
+        "required": [
+          "expense_id",
+          "event_id",
+          "paid_by_user_id",
+          "title",
+          "amount_cents",
+          "expense_date",
+          "created_at",
+          "participants"
+        ],
+        "properties": {
+          "amount_cents": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "event_id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "expense_date": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "expense_id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "note": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "paid_by_avatar_url": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "paid_by_handle": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "paid_by_user_id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "participants": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/EventExpenseParticipantView"
+            }
+          },
+          "title": {
+            "type": "string"
+          }
+        }
+      },
+      "EventExpensesSummaryView": {
+        "type": "object",
+        "required": [
+          "currency",
+          "total_expenses_cents",
+          "balances",
+          "settlements"
+        ],
+        "properties": {
+          "balances": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/EventExpenseBalanceView"
+            }
+          },
+          "currency": {
+            "type": "string"
+          },
+          "settlements": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/EventExpenseSettlementView"
+            }
+          },
+          "total_expenses_cents": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "EventItemAttachPayload": {
+        "type": "object",
+        "required": [
+          "item_id",
+          "max_quantity"
+        ],
+        "properties": {
+          "item_id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "max_quantity": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
+      "EventItemReservationPayload": {
+        "type": "object",
+        "required": [
+          "quantity"
+        ],
+        "properties": {
+          "quantity": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
+      "EventItemView": {
+        "type": "object",
+        "required": [
+          "event_id",
+          "item_id",
+          "type_id",
+          "type_name",
+          "name_item",
+          "max_quantity",
+          "reserved_quantity",
+          "unit_label",
+          "item_kind"
+        ],
+        "properties": {
+          "created_by_avatar_url": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "created_by_email": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "created_by_handle": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "event_id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "item_id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "item_kind": {
+            "type": "string"
+          },
+          "max_quantity": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "name_item": {
+            "type": "string"
+          },
+          "reserved_quantity": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "type_id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "type_name": {
+            "type": "string"
+          },
+          "unit_label": {
+            "type": "string"
+          }
+        }
+      },
+      "EventPatchPayload": {
+        "type": "object",
+        "properties": {
+          "address": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "date_event": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date"
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "enabled_features": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "end_date": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date"
+          },
+          "end_time": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "invitation_deadline": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date"
+          },
+          "latitude": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "longitude": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "name_event": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "payment_identifier": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "payment_per_person": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "payment_provider_id": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          },
+          "payment_requested_amount": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "playlist_provider": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "playlist_url": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "start_time": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "timezone": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "EventPayload": {
+        "type": "object",
+        "required": [
+          "name_event",
+          "description",
+          "date_event",
+          "start_time",
+          "address"
+        ],
+        "properties": {
+          "address": {
+            "type": "string"
+          },
+          "date_event": {
+            "type": "string",
+            "format": "date"
+          },
+          "description": {
+            "type": "string"
+          },
+          "enabled_features": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "end_date": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date"
+          },
+          "end_time": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "invitation_deadline": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date"
+          },
+          "latitude": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "longitude": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "name_event": {
+            "type": "string"
+          },
+          "payment_identifier": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "payment_per_person": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "payment_provider_id": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          },
+          "payment_requested_amount": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "playlist_provider": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "playlist_url": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "start_time": {
+            "type": "string"
+          },
+          "timezone": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "EventPollCreatePayload": {
+        "type": "object",
+        "required": [
+          "question",
+          "options",
+          "duration_minutes"
+        ],
+        "properties": {
+          "allow_multiple": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "duration_minutes": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "options": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "question": {
+            "type": "string"
+          }
+        }
+      },
+      "EventPollVotePayload": {
+        "type": "object",
+        "required": [
+          "option_ids"
+        ],
+        "properties": {
+          "option_ids": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        }
+      },
+      "Friend": {
+        "type": "object",
+        "required": [
+          "email",
+          "handle",
+          "since"
+        ],
+        "properties": {
+          "avatar_url": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "email": {
+            "type": "string"
+          },
+          "handle": {
+            "type": "string"
+          },
+          "since": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "FriendRequest": {
+        "type": "object",
+        "required": [
+          "id",
+          "sender_email",
+          "sender_handle",
+          "receiver_email",
+          "receiver_handle",
+          "status",
+          "created_at"
+        ],
+        "properties": {
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "receiver_avatar_url": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "receiver_email": {
+            "type": "string"
+          },
+          "receiver_handle": {
+            "type": "string"
+          },
+          "sender_avatar_url": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "sender_email": {
+            "type": "string"
+          },
+          "sender_handle": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        }
+      },
+      "FriendRequestActionPayload": {
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "status": {
+            "type": "string"
+          }
+        }
+      },
+      "FriendRequestPayload": {
+        "type": "object",
+        "required": [
+          "identifier"
+        ],
+        "properties": {
+          "identifier": {
+            "type": "string"
+          }
+        }
+      },
+      "FriendSearchResult": {
+        "type": "object",
+        "required": [
+          "handle"
+        ],
+        "properties": {
+          "avatar_url": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "email": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "handle": {
+            "type": "string"
+          }
+        }
+      },
+      "HandleAvailabilityResponse": {
+        "type": "object",
+        "required": [
+          "available"
+        ],
+        "properties": {
+          "available": {
+            "type": "boolean"
+          }
+        }
+      },
+      "HandleUpdatePayload": {
+        "type": "object",
+        "required": [
+          "handle"
+        ],
+        "properties": {
+          "handle": {
+            "type": "string"
+          }
+        }
+      },
+      "HealthResponse": {
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "db": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "redis": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": "string"
+          }
+        }
+      },
+      "Invitation": {
+        "type": "object",
+        "required": [
+          "event_id",
+          "email",
+          "status",
+          "date_invi"
+        ],
+        "properties": {
+          "avatar_url": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "date_invi": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "email": {
+            "type": "string"
+          },
+          "event_id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "event_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "handle": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "invitation_id": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "status": {
+            "type": "string"
+          },
+          "user_id": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          }
+        }
+      },
+      "InvitationPatchPayload": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "InvitationPayload": {
+        "type": "object",
+        "required": [
+          "identifier"
+        ],
+        "properties": {
+          "identifier": {
+            "type": "string"
+          },
+          "status": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "Item": {
+        "type": "object",
+        "required": [
+          "item_id",
+          "type_id",
+          "name_item",
+          "max_quantity",
+          "unit_label",
+          "item_kind"
+        ],
+        "properties": {
+          "item_id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "item_kind": {
+            "type": "string"
+          },
+          "max_quantity": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "name_item": {
+            "type": "string"
+          },
+          "type_id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "unit_label": {
+            "type": "string"
+          }
+        }
+      },
+      "ItemContribution": {
+        "type": "object",
+        "required": [
+          "item_id",
+          "quantity",
+          "email"
+        ],
+        "properties": {
+          "avatar_url": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "email": {
+            "type": "string"
+          },
+          "handle": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "item_id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "quantity": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
+      "ItemPatchPayload": {
+        "type": "object",
+        "properties": {
+          "item_kind": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "max_quantity": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          },
+          "name_item": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "type_id": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "unit_label": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "ItemPayload": {
+        "type": "object",
+        "required": [
+          "type_id",
+          "name_item",
+          "max_quantity",
+          "unit_label"
+        ],
+        "properties": {
+          "item_kind": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "max_quantity": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "name_item": {
+            "type": "string"
+          },
+          "type_id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "unit_label": {
+            "type": "string"
+          }
+        }
+      },
+      "LoginPayload": {
+        "type": "object",
+        "required": [
+          "identifier",
+          "password"
+        ],
+        "properties": {
+          "identifier": {
+            "type": "string",
+            "description": "Email or identifier (handle)"
+          },
+          "password": {
+            "type": "string"
+          }
+        }
+      },
+      "MeResponse": {
+        "type": "object",
+        "required": [
+          "public_id",
+          "email",
+          "exp",
+          "handle"
+        ],
+        "properties": {
+          "avatar_url": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "email": {
+            "type": "string"
+          },
+          "exp": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "handle": {
+            "type": "string"
+          },
+          "public_id": {
+            "type": "string"
+          }
+        }
+      },
+      "OAuthPayload": {
+        "type": "object",
+        "properties": {
+          "accessToken": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "email": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "idToken": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "PaymentProvider": {
+        "type": "object",
+        "required": [
+          "provider_id",
+          "provider_name",
+          "url_template",
+          "validation_regex",
+          "is_active"
+        ],
+        "properties": {
+          "is_active": {
+            "type": "boolean"
+          },
+          "provider_id": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "provider_name": {
+            "type": "string"
+          },
+          "url_template": {
+            "type": "string"
+          },
+          "validation_regex": {
+            "type": "string"
+          }
+        }
+      },
+      "PaymentProviderPatchPayload": {
+        "type": "object",
+        "properties": {
+          "is_active": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "provider_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "url_template": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "validation_regex": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "PaymentProviderPayload": {
+        "type": "object",
+        "required": [
+          "provider_name",
+          "url_template"
+        ],
+        "properties": {
+          "is_active": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "provider_name": {
+            "type": "string"
+          },
+          "url_template": {
+            "type": "string"
+          },
+          "validation_regex": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "PollOptionView": {
+        "type": "object",
+        "required": [
+          "option_id",
+          "label",
+          "vote_count",
+          "voters"
+        ],
+        "properties": {
+          "label": {
+            "type": "string"
+          },
+          "option_id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "vote_count": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "voters": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PollOptionVoter"
+            }
+          }
+        }
+      },
+      "PollOptionVoter": {
+        "type": "object",
+        "required": [
+          "email"
+        ],
+        "properties": {
+          "avatar_url": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "email": {
+            "type": "string"
+          },
+          "handle": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "PollView": {
+        "type": "object",
+        "required": [
+          "poll_id",
+          "event_id",
+          "question",
+          "allow_multiple",
+          "expires_at",
+          "created_at",
+          "options",
+          "my_votes",
+          "total_votes",
+          "has_expired"
+        ],
+        "properties": {
+          "allow_multiple": {
+            "type": "boolean"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "created_by_email": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "event_id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "has_expired": {
+            "type": "boolean"
+          },
+          "my_votes": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          "options": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PollOptionView"
+            }
+          },
+          "poll_id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "question": {
+            "type": "string"
+          },
+          "total_votes": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "QRCodeGenerateResponse": {
+        "type": "object",
+        "required": [
+          "qr_token",
+          "event_id",
+          "generated_at",
+          "expires_at"
+        ],
+        "properties": {
+          "event_id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "generated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "qr_token": {
+            "type": "string"
+          }
+        }
+      },
+      "QRCodeScanPayload": {
+        "type": "object",
+        "required": [
+          "token"
+        ],
+        "properties": {
+          "token": {
+            "type": "string"
+          }
+        }
+      },
+      "QRCodeScanResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "status",
+          "message"
+        ],
+        "properties": {
+          "message": {
+            "type": "string"
+          },
+          "scanned_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "status": {
+            "type": "string"
+          },
+          "success": {
+            "type": "boolean"
+          },
+          "user_avatar_url": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "user_email": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "user_handle": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "QRCodeStatsResponse": {
+        "type": "object",
+        "required": [
+          "total_invited",
+          "total_checked_in",
+          "pending_checkins"
+        ],
+        "properties": {
+          "pending_checkins": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "total_checked_in": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "total_invited": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "RealtimeTicketResponse": {
+        "type": "object",
+        "required": [
+          "ticket",
+          "expires_at"
+        ],
+        "properties": {
+          "event_id": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "ticket": {
+            "type": "string"
+          }
+        }
+      },
+      "RegisterPayload": {
+        "type": "object",
+        "required": [
+          "email"
+        ],
+        "properties": {
+          "email": {
+            "type": "string"
+          },
+          "handle": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "password": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "ShareClaimPayload": {
+        "type": "object",
+        "required": [
+          "token"
+        ],
+        "properties": {
+          "token": {
+            "type": "string"
+          }
+        }
+      },
+      "ShareClaimResponse": {
+        "type": "object",
+        "required": [
+          "event"
+        ],
+        "properties": {
+          "event": {
+            "$ref": "#/components/schemas/Event"
+          }
+        }
+      },
+      "ShareTokenResponse": {
+        "type": "object",
+        "required": [
+          "token",
+          "event_id"
+        ],
+        "properties": {
+          "event_id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "token": {
+            "type": "string"
+          }
+        }
+      },
+      "StatusResponse": {
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "status": {
+            "type": "string"
+          }
+        }
+      },
+      "TokenResponse": {
+        "type": "object",
+        "required": [
+          "token",
+          "public_id",
+          "email",
+          "handle"
+        ],
+        "properties": {
+          "email": {
+            "type": "string"
+          },
+          "handle": {
+            "type": "string"
+          },
+          "public_id": {
+            "type": "string"
+          },
+          "token": {
+            "type": "string"
+          }
+        }
+      },
+      "VerifyEmailPayload": {
+        "type": "object",
+        "required": [
+          "token"
+        ],
+        "properties": {
+          "token": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  },
+  "tags": [
+    {
+      "name": "root",
+      "description": "General endpoints"
+    },
+    {
+      "name": "auth",
+      "description": "Authentication"
+    },
+    {
+      "name": "health",
+      "description": "API monitoring"
+    },
+    {
+      "name": "items",
+      "description": "Referenced item catalog"
+    },
+    {
+      "name": "events",
+      "description": "Event management"
+    },
+    {
+      "name": "carpools",
+      "description": "Event carpool coordination"
+    },
+    {
+      "name": "qr_codes",
+      "description": "Event QR check-in"
+    },
+    {
+      "name": "invitations",
+      "description": "Event invitation management"
+    },
+    {
+      "name": "friends",
+      "description": "Friend and request management"
+    },
+    {
+      "name": "users",
+      "description": "User and handle management"
+    },
+    {
+      "name": "payment-providers",
+      "description": "Payment provider configuration (admin)"
+    },
+    {
+      "name": "notifications",
+      "description": "Device registration for push notifications"
+    }
+  ]
+}

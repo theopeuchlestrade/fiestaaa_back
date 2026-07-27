@@ -11,6 +11,7 @@ use chrono::{DateTime, Utc};
 use jsonwebtoken::{
     Algorithm, DecodingKey, EncodingKey, Header, Validation, decode, encode, errors::ErrorKind,
 };
+use once_cell::sync::Lazy;
 use sqlx::{Pool, Postgres};
 use std::{future::Future, pin::Pin};
 use uuid::Uuid;
@@ -65,6 +66,19 @@ pub fn verify_password(hash: &str, password: &str) -> bool {
     } else {
         false
     }
+}
+
+static DUMMY_PASSWORD_HASH: Lazy<String> = Lazy::new(|| {
+    hash_password("fiestaaa-dummy-password-never-used")
+        .expect("the Argon2 dummy password hash must be creatable")
+});
+
+pub fn warm_up_password_verifier() {
+    Lazy::force(&DUMMY_PASSWORD_HASH);
+}
+
+pub fn verify_password_for_missing_user(password: &str) {
+    let _ = verify_password(&DUMMY_PASSWORD_HASH, password);
 }
 
 pub fn validate_password_strength(password: &str) -> Result<(), &'static str> {

@@ -245,7 +245,7 @@ pub async fn list_friends(
     );
     let mut statement = sqlx::query_as::<_, Friend>(AssertSqlSafe(sql)).bind(user.id);
     if let Some(page) = pagination {
-        statement = statement.bind(page.after_id).bind(page.limit);
+        statement = statement.bind(page.after_id).bind(page.fetch_limit());
     }
     match statement.fetch_all(&state.db).await {
         Ok(list) => match pagination {
@@ -489,14 +489,20 @@ pub async fn list_friend_requests(
     );
     let mut statement = sqlx::query_as::<_, FriendRequest>(AssertSqlSafe(sql)).bind(user.id);
     if let Some(page) = pagination {
-        statement = statement.bind(page.after_id).bind(page.limit);
+        statement = statement.bind(page.after_id).bind(page.fetch_limit());
     }
     match statement.fetch_all(&state.db).await {
         Ok(list) => match pagination {
             Some(page) => json_page(list, page.limit, |request| request.id.to_string()),
             None => HttpResponse::Ok().json(list),
         },
-        Err(_) => HttpResponse::Ok().json(Vec::<FriendRequest>::new()),
+        Err(error) => {
+            log::warn!("failed to list friend requests: {error}");
+            HttpResponse::InternalServerError().json(ErrorResponse {
+                error: "db_error".into(),
+                details: None,
+            })
+        }
     }
 }
 

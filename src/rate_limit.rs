@@ -73,19 +73,18 @@ impl AuthRateLimiter {
 
         let mut conn = client.get_multiplexed_async_connection().await?;
         let redis_key = format!("fiestaaa:rate_limit:{key}");
-        let current_count: i64 = redis::cmd("INCR")
-            .arg(&redis_key)
-            .query_async(&mut conn)
+        let script = redis::Script::new(
+            "local count = redis.call('INCR', KEYS[1])
+             if count == 1 then
+                 redis.call('PEXPIRE', KEYS[1], ARGV[1])
+             end
+             return count",
+        );
+        let current_count: i64 = script
+            .key(&redis_key)
+            .arg(self.window.as_millis().max(1) as u64)
+            .invoke_async(&mut conn)
             .await?;
-
-        if current_count == 1 {
-            let ttl = self.window.as_secs().max(1) as i64;
-            let _: () = redis::cmd("EXPIRE")
-                .arg(&redis_key)
-                .arg(ttl)
-                .query_async(&mut conn)
-                .await?;
-        }
 
         Ok(current_count <= self.max_attempts as i64)
     }

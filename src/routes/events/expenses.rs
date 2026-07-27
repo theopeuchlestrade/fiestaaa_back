@@ -396,7 +396,7 @@ async fn fetch_event_expenses(
         )
         .bind(event_id)
         .bind(page.after_id)
-        .bind(page.limit)
+        .bind(page.fetch_limit())
         .fetch_all(db)
         .await
         .map_err(|_| server_error())?

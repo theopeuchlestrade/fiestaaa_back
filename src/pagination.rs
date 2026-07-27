@@ -25,6 +25,12 @@ pub struct PageRequest {
     pub after_id: Option<i64>,
 }
 
+impl PageRequest {
+    pub fn fetch_limit(self) -> i64 {
+        self.limit + 1
+    }
+}
+
 pub fn page_request(query: &PaginationQuery) -> Result<Option<PageRequest>, HttpResponse> {
     if query.limit.is_none() && query.cursor.is_none() && !ENFORCE_DEFAULTS.load(Ordering::Relaxed)
     {
@@ -50,11 +56,14 @@ pub fn page_request(query: &PaginationQuery) -> Result<Option<PageRequest>, Http
 }
 
 pub fn json_page<T: serde::Serialize>(
-    items: Vec<T>,
+    mut items: Vec<T>,
     limit: i64,
     next_cursor: impl FnOnce(&T) -> String,
 ) -> HttpResponse {
-    let has_more = items.len() as i64 == limit;
+    let has_more = items.len() as i64 > limit;
+    if has_more {
+        items.truncate(limit as usize);
+    }
     let mut response = HttpResponse::Ok();
     if has_more && let Some(last) = items.last() {
         response.insert_header(("X-Next-Cursor", next_cursor(last)));

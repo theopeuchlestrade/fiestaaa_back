@@ -7,9 +7,11 @@ use common::{DB_LOCK, build_state, obtain_pool, reset_tables};
 use fiestaaa_back::{
     auth::{encode_jwt, hash_password, now_ts},
     models::{Claims, DeviceDeletePayload, DeviceRefreshPayload, DeviceRegisterPayload},
+    notifications::{NotificationRequest, notify_users},
     routes,
 };
 use serde_json::Value;
+use serde_json::json;
 use sqlx::PgPool;
 
 fn make_token(secret: &str, email: &str, handle: &str) -> Option<String> {
@@ -204,5 +206,67 @@ async fn device_registration_rejects_invalid_payloads() -> Result<(), Box<dyn Er
     )
     .await;
     assert_eq!(invalid_platform_resp.status(), StatusCode::BAD_REQUEST);
+    Ok(())
+}
+
+#[tokio::test]
+async fn outbox_deduplication_expires_and_reuses_the_key() -> Result<(), Box<dyn Error>> {
+    let Some(pool) = obtain_pool().await else {
+        eprintln!("Skipping notifications tests: FIESTAAA_SKIP_DB_TESTS=1");
+        return Ok(());
+    };
+    let _guard = DB_LOCK.lock().await;
+    reset_tables(&pool, &["notification_outbox", "users"]).await?;
+
+    let user_id = seed_user(&pool, "owner@example.com", "owner_handle").await?;
+    let state = build_state(pool.clone(), "secret", &[]);
+    let enqueue = |title: &'static str| NotificationRequest {
+        title,
+        body: "body",
+        data: json!({"type": "event_updated"}),
+        dedup_base_key: Some("event_updated:42"),
+        dedup_ttl: Some(60),
+    };
+
+    notify_users(&state.notifications, &pool, &[user_id], enqueue("first")).await;
+    notify_users(
+        &state.notifications,
+        &pool,
+        &[user_id],
+        enqueue("duplicate"),
+    )
+    .await;
+
+    let first: (i64, String, bool) = sqlx::query_as(
+        "SELECT COUNT(*), MAX(title), bool_and(dedup_expires_at > NOW())
+         FROM notification_outbox",
+    )
+    .fetch_one(&pool)
+    .await?;
+    assert_eq!(first.0, 1);
+    assert_eq!(first.1, "first");
+    assert!(first.2);
+
+    sqlx::query("UPDATE notification_outbox SET dedup_expires_at = NOW() - INTERVAL '1 second'")
+        .execute(&pool)
+        .await?;
+    notify_users(
+        &state.notifications,
+        &pool,
+        &[user_id],
+        enqueue("after-expiry"),
+    )
+    .await;
+
+    let after_expiry: (i64, String, String, i32) = sqlx::query_as(
+        "SELECT COUNT(*), MAX(title), MAX(status), MAX(attempts)
+         FROM notification_outbox",
+    )
+    .fetch_one(&pool)
+    .await?;
+    assert_eq!(
+        after_expiry,
+        (1, "after-expiry".into(), "pending".into(), 0)
+    );
     Ok(())
 }

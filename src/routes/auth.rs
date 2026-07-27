@@ -12,6 +12,7 @@ use crate::{
         build_cleared_session_cookie, build_session_cookie, encode_jwt, fetch_user_auth,
         hash_password, now_ts, random_password_token, revoke_auth_token_from_request,
         should_secure_cookie, validate_password_strength, verify_password,
+        verify_password_for_missing_user,
     },
     handles::{generate_unique_handle, handle_available, is_valid_handle, normalize_handle},
     models::{
@@ -203,13 +204,34 @@ async fn resolve_final_handle(
     })
 }
 
-fn build_email_verification_link(base_url: &str, token: Uuid) -> String {
+fn build_email_verification_link(base_url: &str, token: &str) -> String {
     let trimmed = base_url.trim_end_matches('/');
     if trimmed.contains('?') {
         format!("{trimmed}&verifyEmailToken={token}")
     } else {
         format!("{trimmed}?verifyEmailToken={token}")
     }
+}
+
+fn is_valid_registration_email(email: &str) -> bool {
+    if email.len() > 254
+        || email.chars().any(char::is_whitespace)
+        || !email.is_ascii()
+        || email.matches('@').count() != 1
+    {
+        return false;
+    }
+    let Some((local, domain)) = email.split_once('@') else {
+        return false;
+    };
+    !local.is_empty()
+        && local.len() <= 64
+        && domain.contains('.')
+        && !domain.starts_with('.')
+        && !domain.ends_with('.')
+        && domain
+            .split('.')
+            .all(|label| !label.is_empty() && !label.starts_with('-') && !label.ends_with('-'))
 }
 
 fn escape_html(input: &str) -> String {
@@ -332,10 +354,18 @@ pub async fn register(
 
     let email = normalize_email(&payload.email);
 
-    if email.is_empty() {
+    if !is_valid_registration_email(&email) {
         return HttpResponse::BadRequest().json(ErrorResponse {
             error: "invalid_payload".into(),
-            details: Some("email requis".into()),
+            details: None,
+        });
+    }
+    let email_rate_limit_key = format!("auth:register-email:{}", sha256_hex(&email));
+    if !state.auth_rate_limiter.allow(&email_rate_limit_key).await {
+        observability::record_auth_error("rate_limited");
+        return HttpResponse::TooManyRequests().json(ErrorResponse {
+            error: "rate_limited".into(),
+            details: None,
         });
     }
     if let Err(resp) = cleanup_expired_pending_registrations(&state.db).await {
@@ -356,10 +386,9 @@ pub async fn register(
         }
     }
 
-    let verification_token = Uuid::new_v4();
-    let verification_token_hash = sha256_hex(&verification_token.to_string());
+    let verification_token = Uuid::new_v4().to_string();
+    let verification_token_hash = sha256_hex(&verification_token);
     let verification_expires_at = Utc::now() + ChronoDuration::hours(EMAIL_VERIFICATION_TTL_HOURS);
-    let verification_link = build_email_verification_link(&state.app_base_url, verification_token);
 
     let mut tx = match state.db.begin().await {
         Ok(value) => value,
@@ -371,20 +400,32 @@ pub async fn register(
         }
     };
 
-    let pending_refreshed = match sqlx::query_scalar::<_, bool>(
+    let pending_token = match sqlx::query_scalar::<_, String>(
         "UPDATE pending_registrations
-         SET verification_token_hash = $2,
-             verification_expires_at = $3
+         SET verification_token_hash = CASE
+                 WHEN verification_token_ciphertext IS NULL THEN $2
+                 ELSE verification_token_hash
+             END,
+             verification_token_ciphertext = CASE
+                 WHEN verification_token_ciphertext IS NULL THEN fiestaaa_encrypt_text($4)
+                 ELSE verification_token_ciphertext
+             END,
+             verification_expires_at = CASE
+                 WHEN verification_token_ciphertext IS NULL THEN $3
+                 ELSE verification_expires_at
+             END,
+             updated_at = NOW()
          WHERE fiestaaa_email_matches(email_lookup_hash, $1)
-         RETURNING TRUE",
+         RETURNING fiestaaa_decrypt_text(verification_token_ciphertext)",
     )
     .bind(&email)
     .bind(&verification_token_hash)
     .bind(verification_expires_at)
+    .bind(&verification_token)
     .fetch_optional(&mut *tx)
     .await
     {
-        Ok(value) => value.unwrap_or(false),
+        Ok(value) => value,
         Err(_) => {
             let _ = tx.rollback().await;
             return HttpResponse::InternalServerError().json(ErrorResponse {
@@ -394,13 +435,14 @@ pub async fn register(
         }
     };
 
-    if pending_refreshed {
+    if let Some(pending_token) = pending_token {
         if tx.commit().await.is_err() {
             return HttpResponse::InternalServerError().json(ErrorResponse {
                 error: "db_error".into(),
                 details: None,
             });
         }
+        let verification_link = build_email_verification_link(&state.app_base_url, &pending_token);
         return match send_verification_email(state.get_ref(), &email, &verification_link).await {
             Ok(email_sent) => HttpResponse::Created().json(StatusResponse {
                 status: if email_sent {
@@ -435,6 +477,7 @@ pub async fn register(
             password_hash,
             handle,
             verification_token_hash,
+            verification_token_ciphertext,
             verification_expires_at
          ) VALUES (
             fiestaaa_encrypt_text($1),
@@ -442,13 +485,15 @@ pub async fn register(
             $2,
             $3,
             $4,
-            $5
+            fiestaaa_encrypt_text($5),
+            $6
          )",
     )
     .bind(&email)
     .bind(&hash)
     .bind(&handle)
     .bind(&verification_token_hash)
+    .bind(&verification_token)
     .bind(verification_expires_at)
     .execute(&mut *tx)
     .await;
@@ -462,6 +507,8 @@ pub async fn register(
                 });
             }
 
+            let verification_link =
+                build_email_verification_link(&state.app_base_url, &verification_token);
             match send_verification_email(state.get_ref(), &email, &verification_link).await {
                 Ok(email_sent) => HttpResponse::Created().json(StatusResponse {
                     status: if email_sent {
@@ -1476,6 +1523,7 @@ pub async fn login(
     let auth_row = match fetch_user_auth(&state.db, &payload.identifier).await {
         Ok(Some(row)) => row,
         Ok(None) => {
+            verify_password_for_missing_user(&payload.password);
             observability::record_auth_error("invalid_credentials");
             return HttpResponse::Unauthorized().json(ErrorResponse {
                 error: "invalid_credentials".into(),
@@ -1528,7 +1576,18 @@ pub async fn login(
 
 #[cfg(test)]
 mod tests {
-    use super::{google_subject, json_truthy, normalize_provider_email};
+    use super::{
+        google_subject, is_valid_registration_email, json_truthy, normalize_provider_email,
+    };
+
+    #[test]
+    fn registration_email_validation_rejects_malformed_addresses() {
+        assert!(is_valid_registration_email("member@example.com"));
+        assert!(!is_valid_registration_email("member@example"));
+        assert!(!is_valid_registration_email("two@@example.com"));
+        assert!(!is_valid_registration_email("space @example.com"));
+        assert!(!is_valid_registration_email("member@-example.com"));
+    }
 
     #[test]
     fn normalize_provider_email_trims_and_lowercases() {

@@ -226,7 +226,9 @@ async fn fetch_carpool_views(
     let sql = select_carpools_sql(suffix);
     let mut statement = sqlx::query_as::<_, Carpool>(AssertSqlSafe(sql)).bind(event_id);
     if let Some(page) = page {
-        statement = statement.bind(page.after_id.unwrap_or(0)).bind(page.limit);
+        statement = statement
+            .bind(page.after_id.unwrap_or(0))
+            .bind(page.fetch_limit());
     }
     let carpools = statement.fetch_all(db).await.map_err(|_| {
         HttpResponse::InternalServerError().json(ErrorResponse {
@@ -491,6 +493,9 @@ pub async fn create_carpool(
     };
 
     if let Err(resp) = ensure_event_member(&req, state.get_ref(), *event_id).await {
+        return resp;
+    }
+    if let Err(resp) = ensure_event_writable(&state.db, *event_id).await {
         return resp;
     }
 

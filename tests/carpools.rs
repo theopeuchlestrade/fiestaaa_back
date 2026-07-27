@@ -361,6 +361,66 @@ async fn create_carpool_validates_payload() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
+#[tokio::test]
+async fn create_carpool_rejects_finished_events() -> Result<(), Box<dyn Error>> {
+    let Some(pool) = obtain_pool().await else {
+        eprintln!("Skipping carpools tests: FIESTAAA_SKIP_DB_TESTS=1");
+        return Ok(());
+    };
+    let _guard = DB_LOCK.lock().await;
+    reset_tables(
+        &pool,
+        &[
+            "events",
+            "users",
+            "carpools",
+            "carpool_passengers",
+            "invitations",
+        ],
+    )
+    .await?;
+
+    let secret = "secret";
+    let owner_email = "owner@example.com";
+    let event_id = seed_event(&pool, owner_email).await?;
+    sqlx::query(
+        "UPDATE events
+         SET date_event = CURRENT_DATE - 2,
+             start_time = TIME '20:00:00',
+             end_date = NULL,
+             end_time = NULL
+         WHERE event_id = $1",
+    )
+    .bind(event_id)
+    .execute(&pool)
+    .await?;
+
+    let state = build_state(pool.clone(), secret, &[]);
+    let app = test::init_service(App::new().app_data(state).configure(routes::configure)).await;
+    let token = make_token(secret, owner_email).expect("token");
+    let response = test::call_service(
+        &app,
+        test::TestRequest::post()
+            .uri(&format!("/events/{event_id}/carpools"))
+            .insert_header(("Authorization", format!("Bearer {token}")))
+            .set_json(&CarpoolPayload {
+                origin: "Paris".into(),
+                origin_latitude: None,
+                origin_longitude: None,
+                depart_at: future_departure(),
+                seats_total: 3,
+                notes: None,
+            })
+            .to_request(),
+    )
+    .await;
+
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    let error: TestErrorResponse = test::read_body_json(response).await;
+    assert_eq!(error.error, "event_finished");
+    Ok(())
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Test: create_carpool_success
 // ─────────────────────────────────────────────────────────────────────────────

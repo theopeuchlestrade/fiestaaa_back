@@ -659,7 +659,7 @@ async fn insert_invitation_for_user(
          ON CONFLICT (event_id, user_id)
          DO UPDATE SET status = 'Waiting', date_invi = NOW()
          WHERE invitations.status = 'Expired'
-         RETURNING event_id, user_id, $3 AS email, $4 AS handle, $5 AS avatar_url, status, date_invi,
+         RETURNING invitation_id, event_id, user_id, $3 AS email, $4 AS handle, $5 AS avatar_url, status, date_invi,
                    (SELECT name_event FROM events WHERE event_id = $1) AS event_name",
     )
     .bind(event_id)
@@ -716,7 +716,8 @@ pub async fn list_event_invitations(
     } else {
         "SELECT * FROM ({union}) page ORDER BY page.date_invi DESC"
     };
-    let union = "SELECT e.event_id,
+    let union = "SELECT NULL::BIGINT AS invitation_id,
+                e.event_id,
                 u_owner.id AS user_id,
                 fiestaaa_decrypt_text(u_owner.email_ciphertext) AS email,
                 u_owner.handle AS handle,
@@ -728,7 +729,8 @@ pub async fn list_event_invitations(
          LEFT JOIN users u_owner ON u_owner.id = e.owner_user_id
          WHERE e.event_id = $1 AND e.deleted_at IS NULL
          UNION ALL
-         SELECT i.event_id,
+         SELECT i.invitation_id,
+                i.event_id,
                 u.id AS user_id,
                 fiestaaa_decrypt_text(u.email_ciphertext) AS email,
                 u.handle,
@@ -749,7 +751,8 @@ pub async fn list_event_invitations(
            AND u.id <> e.owner_user_id
            AND e.deleted_at IS NULL
          UNION ALL
-         SELECT pending.event_id,
+         SELECT NULL::BIGINT AS invitation_id,
+                pending.event_id,
                 NULL::BIGINT AS user_id,
                 pending.email AS email,
                 NULL::TEXT AS handle,
@@ -774,7 +777,7 @@ pub async fn list_event_invitations(
     let sql = suffix.replace("{union}", union);
     let mut statement = sqlx::query_as::<_, Invitation>(sqlx::AssertSqlSafe(sql)).bind(*event_id);
     if let Some(page) = pagination {
-        statement = statement.bind(page.after_id).bind(page.limit);
+        statement = statement.bind(page.after_id).bind(page.fetch_limit());
     }
     match statement.fetch_all(&state.db).await {
         Ok(mut list) => {
@@ -943,7 +946,7 @@ pub async fn create_invitation(
 
 #[utoipa::path(
     delete,
-    path = "/events/{event_id}/invitations/{email}",
+    path = "/events/{event_id}/invitations/{identifier}",
     tag = "invitations",
     responses(
         (status = 200, description = "Invitation deleted", body = StatusResponse),
@@ -957,34 +960,45 @@ pub async fn delete_invitation(
     req: HttpRequest,
     path: web::Path<(i64, String)>,
 ) -> impl Responder {
-    let (event_id, email) = path.into_inner();
+    let (event_id, identifier) = path.into_inner();
     if let Err(resp) = ensure_event_owner(&req, state.get_ref(), event_id).await {
         return resp;
     }
     if let Err(resp) = ensure_event_writable(&state.db, event_id).await {
         return resp;
     }
-    let owner_email = match fetch_event_owner_email(&state.db, event_id).await {
-        Ok(owner) => owner,
-        Err(resp) => return resp,
-    };
-    if owner_email.eq_ignore_ascii_case(email.trim()) {
-        return HttpResponse::BadRequest().json(ErrorResponse {
-            error: "cannot_remove_owner".into(),
-            details: Some("Le créateur ne peut pas être retiré de l'événement".into()),
-        });
-    }
-    let user = match fetch_user_by_email(&state.db, &email).await {
-        Ok(id) => id,
-        Err(resp) => return resp,
-    };
-
-    match sqlx::query("DELETE FROM invitations WHERE event_id = $1 AND user_id = $2")
+    let deletion = if let Ok(invitation_id) = identifier.parse::<i64>() {
+        sqlx::query(
+            "DELETE FROM invitations
+             WHERE event_id = $1 AND invitation_id = $2",
+        )
         .bind(event_id)
-        .bind(user.id)
+        .bind(invitation_id)
         .execute(&state.db)
         .await
-    {
+    } else {
+        let owner_email = match fetch_event_owner_email(&state.db, event_id).await {
+            Ok(owner) => owner,
+            Err(resp) => return resp,
+        };
+        if owner_email.eq_ignore_ascii_case(identifier.trim()) {
+            return HttpResponse::BadRequest().json(ErrorResponse {
+                error: "cannot_remove_owner".into(),
+                details: Some("Le créateur ne peut pas être retiré de l'événement".into()),
+            });
+        }
+        let user = match fetch_user_by_email(&state.db, &identifier).await {
+            Ok(id) => id,
+            Err(resp) => return resp,
+        };
+        sqlx::query("DELETE FROM invitations WHERE event_id = $1 AND user_id = $2")
+            .bind(event_id)
+            .bind(user.id)
+            .execute(&state.db)
+            .await
+    };
+
+    match deletion {
         Ok(result) if result.rows_affected() == 0 => HttpResponse::NotFound().json(ErrorResponse {
             error: "invitation_not_found".into(),
             details: None,
@@ -1043,7 +1057,8 @@ pub async fn list_my_invitations(
         " ORDER BY i.date_invi DESC, i.event_id DESC"
     };
     let sql = format!(
-        "SELECT i.event_id,
+        "SELECT i.invitation_id,
+                i.event_id,
                 u.id AS user_id,
                 fiestaaa_decrypt_text(u.email_ciphertext) AS email,
                 u.handle,
@@ -1065,7 +1080,7 @@ pub async fn list_my_invitations(
     );
     let mut statement = sqlx::query_as::<_, Invitation>(sqlx::AssertSqlSafe(sql)).bind(&email);
     if let Some(page) = pagination {
-        statement = statement.bind(page.after_id).bind(page.limit);
+        statement = statement.bind(page.after_id).bind(page.fetch_limit());
     }
     match statement.fetch_all(&state.db).await {
         Ok(list) => match pagination {
@@ -1178,9 +1193,10 @@ pub async fn respond_invitation(
             UPDATE invitations 
             SET status = $1 
             WHERE event_id = $2 AND user_id = $3
-            RETURNING event_id, user_id, status, date_invi
+            RETURNING invitation_id, event_id, user_id, status, date_invi
          )
          SELECT
+            ui.invitation_id,
             ui.event_id,
             ui.user_id,
             fiestaaa_decrypt_text(u.email_ciphertext) AS email,
