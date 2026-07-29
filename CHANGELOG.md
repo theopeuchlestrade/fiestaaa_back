@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Published a versioned OpenAPI document and verify it against the generated
+  backend contract in CI.
+- Added stable public invitation identifiers while retaining the deprecated
+  email-based flow for one mobile compatibility window.
+
+### Changed
+- Bounded production pagination to 50 items by default and 100 maximum.
+- Made pending registrations idempotent until their verification token expires
+  and strengthened production registration validation.
+- Made notification deduplication expire according to its configured TTL and
+  purge completed outbox entries after their retention window.
+
+### Fixed
+- Made Redis rate limiting and notification deduplication atomic so keys cannot
+  be left without an expiration after an interrupted operation.
+- Rejected carpool creation for completed events and stopped returning empty
+  HTTP 200 responses when event or expense SQL operations fail.
+
+### Dependencies
+- Updated Rust dependencies, the Rust and Debian container images, and GitHub
+  Actions pins.
+
 ## [0.2.1] - 2026-07-13
 
 ### Added
