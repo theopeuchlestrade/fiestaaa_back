@@ -32,12 +32,10 @@ async fn main() -> std::io::Result<()> {
     let _sentry_guard = cfg.sentry_dsn.as_ref().map(|dsn| {
         sentry::init((
             dsn.as_str(),
-            sentry::ClientOptions {
-                release: sentry::release_name!(),
-                environment: Some(cfg.sentry_environment.clone().into()),
-                traces_sample_rate: cfg.sentry_traces_sample_rate,
-                ..Default::default()
-            },
+            sentry::ClientOptions::new()
+                .maybe_release(sentry::release_name!())
+                .environment(cfg.sentry_environment.clone())
+                .traces_sample_rate(cfg.sentry_traces_sample_rate),
         ))
     });
     let pool = db::connect_and_migrate(
