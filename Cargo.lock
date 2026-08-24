@@ -61,9 +61,9 @@ dependencies = [
 
 [[package]]
 name = "actix-files"
-version = "0.6.10"
+version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "df8c4f30e3272d7c345f88ae0aac3848507ef5ba871f9cc2a41c8085a0f0523b"
+checksum = "ed87c765e9e5be096cc29b43d04b932209892ec871d05fe255f0ae1ccfed9a06"
 dependencies = [
  "actix-http",
  "actix-service",
@@ -2389,9 +2389,9 @@ dependencies = [
 
 [[package]]
 name = "num-bigint"
-version = "0.4.6"
+version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a5e44f723f1133c9deac646763579fdb3ac745e418f2a7af9cd0c431da1f20b9"
+checksum = "93e7820bc0a80a0238e650327316f929ba18d5be054b647490a3a6a339f3e7c0"
 dependencies = [
  "num-integer",
  "num-traits",
@@ -3129,9 +3129,9 @@ checksum = "63b8176103e19a2643978565ca18b50549f6101881c443590420e4dc998a3c69"
 
 [[package]]
 name = "redis"
-version = "1.5.0"
+version = "1.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3257df217f7eab0044627a268c9cc6cdb60c0c421c88f83ac41c4e31520b6b84"
+checksum = "e37a4ca5c6ca42aa3e6df2fd32b987a65d32a4c2159a6f3fe0fd1df306a2658f"
 dependencies = [
  "arcstr",
  "async-lock",
@@ -4580,9 +4580,9 @@ checksum = "e2eebbbfe4093922c2b6734d7c679ebfebd704a0d7e56dfcb0d05818ce28977d"
 
 [[package]]
 name = "uuid"
-version = "1.24.0"
+version = "1.24.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bf3923a6f5c4c6382e0b653c4117f48d631ea17f38ed86e2a828e6f7412f5239"
+checksum = "2cefc03fd367c0c6d4305de1b312cf00248c4114f4a0418ce6a6af769e3b0bd9"
 dependencies = [
  "getrandom 0.4.2",
  "js-sys",
@@ -4591,10 +4591,19 @@ dependencies = [
 ]
 
 [[package]]
-name = "v_htmlescape"
-version = "0.15.8"
+name = "v_escape-base"
+version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4e8257fbc510f0a46eb602c10215901938b5c2a7d5e70fc11483b1d3c9b5b18c"
+checksum = "f1212fce830b75af194b578e55b3db9049f2c8c45f58d397fb25602fdb50fb3d"
+
+[[package]]
+name = "v_htmlescape"
+version = "0.17.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "befb3d53c9e3ec641417685896cbc8cc5bd264d6a2e190c56aaef1af24740d99"
+dependencies = [
+ "v_escape-base",
+]
 
 [[package]]
 name = "valuable"
