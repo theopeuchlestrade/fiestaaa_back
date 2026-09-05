@@ -5,7 +5,7 @@ use actix_web::{
 };
 use argon2::{
     Argon2,
-    password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString, rand_core::OsRng},
+    password_hash::{PasswordHasher, PasswordVerifier, phc::PasswordHash},
 };
 use chrono::{DateTime, Utc};
 use jsonwebtoken::{
@@ -51,9 +51,8 @@ pub fn now_ts() -> u64 {
 }
 
 pub fn hash_password(password: &str) -> Result<String, AuthError> {
-    let salt = SaltString::generate(&mut OsRng);
     Argon2::default()
-        .hash_password(password.as_bytes(), &salt)
+        .hash_password(password.as_bytes())
         .map(|h| h.to_string())
         .map_err(|_| AuthError::HashFailed)
 }
@@ -514,6 +513,16 @@ mod tests {
 
         assert!(verify_password(&hash, password));
         assert!(!verify_password(&hash, "wrong-password"));
+        assert_ne!(hash, hash_password(password).expect("fresh random salt"));
+    }
+
+    #[test]
+    fn password_verification_accepts_legacy_phc_hashes() {
+        // Argon2 0.5's PHC test vector: stored hashes must survive the upgrade.
+        let hash = "$argon2id$v=19$m=65536,t=2,p=1$c29tZXNhbHQ$CTFhFdXPJO1aFaMaO6Mm5c8y7cJHAph8ArZWb2GRPPc";
+        assert!(verify_password(hash, "password"));
+        assert!(!verify_password(hash, "wrong-password"));
+        assert!(!verify_password("invalid-phc-hash", "password"));
     }
 
     #[test]

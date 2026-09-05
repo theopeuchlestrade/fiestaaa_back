@@ -9,7 +9,9 @@ repository = "https://github.com/theopeuchlestrade/fiestaaa_back"
 readme = "README.md"
 
 [dependencies]
-actix-web = "4"
+# The API uses plain HTTP/1 behind the reverse proxy. Keep HTTP/2 disabled
+# to avoid Actix's vulnerable h2 0.3 dependency (RUSTSEC-2026-0258).
+actix-web = { version = "4", default-features = false, features = ["macros", "compress-brotli", "compress-gzip", "compress-zstd", "cookies", "unicode", "compat", "ws"] }
 actix-files = "0.7"
 actix-multipart = "0.8"
 actix-web-actors = "4"
