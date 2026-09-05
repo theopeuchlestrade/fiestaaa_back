@@ -1,0 +1,4 @@
+# Actix's HttpResponse is now 128 bytes. Keep returning its concrete response
+# from validation helpers without allocating a Box on each rejected request.
+# Continue flagging error types larger than that framework response.
+large-error-threshold = 129
