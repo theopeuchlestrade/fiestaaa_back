@@ -12,7 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - Preserved verification of existing password hashes when migrating to Argon2 0.6.
 - Removed the unused server HTTP/2 feature and upgraded outbound HTTP/2 dependencies to address RUSTSEC-2026-0258.
-- Replaced the withdrawn chacha20 dependency release.
+- Replaced withdrawn chacha20 and DER parser dependency releases.
 
 ### Dependencies
 - Updated Rust dependencies, Rust and Debian container images, and CI actions.
