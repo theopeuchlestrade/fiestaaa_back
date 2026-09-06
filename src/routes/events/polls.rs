@@ -283,11 +283,17 @@ pub async fn vote_event_poll(
         return resp;
     }
 
+    let mut tx = match state.db.begin().await {
+        Ok(tx) => tx,
+        Err(_) => return server_error(),
+    };
+
+    // Lock the parent even when this user has no votes yet.
     let poll_row = sqlx::query(
-        "SELECT event_id, allow_multiple, expires_at FROM event_polls WHERE poll_id = $1",
+        "SELECT event_id, allow_multiple, expires_at FROM event_polls WHERE poll_id = $1 FOR UPDATE",
     )
     .bind(poll_id)
-    .fetch_optional(&state.db)
+    .fetch_optional(&mut *tx)
     .await
     .map_err(|_| server_error());
 
@@ -343,7 +349,7 @@ pub async fn vote_event_poll(
     let valid_option_ids =
         sqlx::query_scalar::<_, i64>("SELECT option_id FROM event_poll_options WHERE poll_id = $1")
             .bind(poll_id)
-            .fetch_all(&state.db)
+            .fetch_all(&mut *tx)
             .await;
 
     let valid_option_ids = match valid_option_ids {
@@ -358,11 +364,6 @@ pub async fn vote_event_poll(
             details: Some("Option inconnue pour ce sondage".into()),
         });
     }
-
-    let mut tx = match state.db.begin().await {
-        Ok(tx) => tx,
-        Err(_) => return server_error(),
-    };
 
     if (sqlx::query("DELETE FROM event_poll_votes WHERE poll_id = $1 AND user_id = $2")
         .bind(poll_id)
