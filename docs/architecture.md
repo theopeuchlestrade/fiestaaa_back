@@ -34,3 +34,20 @@ production-style container builds, public CI, and security checks. Official
 production deployment, backups, observability, secret rotation, incident
 response, and rollback runbooks are maintained outside this public source
 repository.
+
+## Realtime Recovery
+
+The WebSocket sends `{"type":"realtime.ready"}` after all Redis subscriptions
+are active. Clients should reload their subscribed resources on this message,
+including on the first connection, because Redis PubSub does not replay changes
+missed while disconnected. Existing change messages are unchanged.
+
+Redis connection/subscription failures and ended streams close the WebSocket;
+clients reconnect with backoff. Closing a socket cancels its Redis work. When
+Redis is not configured, the existing `realtime_disabled` warning remains.
+Deploy this backend before the frontend that consumes readiness messages.
+
+Redis integration tests require an isolated `TEST_REDIS_URL` (CI supplies one).
+These tests disconnect PubSub clients on that server; never point them at a
+shared development or production Redis. Database tests continue to use the
+isolated `TEST_DATABASE_URL`.
