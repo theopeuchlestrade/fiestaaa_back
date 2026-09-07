@@ -31,6 +31,7 @@ pub(crate) mod address;
 pub(crate) mod core;
 pub(crate) mod expenses;
 pub(crate) mod items;
+pub(crate) mod listing;
 pub(crate) mod polls;
 pub(crate) mod share_links;
 

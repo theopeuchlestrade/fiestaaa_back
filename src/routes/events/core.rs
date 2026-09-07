@@ -2,6 +2,7 @@ use actix_web::{Responder, delete, get, patch, post, put, web};
 use log::info;
 use sqlx::{AssertSqlSafe, Error};
 
+use super::listing::{EventListQuery, EventSearch};
 use super::*;
 
 #[utoipa::path(
@@ -54,6 +55,7 @@ pub async fn get_event(
     get,
     path = "/events",
     tag = "events",
+    params(EventListQuery),
     responses(
         (status = 200, description = "Event list", body = [Event]),
         (status = 401, description = "Authentication required", body = ErrorResponse),
@@ -64,7 +66,7 @@ pub async fn get_event(
 pub async fn list_events(
     state: web::Data<AppState>,
     req: HttpRequest,
-    query: web::Query<PaginationQuery>,
+    query: web::Query<EventListQuery>,
 ) -> impl Responder {
     let email = match claims_email(&req, state.get_ref()).await {
         Ok(e) => e,
@@ -74,7 +76,18 @@ pub async fn list_events(
         Ok(id) => id,
         Err(resp) => return resp,
     };
-    let pagination = match page_request(&query) {
+    let search = match EventSearch::parse(&query) {
+        Ok(value) => value,
+        Err(response) => return response,
+    };
+    let pagination = match page_request(&PaginationQuery {
+        limit: query.limit,
+        cursor: if search.is_some() {
+            None
+        } else {
+            query.cursor.clone()
+        },
+    }) {
         Ok(value) => value,
         Err(response) => return response,
     };
@@ -99,6 +112,9 @@ pub async fn list_events(
                   )
              )
            )";
+    if let Some(search) = search {
+        return search.fetch(state.get_ref(), user_id, from).await;
+    }
     let suffix = if pagination.is_some() {
         format!("{from} AND e.event_id > $2 ORDER BY e.event_id LIMIT $3")
     } else {
