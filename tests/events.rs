@@ -1728,3 +1728,128 @@ async fn event_validates_empty_fields() -> Result<(), Box<dyn Error>> {
 
     Ok(())
 }
+
+#[tokio::test]
+async fn event_search_filters_and_chronological_cursor() -> Result<(), Box<dyn Error>> {
+    let Some(pool) = obtain_pool().await else {
+        return Ok(());
+    };
+    let _guard = DB_LOCK.lock().await;
+    reset_tables(&pool, &["events", "users"]).await?;
+    let email = "search_owner@example.com";
+    seed_user(&pool, email).await?;
+    let viewer_id = seed_user(&pool, "search_viewer@example.com").await?;
+    let token = admin_token("secret", email).unwrap();
+    let viewer = admin_token("secret", "search_viewer@example.com").unwrap();
+    let app = test::init_service(
+        App::new()
+            .app_data(build_state(pool.clone(), "secret", &[]))
+            .configure(routes::configure),
+    )
+    .await;
+    let mut ids = Vec::new();
+    for (name, date) in [
+        ("Party late", "2099-07-03"),
+        ("Party%_ early", "2099-07-01"),
+        ("Party equal", "2099-07-01"),
+        ("Party past", "2020-07-01"),
+    ] {
+        let response = test::call_service(&app, test::TestRequest::post().uri("/events").insert_header(("Authorization", format!("Bearer {token}"))).set_json(serde_json::json!({
+            "name_event": name, "description": "Search fixture", "date_event": date, "start_time": "20:00:00", "timezone": "Europe/Paris", "address": "Paris"
+        })).to_request()).await;
+        assert_eq!(response.status(), StatusCode::CREATED);
+        let event: Event = test::read_body_json(response).await;
+        ids.push(event.event_id);
+    }
+    seed_invitation(&pool, ids[0], viewer_id, "Declined").await?;
+    seed_invitation(&pool, ids[1], viewer_id, "Waiting").await?;
+    seed_invitation(&pool, ids[2], viewer_id, "Expired").await?;
+    let uri = "/events?view=upcoming&q=PARTY&sort=start_asc&limit=1";
+    let response = test::call_service(
+        &app,
+        test::TestRequest::get()
+            .uri(uri)
+            .insert_header(("Authorization", format!("Bearer {token}")))
+            .to_request(),
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let cursor = response
+        .headers()
+        .get("x-next-cursor")
+        .unwrap()
+        .to_str()?
+        .to_owned();
+    let first: Vec<Event> = test::read_body_json(response).await;
+    assert_eq!(first[0].event_id, ids[1]);
+    let suffix = serde_urlencoded::to_string([("cursor", cursor.as_str())])?;
+    let response = test::call_service(
+        &app,
+        test::TestRequest::get()
+            .uri(&format!("{uri}&{suffix}"))
+            .insert_header(("Authorization", format!("Bearer {token}")))
+            .to_request(),
+    )
+    .await;
+    let second: Vec<Event> = test::read_body_json(response).await;
+    assert_eq!(second[0].event_id, ids[2]);
+    for (query, auth, expected) in [
+        ("view=upcoming&q=%25_", &token, vec![ids[1]]),
+        (
+            "view=owned&sort=start_desc",
+            &token,
+            vec![ids[0], ids[2], ids[1], ids[3]],
+        ),
+        ("view=past", &token, vec![ids[3]]),
+        ("view=invitations", &viewer, vec![ids[1]]),
+        ("view=owned", &viewer, vec![]),
+        ("view=all", &viewer, vec![ids[1]]),
+    ] {
+        let response = test::call_service(
+            &app,
+            test::TestRequest::get()
+                .uri(&format!("/events?{query}"))
+                .insert_header(("Authorization", format!("Bearer {auth}")))
+                .to_request(),
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::OK);
+        let rows: Vec<Event> = test::read_body_json(response).await;
+        assert_eq!(
+            rows.iter().map(|e| e.event_id).collect::<Vec<_>>(),
+            expected,
+            "{query}"
+        );
+    }
+    // Old clients still receive numeric cursors and identifier ordering.
+    let response = test::call_service(
+        &app,
+        test::TestRequest::get()
+            .uri("/events?limit=1")
+            .insert_header(("Authorization", format!("Bearer {token}")))
+            .to_request(),
+    )
+    .await;
+    assert_eq!(
+        response.headers().get("x-next-cursor").unwrap().to_str()?,
+        ids[0].to_string()
+    );
+    let response = test::call_service(
+        &app,
+        test::TestRequest::get()
+            .uri(&format!("/events?view=past&{suffix}"))
+            .insert_header(("Authorization", format!("Bearer {token}")))
+            .to_request(),
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    let response = test::call_service(
+        &app,
+        test::TestRequest::get()
+            .uri("/events?view=all")
+            .to_request(),
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    Ok(())
+}
