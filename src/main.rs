@@ -72,6 +72,7 @@ async fn main() -> std::io::Result<()> {
     );
     notifications::NotificationOutboxWorker::new(pool.clone(), notifications.clone()).start();
     let state = web::Data::new(state::AppState {
+        apple_config: fiestaaa_back::apple::AppleConfig::from_env(),
         db: pool,
         jwt_secret: cfg.jwt_secret.clone(),
         admin_emails,
@@ -108,6 +109,8 @@ async fn main() -> std::io::Result<()> {
         ),
         metrics_bearer_token: cfg.metrics_bearer_token.clone(),
     });
+
+    fiestaaa_back::apple::start_worker(state.clone());
 
     // Server
     let enable_swagger_ui = cfg.enable_swagger_ui;

@@ -14,6 +14,7 @@ use std::{error::Error, time::Duration};
 
 fn make_token(secret: &str, email: &str, handle: &str) -> Option<String> {
     let claims = Claims {
+        session_version: 0,
         sub: email.to_string(),
         exp: (now_ts() + 3600) as usize,
         handle: handle.to_string(),

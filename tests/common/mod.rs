@@ -137,6 +137,7 @@ fn build_state_with_avatar_storage_and_oauth_config(
     let notifications = NotificationService::new(None, None, None, None, http_client.clone(), 300);
 
     web::Data::new(AppState {
+        apple_config: fiestaaa_back::apple::AppleConfig::default(),
         db: pool,
         jwt_secret: secret.to_string(),
         admin_emails: admins,

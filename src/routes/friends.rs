@@ -355,6 +355,10 @@ pub async fn create_friend_request(
         Err(resp) => return resp,
     };
 
+    if let Err(r) = super::safety::ensure_contact(&state.db, requester.id, target.id).await {
+        return r;
+    }
+
     if target.id == requester.id {
         return HttpResponse::BadRequest().json(ErrorResponse {
             error: "cannot_friend_self".into(),

@@ -38,6 +38,7 @@ fn make_token(secret: &str, email: &str) -> Option<String> {
         .unwrap_or("user")
         .to_string();
     let claims = Claims {
+        session_version: 0,
         sub: email.to_string(),
         exp: (now_ts() + 3600) as usize,
         handle,

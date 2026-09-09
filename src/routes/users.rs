@@ -9,7 +9,7 @@ use uuid::Uuid;
 use crate::{
     auth::{
         build_cleared_session_cookie, extract_active_claims_from_auth,
-        extract_verified_claims_from_auth, revoke_auth_token_from_request, should_secure_cookie,
+        extract_verified_claims_from_auth, should_secure_cookie,
     },
     handles::{handle_available, is_valid_handle, normalize_handle},
     models::{
@@ -72,7 +72,7 @@ fn avatar_storage_path(
     Some(std::path::Path::new(avatar_upload_dir).join(filename))
 }
 
-async fn cleanup_avatar_file(state: &AppState, avatar_url: Option<&str>) {
+pub(crate) async fn cleanup_avatar_file(state: &AppState, avatar_url: Option<&str>) {
     let Some(avatar_url) = avatar_url else {
         return;
     };
@@ -384,18 +384,40 @@ pub async fn delete_account(state: web::Data<AppState>, req: HttpRequest) -> imp
         Err(resp) => return resp,
     };
 
-    if let Err(resp) = revoke_auth_token_from_request(&req, &state.db, &state.jwt_secret).await {
-        return resp;
-    }
-
-    let res = sqlx::query(
-        "DELETE FROM users
-         WHERE fiestaaa_email_matches(email_lookup_hash, $1)
-         RETURNING avatar_url",
+    // Queue encrypted Apple credentials atomically with deletion, independent of Apple uptime.
+    let mut tx = match state.db.begin().await {
+        Ok(t) => t,
+        Err(_) => return HttpResponse::ServiceUnavailable().finish(),
+    };
+    let user_id = match sqlx::query_scalar::<_, i64>(
+        "SELECT id FROM users WHERE fiestaaa_email_matches(email_lookup_hash,$1) FOR UPDATE",
     )
     .bind(&claims.sub)
-    .fetch_optional(&state.db)
-    .await;
+    .fetch_optional(&mut *tx)
+    .await
+    {
+        Ok(Some(id)) => id,
+        _ => return HttpResponse::NotFound().finish(),
+    };
+    let needs_apple = sqlx::query_scalar::<_,bool>("SELECT EXISTS(SELECT 1 FROM oauth_identities WHERE user_id=$1 AND provider='apple') AND NOT EXISTS(SELECT 1 FROM apple_credentials WHERE user_id=$1)")
+        .bind(user_id).fetch_one(&mut *tx).await;
+    match needs_apple {
+        Ok(true) => {
+            return HttpResponse::Conflict()
+                .json(serde_json::json!({"error":"apple_reauthentication_required"}));
+        }
+        Ok(false) => {}
+        Err(_) => return HttpResponse::ServiceUnavailable().finish(),
+    }
+    if sqlx::query("INSERT INTO apple_revocations(client_id,refresh_token_ciphertext) SELECT client_id,refresh_token_ciphertext FROM apple_credentials WHERE user_id=$1")
+        .bind(user_id).execute(&mut *tx).await.is_err() {return HttpResponse::ServiceUnavailable().finish();}
+    let res = sqlx::query("DELETE FROM users WHERE id=$1 RETURNING avatar_url")
+        .bind(user_id)
+        .fetch_optional(&mut *tx)
+        .await;
+    if res.is_err() || tx.commit().await.is_err() {
+        return HttpResponse::ServiceUnavailable().finish();
+    }
 
     match res {
         Ok(Some(row)) => {

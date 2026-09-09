@@ -52,7 +52,7 @@ fn auth_rate_limit_remote(req: &HttpRequest, state: &AppState) -> String {
         .unwrap_or_else(|| "unknown".to_string())
 }
 
-async fn enforce_auth_rate_limit(
+pub(crate) async fn enforce_auth_rate_limit(
     req: &HttpRequest,
     state: &AppState,
     scope: &str,
@@ -205,7 +205,12 @@ async fn resolve_final_handle(
 }
 
 fn build_email_verification_link(base_url: &str, token: &str) -> String {
-    let trimmed = base_url.trim_end_matches('/');
+    let canonical = if base_url.trim_end_matches('/') == "https://fiestaaa.app" {
+        "https://fiestaaa.app/link"
+    } else {
+        base_url
+    };
+    let trimmed = canonical.trim_end_matches('/');
     if trimmed.contains('?') {
         format!("{trimmed}&verifyEmailToken={token}")
     } else {
@@ -880,6 +885,7 @@ pub async fn complete_registration(
 
     let exp = (now_ts() + 24 * 3600) as usize;
     let claims = Claims {
+        session_version: 0,
         sub: inserted_user.get::<String, _>("public_id"),
         handle: final_handle.clone(),
         exp,
@@ -946,6 +952,8 @@ pub async fn oauth_login(
 
 #[derive(Debug, Clone, sqlx::FromRow)]
 struct OAuthUserRow {
+    suspended: bool,
+    session_version: i64,
     id: i64,
     public_id: Uuid,
     email: String,
@@ -1002,7 +1010,7 @@ async fn fetch_oauth_user_by_identity(
         "SELECT u.id,
                 u.public_id,
                 fiestaaa_decrypt_text(u.email_ciphertext) AS email,
-                u.handle
+                u.handle, u.session_version, u.suspended
          FROM oauth_identities oi
          JOIN users u ON u.id = oi.user_id
          WHERE oi.provider = $1
@@ -1040,7 +1048,7 @@ async fn fetch_user_by_email(
         "SELECT id,
                 public_id,
                 fiestaaa_decrypt_text(email_ciphertext) AS email,
-                handle
+                handle, session_version, suspended
          FROM users
          WHERE fiestaaa_email_matches(email_lookup_hash, $1)",
     )
@@ -1074,12 +1082,12 @@ async fn create_oauth_user(
     };
 
     let inserted = sqlx::query_as::<_, OAuthUserRow>(
-        "INSERT INTO users (email_ciphertext, email_lookup_hash, handle, password_hash)
-         VALUES (fiestaaa_encrypt_text($1), fiestaaa_email_lookup($1), $2, $3)
+        "INSERT INTO users (email_ciphertext, email_lookup_hash, handle, password_hash, password_login_enabled)
+         VALUES (fiestaaa_encrypt_text($1), fiestaaa_email_lookup($1), $2, $3, FALSE)
          RETURNING id,
                    public_id,
                    fiestaaa_decrypt_text(email_ciphertext) AS email,
-                   handle",
+                   handle, session_version, suspended",
     )
     .bind(email)
     .bind(&new_handle)
@@ -1314,8 +1322,12 @@ async fn oauth_google(
         Err(resp) => return resp,
     };
 
+    if user.suspended {
+        return HttpResponse::Unauthorized().json(json!({"error":"account_unavailable"}));
+    }
     let exp = (now_ts() + 24 * 3600) as usize;
     let claims = Claims {
+        session_version: user.session_version,
         sub: user.public_id.to_string(),
         handle: user.handle.clone(),
         exp,
@@ -1425,8 +1437,25 @@ async fn oauth_apple(
         Err(resp) => return resp,
     };
 
+    if let Some(code) = payload.authorization_code.as_deref()
+        && let Err(error) = crate::apple::save_code(
+            &state,
+            user.id,
+            &claims,
+            &decoding_key,
+            code,
+            payload.android,
+        )
+        .await
+    {
+        return HttpResponse::ServiceUnavailable().json(json!({"error":error}));
+    }
+    if user.suspended {
+        return HttpResponse::Unauthorized().json(json!({"error":"account_unavailable"}));
+    }
     let exp = (now_ts() + 24 * 3600) as usize;
     let claims = Claims {
+        session_version: user.session_version,
         sub: user.public_id.to_string(),
         handle: user.handle.clone(),
         exp,
@@ -1461,7 +1490,7 @@ struct AppleJwkSet {
     keys: Vec<AppleJwk>,
 }
 
-async fn fetch_apple_decoding_key(
+pub(crate) async fn fetch_apple_decoding_key(
     state: &web::Data<AppState>,
     kid: &str,
 ) -> Option<jsonwebtoken::DecodingKey> {
@@ -1547,8 +1576,19 @@ pub async fn login(
         });
     }
 
+    if sqlx::query("UPDATE users SET password_login_enabled = TRUE WHERE id = $1 AND NOT suspended")
+        .bind(auth_row.id)
+        .execute(&state.db)
+        .await
+        .map(|r| r.rows_affected())
+        .unwrap_or(0)
+        != 1
+    {
+        return HttpResponse::Unauthorized().finish();
+    }
     let exp = (now_ts() + 24 * 3600) as usize;
     let claims = Claims {
+        session_version: auth_row.session_version,
         sub: auth_row.public_id.to_string(),
         handle: auth_row.handle.clone(),
         exp,
