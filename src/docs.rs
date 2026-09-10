@@ -21,6 +21,18 @@ use crate::models::{
 #[derive(OpenApi)]
 #[openapi(
     paths(
+        crate::routes::safety::resolve_user,
+        crate::routes::safety::list_blocks,
+        crate::routes::safety::block,
+        crate::routes::safety::unblock,
+        crate::routes::safety::report,
+        crate::routes::safety::reports,
+        crate::routes::safety::moderate,
+
+        crate::apple::reauthorize,
+        crate::apple::android_callback,
+        crate::routes::account_recovery::request_reset,
+        crate::routes::account_recovery::confirm_reset,
         crate::routes::root::hello,
         crate::routes::root::me,
         crate::routes::auth::register,
@@ -188,7 +200,7 @@ mod tests {
         let document = serde_json::to_string_pretty(&ApiDoc::openapi()).expect("OpenAPI JSON");
         assert_eq!(
             sha256_hex(&document),
-            "e8eb82d8034a36018ff0027d10d566a44c785a182d99021ff81bf7a87b934bdd",
+            "94e3dbb474a8ec31a22f783612e9b951b2a0b16cf315bee00f24126b61381a34",
             "OpenAPI changed: review the generated contract, then update this hash"
         );
     }

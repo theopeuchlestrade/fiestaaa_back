@@ -337,7 +337,12 @@ async fn fetch_event_email_metadata(
 }
 
 fn build_share_link(base_url: &str, token: &Uuid) -> String {
-    let trimmed = base_url.trim_end_matches('/');
+    let canonical = if base_url.trim_end_matches('/') == "https://fiestaaa.app" {
+        "https://fiestaaa.app/link"
+    } else {
+        base_url
+    };
+    let trimmed = canonical.trim_end_matches('/');
     if trimmed.contains('?') {
         format!("{trimmed}&shareToken={token}")
     } else {
@@ -523,6 +528,10 @@ async fn invite_email_target(
         return Ok(accepted_email_invitation_response());
     }
 
+    let blocked=sqlx::query_scalar::<_,bool>("SELECT EXISTS(SELECT 1 FROM users u JOIN events e ON e.event_id=$1 WHERE fiestaaa_email_matches(u.email_lookup_hash,$2) AND fiestaaa_contact_blocked(e.owner_user_id,u.id))").bind(event_id).bind(&normalized_invitee).fetch_one(&state.db).await.map_err(|_|HttpResponse::ServiceUnavailable().finish())?;
+    if blocked {
+        return Ok(accepted_email_invitation_response());
+    }
     let event = fetch_event_email_metadata(&state.db, event_id).await?;
 
     let already_invited = sqlx::query_scalar::<_, bool>(

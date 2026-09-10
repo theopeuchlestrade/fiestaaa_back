@@ -184,6 +184,7 @@ pub struct UserAuthRow {
     pub email: String,
     pub handle: String,
     pub password_hash: String,
+    pub session_version: i64,
 }
 
 #[derive(Debug, Clone, sqlx::FromRow)]
@@ -194,10 +195,13 @@ struct ActiveUserIdentityRow {
     pub handle: String,
     pub avatar_url: Option<String>,
     pub revoked: bool,
+    pub session_version: i64,
+    pub suspended: bool,
 }
 
 #[derive(Debug, Clone)]
 pub struct AuthenticatedUser {
+    pub session_version: i64,
     pub id: i64,
     pub public_id: Uuid,
     pub email: String,
@@ -217,7 +221,7 @@ pub async fn fetch_user_auth(
                     public_id,
                     fiestaaa_decrypt_text(email_ciphertext) AS email,
                     handle,
-                    password_hash
+                    password_hash, session_version
              FROM users
              WHERE fiestaaa_email_matches(email_lookup_hash, $1)",
         )
@@ -231,7 +235,7 @@ pub async fn fetch_user_auth(
                     public_id,
                     fiestaaa_decrypt_text(email_ciphertext) AS email,
                     handle,
-                    password_hash
+                    password_hash, session_version
              FROM users
              WHERE lower(handle)=lower($1)",
         )
@@ -333,7 +337,8 @@ async fn find_active_user_by_subject_and_token(
                     fiestaaa_decrypt_text(u.email_ciphertext) AS email,
                     u.handle,
                     u.avatar_url,
-                    EXISTS(
+                    u.session_version, u.suspended,
+                EXISTS(
                         SELECT 1 FROM revoked_auth_tokens r WHERE r.token_hash = $2
                     ) AS revoked
              FROM users u
@@ -355,6 +360,7 @@ async fn find_active_user_by_subject_and_token(
                 fiestaaa_decrypt_text(u.email_ciphertext) AS email,
                 u.handle,
                 u.avatar_url,
+                u.session_version, u.suspended,
                 EXISTS(
                     SELECT 1 FROM revoked_auth_tokens r WHERE r.token_hash = $2
                 ) AS revoked
@@ -427,6 +433,7 @@ pub async fn extract_verified_claims_from_auth(
     extract_authenticated_user(req, db, secret)
         .await
         .map(|user| Claims {
+            session_version: user.session_version,
             sub: user.email,
             handle: user.handle,
             exp: user.exp,
@@ -454,13 +461,14 @@ pub async fn extract_authenticated_user(
             details: None,
         }));
     };
-    if user.revoked {
+    if user.revoked || user.suspended || user.session_version != claims.session_version {
         return Err(HttpResponse::Unauthorized().json(ErrorResponse {
             error: "revoked_token".into(),
             details: None,
         }));
     }
     Ok(AuthenticatedUser {
+        session_version: user.session_version,
         id: user.id,
         public_id: user.public_id,
         email: user.email,
