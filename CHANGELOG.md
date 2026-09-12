@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Allow recipients of active pending invitations to read event details before accepting, while keeping collaborative content restricted to accepted members.
+
 ### Added
 
 - Added single-use password recovery and server-side session invalidation.
