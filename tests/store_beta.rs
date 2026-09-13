@@ -212,6 +212,19 @@ async fn block_cancels_friendship_and_denies_both_directions_and_private_reports
             .await
             .unwrap();
     assert_eq!(links, 0, "Pending targeted links must be cancelled");
+    let response = test::call_service(
+        &app,
+        test::TestRequest::post()
+            .uri(&format!("/events/{event}/invitations"))
+            .insert_header(("Authorization", format!("Bearer {ta}")))
+            .set_json(json!({"identifier":"bob_test"}))
+            .to_request(),
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    let body: serde_json::Value = test::read_body_json(response).await;
+    assert_eq!(body["error"], "contact_unavailable");
+
     assert!(sqlx::query("INSERT INTO event_share_tokens(token_hash,event_id,expires_at,target_email_lookup_hash) SELECT 'new-targeted', $1,NOW()+INTERVAL '1 day',email_lookup_hash FROM users WHERE id=$2").bind(event).bind(b).execute(&pool).await.is_err());
     assert!(
         sqlx::query("UPDATE invitations SET status='Waiting' WHERE event_id=$1 AND user_id=$2")
