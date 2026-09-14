@@ -96,6 +96,17 @@ pub async fn save_code(
         .await
         .map_err(|_| "apple_exchange_failed")?;
     if !response.status().is_success() {
+        let status = response.status().as_u16();
+        let body = response.json::<serde_json::Value>().await.ok();
+        // Never log the provider response or any authorization credential.
+        let reason = match body.as_ref().and_then(|v| v["error"].as_str()) {
+            Some("invalid_client") => "invalid_client",
+            Some("invalid_grant") => "invalid_grant",
+            Some("invalid_request") => "invalid_request",
+            Some("unauthorized_client") => "unauthorized_client",
+            _ => "other",
+        };
+        log::warn!("Apple code exchange failed: status={status} reason={reason}");
         return Err("apple_exchange_failed");
     }
     let value: serde_json::Value = response.json().await.map_err(|_| "apple_exchange_failed")?;
