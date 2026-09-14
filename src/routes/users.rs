@@ -411,6 +411,56 @@ pub async fn delete_account(state: web::Data<AppState>, req: HttpRequest) -> imp
     }
     if sqlx::query("INSERT INTO apple_revocations(client_id,refresh_token_ciphertext) SELECT client_id,refresh_token_ciphertext FROM apple_credentials WHERE user_id=$1")
         .bind(user_id).execute(&mut *tx).await.is_err() {return HttpResponse::ServiceUnavailable().finish();}
+    // Serialize cleanup with reservations, which lock the same event-item rows.
+    let affected_items = match sqlx::query_as::<_, (i64, i64)>(
+        "SELECT ei.event_id, ei.item_id FROM events_items ei
+         WHERE ei.created_by=$1 OR EXISTS (
+             SELECT 1 FROM user_items ui WHERE ui.user_id=$1
+             AND ui.event_id=ei.event_id AND ui.item_id=ei.item_id)
+         ORDER BY ei.event_id, ei.item_id FOR UPDATE OF ei",
+    )
+    .bind(user_id)
+    .fetch_all(&mut *tx)
+    .await
+    {
+        Ok(rows) => rows,
+        Err(_) => return HttpResponse::ServiceUnavailable().finish(),
+    };
+    if sqlx::query("DELETE FROM user_items WHERE user_id=$1")
+        .bind(user_id)
+        .execute(&mut *tx)
+        .await
+        .is_err()
+    {
+        return HttpResponse::ServiceUnavailable().finish();
+    }
+    for (event_id, item_id) in &affected_items {
+        if sqlx::query(
+            "UPDATE events_items ei SET quantity=(SELECT COALESCE(SUM(ui.quantity),0)::INT
+             FROM user_items ui WHERE ui.event_id=ei.event_id AND ui.item_id=ei.item_id)
+             WHERE ei.event_id=$1 AND ei.item_id=$2",
+        )
+        .bind(event_id)
+        .bind(item_id)
+        .execute(&mut *tx)
+        .await
+        .is_err()
+        {
+            return HttpResponse::ServiceUnavailable().finish();
+        }
+    }
+    // Personal brings disappear with their author; shared needs remain.
+    if sqlx::query(
+        "DELETE FROM events_items ei USING items i
+         WHERE ei.item_id=i.item_id AND ei.created_by=$1 AND i.item_kind='bring'",
+    )
+    .bind(user_id)
+    .execute(&mut *tx)
+    .await
+    .is_err()
+    {
+        return HttpResponse::ServiceUnavailable().finish();
+    }
     let res = sqlx::query("DELETE FROM users WHERE id=$1 RETURNING avatar_url")
         .bind(user_id)
         .fetch_optional(&mut *tx)
@@ -423,6 +473,18 @@ pub async fn delete_account(state: web::Data<AppState>, req: HttpRequest) -> imp
         Ok(Some(row)) => {
             let avatar_url: Option<String> = row.get("avatar_url");
             cleanup_avatar_file(state.get_ref(), avatar_url.as_deref()).await;
+            let event_ids: std::collections::BTreeSet<_> = affected_items
+                .iter()
+                .map(|(event_id, _)| *event_id)
+                .collect();
+            for event_id in event_ids {
+                crate::realtime::publish_event_type(
+                    &state.redis_client,
+                    event_id,
+                    crate::realtime::event_types::EVENT_ITEMS_CHANGED,
+                )
+                .await;
+            }
             HttpResponse::Ok()
                 .cookie(build_cleared_session_cookie(should_secure_cookie(
                     &req,

@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Release reserved quantities and remove personal brings when deleting an account, preserving other participants’ contributions.
+
 - Return a clear forbidden response when a direct invitation is rejected by a contact block.
 
 - Install the current Debian PCRE2 runtime security update when building the container.

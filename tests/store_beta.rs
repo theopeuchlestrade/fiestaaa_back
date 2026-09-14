@@ -429,3 +429,111 @@ async fn apple_callback_encodes_credentials_and_has_a_fixed_destination() {
     assert!(location.ends_with("package=com.fiestaaa.fiestaaa;scheme=signinwithapple;end"));
     assert!(response.headers().get("Set-Cookie").is_none());
 }
+
+#[actix_web::test]
+async fn deletion_releases_shared_reservations_and_removes_personal_brings() {
+    let Some(pool) = common::obtain_pool().await else {
+        return;
+    };
+    let _lock = common::DB_LOCK.lock().await;
+    common::reset_tables(&pool, &["users"]).await.unwrap();
+    let (a, _, token) = seed(&pool, "delete_data@example.test", "delete_data").await;
+    let (b, _, _) = seed(&pool, "survivor@example.test", "survivor").await;
+    let mut events = Vec::new();
+    for owner in [a, b] {
+        let id: i64 = sqlx::query_scalar("INSERT INTO events(name_event,description,owner_user_id,date_event,start_time,address_ciphertext) VALUES('Deletion test','test',$1,CURRENT_DATE,'12:00',fiestaaa_encrypt_text('test')) RETURNING event_id")
+            .bind(owner).fetch_one(&pool).await.unwrap();
+        events.push(id);
+    }
+    let type_id: i64 = sqlx::query_scalar(
+        "INSERT INTO item_types(type) VALUES('Deletion test') ON CONFLICT(type) DO UPDATE SET type=EXCLUDED.type RETURNING type_id",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let mut items = Vec::new();
+    for kind in ["need", "bring", "bring"] {
+        let id: i64 = sqlx::query_scalar("INSERT INTO items(type_id,name_item,max_quantity,item_kind) VALUES($1,'Deletion item',10,$2) RETURNING item_id")
+            .bind(type_id).bind(kind).fetch_one(&pool).await.unwrap();
+        items.push(id);
+    }
+    for (item, author) in [(items[0], b), (items[1], a), (items[2], b)] {
+        sqlx::query("INSERT INTO events_items(event_id,item_id,max_quantity,quantity,created_by) VALUES($1,$2,10,0,$3)")
+            .bind(events[1]).bind(item).bind(author).execute(&pool).await.unwrap();
+    }
+    for (user, quantity) in [(a, 2), (b, 3)] {
+        sqlx::query(
+            "INSERT INTO user_items(user_id,event_id,item_id,quantity) VALUES($1,$2,$3,$4)",
+        )
+        .bind(user)
+        .bind(events[1])
+        .bind(items[0])
+        .bind(quantity)
+        .execute(&pool)
+        .await
+        .unwrap();
+    }
+    sqlx::query("UPDATE events_items SET quantity=5 WHERE event_id=$1 AND item_id=$2")
+        .bind(events[1])
+        .bind(items[0])
+        .execute(&pool)
+        .await
+        .unwrap();
+    let app = test::init_service(
+        App::new()
+            .app_data(common::build_state(pool.clone(), "test-secret", &[]))
+            .configure(routes::configure),
+    )
+    .await;
+    let response = test::call_service(
+        &app,
+        test::TestRequest::delete()
+            .uri("/me")
+            .insert_header(("Authorization", format!("Bearer {token}")))
+            .to_request(),
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let total: i32 =
+        sqlx::query_scalar("SELECT quantity FROM events_items WHERE event_id=$1 AND item_id=$2")
+            .bind(events[1])
+            .bind(items[0])
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(total, 3);
+    let personal: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM events_items WHERE event_id=$1 AND item_id=$2")
+            .bind(events[1])
+            .bind(items[1])
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(personal, 0);
+    let other: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM events_items WHERE event_id=$1 AND item_id=$2 AND created_by=$3",
+    )
+    .bind(events[1])
+    .bind(items[2])
+    .bind(b)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(other, 1);
+    let contribution: i32 = sqlx::query_scalar(
+        "SELECT quantity FROM user_items WHERE user_id=$1 AND event_id=$2 AND item_id=$3",
+    )
+    .bind(b)
+    .bind(events[1])
+    .bind(items[0])
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(contribution, 3);
+    let owned: i64 = sqlx::query_scalar("SELECT count(*) FROM events WHERE event_id=$1")
+        .bind(events[0])
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(owned, 0);
+}
