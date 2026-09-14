@@ -174,7 +174,7 @@ jobs:
           components: llvm-tools-preview
 
       - name: Install cargo-llvm-cov
-        uses: taiki-e/install-action@v2.87.0
+        uses: taiki-e/install-action@v2.87.11
         with:
           tool: cargo-llvm-cov
 
@@ -214,7 +214,7 @@ jobs:
         uses: dtolnay/rust-toolchain@1.96.0
 
       - name: Install cargo-audit
-        uses: taiki-e/install-action@v2.87.0
+        uses: taiki-e/install-action@v2.87.11
         with:
           tool: cargo-audit
 
