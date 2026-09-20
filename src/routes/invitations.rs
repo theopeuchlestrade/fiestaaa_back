@@ -932,6 +932,15 @@ pub async fn create_invitation(
                         details: None,
                     }),
                     Err(sqlx::Error::Database(db_err))
+                        if db_err.code().as_deref() == Some("23514")
+                            && db_err.message() == "contact_unavailable" =>
+                    {
+                        HttpResponse::Forbidden().json(ErrorResponse {
+                            error: "contact_unavailable".into(),
+                            details: None,
+                        })
+                    }
+                    Err(sqlx::Error::Database(db_err))
                         if db_err.code().as_deref() == Some("23505") =>
                     {
                         HttpResponse::Conflict().json(ErrorResponse {

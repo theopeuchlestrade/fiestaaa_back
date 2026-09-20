@@ -1854,3 +1854,83 @@ async fn event_search_filters_and_chronological_cursor() -> Result<(), Box<dyn E
     assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
     Ok(())
 }
+
+#[tokio::test]
+async fn pending_invitation_can_read_details_but_not_member_content() -> Result<(), Box<dyn Error>>
+{
+    let Some(pool) = obtain_pool().await else {
+        return Ok(());
+    };
+    let _guard = DB_LOCK.lock().await;
+    reset_tables(&pool, &["events", "users"]).await?;
+    seed_user(&pool, "owner@example.com").await?;
+    let guest_id = seed_user(&pool, "guest@example.com").await?;
+    seed_user(&pool, "outsider@example.com").await?;
+    let owner = admin_token("secret", "owner@example.com").unwrap();
+    let guest = admin_token("secret", "guest@example.com").unwrap();
+    let outsider = admin_token("secret", "outsider@example.com").unwrap();
+    let app = test::init_service(
+        App::new()
+            .app_data(build_state(pool.clone(), "secret", &[]))
+            .configure(routes::configure),
+    )
+    .await;
+    let response = test::call_service(&app, test::TestRequest::post().uri("/events")
+        .insert_header(("Authorization", format!("Bearer {owner}")))
+        .set_json(serde_json::json!({"name_event":"Pending invite", "description":"Test", "date_event":"2099-07-03", "start_time":"20:00:00", "timezone":"Europe/Paris", "address":"Paris"})).to_request()).await;
+    assert_eq!(response.status(), StatusCode::CREATED);
+    let event: Event = test::read_body_json(response).await;
+    seed_invitation(&pool, event.event_id, guest_id, "Waiting").await?;
+    for (token, suffix, expected) in [
+        (&guest, "", StatusCode::OK),
+        (&owner, "", StatusCode::OK),
+        (&outsider, "", StatusCode::FORBIDDEN),
+        (&guest, "/items", StatusCode::FORBIDDEN),
+    ] {
+        let response = test::call_service(
+            &app,
+            test::TestRequest::get()
+                .uri(&format!("/events/{}{suffix}", event.event_id))
+                .insert_header(("Authorization", format!("Bearer {token}")))
+                .to_request(),
+        )
+        .await;
+        assert_eq!(response.status(), expected, "suffix {suffix}");
+    }
+    for status in ["Declined", "Expired"] {
+        sqlx::query("UPDATE invitations SET status=$1 WHERE event_id=$2 AND user_id=$3")
+            .bind(status)
+            .bind(event.event_id)
+            .bind(guest_id)
+            .execute(&pool)
+            .await?;
+        let response = test::call_service(
+            &app,
+            test::TestRequest::get()
+                .uri(&format!("/events/{}", event.event_id))
+                .insert_header(("Authorization", format!("Bearer {guest}")))
+                .to_request(),
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    }
+    sqlx::query("UPDATE invitations SET status='Waiting' WHERE event_id=$1 AND user_id=$2")
+        .bind(event.event_id)
+        .bind(guest_id)
+        .execute(&pool)
+        .await?;
+    sqlx::query("UPDATE events SET invitation_deadline = CURRENT_DATE - 1 WHERE event_id=$1")
+        .bind(event.event_id)
+        .execute(&pool)
+        .await?;
+    let response = test::call_service(
+        &app,
+        test::TestRequest::get()
+            .uri(&format!("/events/{}", event.event_id))
+            .insert_header(("Authorization", format!("Bearer {guest}")))
+            .to_request(),
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    Ok(())
+}
