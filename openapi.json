@@ -3325,7 +3325,7 @@
             }
           },
           "400": {
-            "description": "Query too short",
+            "description": "Invalid query length",
             "content": {
               "application/json": {
                 "schema": {
@@ -3336,6 +3336,16 @@
           },
           "401": {
             "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Shared geocoding capacity busy",
             "content": {
               "application/json": {
                 "schema": {

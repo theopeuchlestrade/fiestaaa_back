@@ -51,3 +51,32 @@ Redis integration tests require an isolated `TEST_REDIS_URL` (CI supplies one).
 These tests disconnect PubSub clients on that server; never point them at a
 shared development or production Redis. Database tests continue to use the
 isolated `TEST_DATABASE_URL`.
+
+## Address-search provider safeguards
+
+Address searches are explicit authenticated actions, never typing-driven
+autocomplete. `GEOCODING_BASE_URL` remains configurable server-side without an
+app update. The default provider is public Nominatim; review its usage policy
+before rollout: https://operations.osmfoundation.org/policies/nominatim/.
+
+A shared Redis lease serializes cache misses across API workers and instances.
+An upstream request has a ten-second deadline, no automatic redirects, and a
+64 KiB response limit. The lease lasts 30 seconds while work is in progress;
+success or failure leaves a one-second cooldown. Cancellation leaves the longer
+lease to expire. Busy callers receive HTTP 429 with Retry-After: 1; clients must
+retry explicitly. Missing/unavailable Redis fails closed with HTTP 502, without
+a local fallback or an upstream call. Redis is therefore required for address
+searches even when the rest of the API can run without it.
+
+The shared FIFO cache holds at most 128 response entries, each physically expiring
+after 24 hours. Cache keys hash provider, country configuration, exact trimmed
+query and limit; cache values contain place labels and coordinates. Query length
+is bounded to 256 UTF-8 bytes. Existing request logging records URL paths rather
+than query strings. Do not send confidential data or personal names to the
+provider; the frontend displays privacy guidance and OSM/ODbL attribution.
+
+Use the same Redis service for every API instance using this provider. Do not
+flush/reset the gate during live searches; after a Redis restart, allow existing
+upstream requests to drain before admitting traffic. A lease is a capacity guard,
+not an availability guarantee; increased beta traffic may require a different
+provider. No migration or deployment is part of this change.
