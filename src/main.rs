@@ -78,6 +78,9 @@ async fn main() -> std::io::Result<()> {
         admin_emails,
         trust_proxy_headers: cfg.trust_proxy_headers,
         http_client,
+        geocoding_http_client: fiestaaa_back::build_geocoding_http_client(
+            &cfg.geocoding_user_agent,
+        ),
         geocoding_base_url: cfg.geocoding_base_url.clone(),
         geocoding_country_codes: cfg.geocoding_country_codes.clone(),
         invitation_email_sender: cfg.invitation_email_sender.clone(),
