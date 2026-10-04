@@ -80,3 +80,35 @@ flush/reset the gate during live searches; after a Redis restart, allow existing
 upstream requests to drain before admitting traffic. A lease is a capacity guard,
 not an availability guarantee; increased beta traffic may require a different
 provider. No migration or deployment is part of this change.
+
+## Private recovery decision journal
+
+Migration 012 adds a private, encrypted journal written by PostgreSQL triggers in
+the same transaction as account deletion, session/password/suspension changes,
+avatar removal, event removal/hiding, report closure/retirement, moderation terms
+and Apple revocation queue creation/completion. A failed journal write rolls back
+the action. Journal rows have no foreign keys to deleted accounts and no public
+API route. Payloads use the existing field encryption key; they include only
+recovery state, never email bodies or report comments. Recovery of password state
+uses encrypted password hashes; pending Apple jobs retain already-encrypted
+credentials inside the encrypted payload.
+
+Existing pending Apple jobs receive a stable recovery key derived from their
+client ID and stored token ciphertext. Retries do not create completion records;
+the successful worker's queue deletion does. Do not manually delete pending jobs
+to suppress errors, as that would represent completion in the journal.
+
+Exports must read the whole journal in one consistent database snapshot. Sequence
+numbers can be allocated before another transaction commits; an incremental
+`sequence > last_seen` export could miss an older transaction. The database
+journal alone does not provide off-host durability. Private backup/recovery
+procedures must preserve the latest independent export, verify its lineage and
+freshness, reconcile later decisions against an older restored database, and
+review retention against all recoverable snapshots before retiring metadata.
+The journal's metadata records a retirement horizon so recovery tooling can
+reject an older snapshot after necessary decisions have been retired. A current
+pending-Apple inventory must accompany the export, including jobs whose older
+creation records have been retired; completed remote work must not be replayed
+merely because the selected database still contains an old queue entry.
+Migration 012 cannot reconstruct decisions made before it was installed and does
+not itself activate exports, apply recovery changes or send provider requests.
