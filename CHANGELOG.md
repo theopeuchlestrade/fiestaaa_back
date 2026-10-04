@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- Capture encrypted account, moderation and Apple revocation decisions transactionally for controlled recovery from older backups.
+
 - Require rustls 0.23.45 to address RUSTSEC-2026-0285 (TLS 1.3 encryption-level boundary validation).
 
 ### Fixed
