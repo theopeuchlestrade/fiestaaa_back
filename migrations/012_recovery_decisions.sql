@@ -2,7 +2,8 @@
 -- Whole exports are required: sequence allocation does not imply commit order.
 CREATE TABLE recovery_journal_meta (
     singleton BOOLEAN PRIMARY KEY DEFAULT TRUE CHECK (singleton),
-    public_id UUID NOT NULL UNIQUE DEFAULT gen_random_uuid()
+    public_id UUID NOT NULL UNIQUE DEFAULT gen_random_uuid(),
+    retired_before TIMESTAMPTZ NOT NULL DEFAULT '1970-01-01T00:00:00Z'
 );
 INSERT INTO recovery_journal_meta DEFAULT VALUES;
 CREATE TABLE recovery_decisions (

@@ -105,5 +105,10 @@ journal alone does not provide off-host durability. Private backup/recovery
 procedures must preserve the latest independent export, verify its lineage and
 freshness, reconcile later decisions against an older restored database, and
 review retention against all recoverable snapshots before retiring metadata.
+The journal's metadata records a retirement horizon so recovery tooling can
+reject an older snapshot after necessary decisions have been retired. A current
+pending-Apple inventory must accompany the export, including jobs whose older
+creation records have been retired; completed remote work must not be replayed
+merely because the selected database still contains an old queue entry.
 Migration 012 cannot reconstruct decisions made before it was installed and does
 not itself activate exports, apply recovery changes or send provider requests.
