@@ -275,8 +275,9 @@ impl AppConfig {
         let trust_proxy_headers = read_bool_env("TRUST_PROXY_HEADERS", false)?;
         let geocoding_base_url = std::env::var("GEOCODING_BASE_URL")
             .unwrap_or_else(|_| "https://nominatim.openstreetmap.org".into());
-        let geocoding_user_agent =
-            std::env::var("GEOCODING_USER_AGENT").unwrap_or_else(|_| "fiestaaa-backend/0.1".into());
+        let geocoding_user_agent = std::env::var("GEOCODING_USER_AGENT").unwrap_or_else(|_| {
+            "Fiestaaa/0.5 (+https://fiestaaa.app/support; feedback@fiestaaa.app)".into()
+        });
         let geocoding_country_codes = std::env::var("GEOCODING_COUNTRY_CODES")
             .ok()
             .filter(|v| !v.trim().is_empty());

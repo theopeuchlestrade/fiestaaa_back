@@ -143,6 +143,7 @@ fn build_state_with_avatar_storage_and_oauth_config(
         admin_emails: admins,
         trust_proxy_headers: false,
         http_client,
+        geocoding_http_client: fiestaaa_back::build_geocoding_http_client("Fiestaaa-tests"),
         geocoding_base_url: "https://nominatim.openstreetmap.org".into(),
         geocoding_country_codes: None,
         invitation_email_sender: None,
