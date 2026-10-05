@@ -29,6 +29,10 @@ updates:
       - "docker"
 
   - package-ecosystem: "github-actions"
+    # Version refs choose a compiler, not just an action release. Update these
+    # together with rust-toolchain.toml and Docker RUST_VERSION after validation.
+    ignore:
+      - dependency-name: "dtolnay/rust-toolchain"
     directory: "/"
     schedule:
       interval: "weekly"
