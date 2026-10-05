@@ -28,12 +28,12 @@ COPY . .
 RUN cargo build --release --locked
 
 # Pinned Debian runtime image for deterministic production serving (bookworm-slim)
-FROM debian:bookworm-slim@sha256:88200866dfff7ea7f5cbcb6ec7c8a701889efe6fe859fe64d6990e4b07ea4171 AS runtime
+FROM debian:bookworm-slim@sha256:3783cc01769c7b2b1b83a5c5ad96c815348e28ed7da68e2e3687004faa906251 AS runtime
 
 LABEL org.opencontainers.image.source="https://github.com/theopeuchlestrade/fiestaaa_back"
 
 RUN apt-get update \
- && apt-get install -y --no-install-recommends ca-certificates curl libgnutls30 libpcre2-8-0 libssl3 \
+ && apt-get install -y --no-install-recommends ca-certificates curl libgnutls30 libpcre2-8-0=10.42-1+deb12u2 libssl3 \
  && rm -rf /var/lib/apt/lists/* \
  && groupadd --system --gid 10001 fiestaaa \
  && useradd --system --uid 10001 --gid fiestaaa --home-dir /app --shell /usr/sbin/nologin fiestaaa
