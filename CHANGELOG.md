@@ -7,7 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- Capture encrypted account, moderation and Apple revocation decisions transactionally for controlled recovery from older backups.
+
+- Require rustls 0.23.45 to address RUSTSEC-2026-0285 (TLS 1.3 encryption-level boundary validation).
+
 ### Fixed
+
+- Bound and cache explicit address searches, with a shared Redis gate and cooldown to respect provider capacity across API workers.
 
 - Release reserved quantities and remove personal brings when deleting an account, preserving other participants’ contributions.
 
