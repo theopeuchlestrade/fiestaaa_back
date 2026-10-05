@@ -5,7 +5,7 @@ use crate::{
     state::AppState,
 };
 use actix_web::{HttpRequest, HttpResponse, Responder, post, web};
-use jsonwebtoken::{Algorithm, DecodingKey, EncodingKey, Header, Validation};
+use jsonwebtoken::{Algorithm, EncodingKey, Header, Validation};
 use serde::Serialize;
 use serde_json::json;
 use sqlx::Row;
@@ -63,7 +63,6 @@ pub async fn save_code(
     state: &AppState,
     user_id: i64,
     claims: &AppleClaims,
-    key: &DecodingKey,
     code: &str,
     android: bool,
 ) -> Result<(), &'static str> {
@@ -110,24 +109,67 @@ pub async fn save_code(
         return Err("apple_exchange_failed");
     }
     let value: serde_json::Value = response.json().await.map_err(|_| "apple_exchange_failed")?;
-    let mut validation = Validation::new(Algorithm::RS256);
-    validation.set_audience(&[&claims.aud]);
-    validation.set_issuer(&["https://appleid.apple.com"]);
-    let exchanged = jsonwebtoken::decode::<AppleClaims>(
+    validate_exchanged_identity_token(
+        &state.http_client,
+        &state.apple_jwks_url,
+        claims,
         value["id_token"].as_str().ok_or("apple_exchange_failed")?,
-        key,
-        &validation,
     )
-    .map_err(|_| "invalid_apple_code")?;
-    if exchanged.claims.sub != claims.sub {
-        return Err("invalid_apple_code");
-    }
+    .await?;
     let refresh = value["refresh_token"]
         .as_str()
         .filter(|t| !t.is_empty())
         .ok_or("apple_exchange_failed")?;
     sqlx::query("INSERT INTO apple_credentials(user_id,client_id,refresh_token_ciphertext) VALUES($1,$2,fiestaaa_encrypt_text($3)) ON CONFLICT(user_id,client_id) DO UPDATE SET refresh_token_ciphertext=EXCLUDED.refresh_token_ciphertext")
         .bind(user_id).bind(&claims.aud).bind(refresh).execute(&state.db).await.map_err(|_|"db_error")?;
+    Ok(())
+}
+
+async fn validate_exchanged_identity_token(
+    client: &reqwest::Client,
+    jwks_url: &str,
+    original: &AppleClaims,
+    encoded: &str,
+) -> Result<(), &'static str> {
+    let header = jsonwebtoken::decode_header(encoded).map_err(|_| "invalid_apple_code")?;
+    if header.alg != Algorithm::RS256 {
+        return Err("invalid_apple_code");
+    }
+    let kid = header
+        .kid
+        .as_deref()
+        .filter(|kid| !kid.is_empty())
+        .ok_or("invalid_apple_code")?;
+    // Apple can use a different signing key for this newly issued token.
+    // Resolve its own key from Apple's trusted JWKS, never from the token URL.
+    let key = crate::routes::auth::fetch_apple_decoding_key_from(client, jwks_url, kid)
+        .await
+        .ok_or_else(|| {
+            log::warn!("Apple exchanged signing key unavailable");
+            "apple_exchange_failed"
+        })?;
+    let mut validation = Validation::new(Algorithm::RS256);
+    validation.set_audience(&[&original.aud]);
+    validation.set_issuer(&["https://appleid.apple.com"]);
+    let exchanged =
+        jsonwebtoken::decode::<AppleClaims>(encoded, &key, &validation).map_err(|error| {
+            use jsonwebtoken::errors::ErrorKind;
+            let reason = match error.kind() {
+                ErrorKind::InvalidSignature => "signature",
+                ErrorKind::ExpiredSignature => "expiry",
+                ErrorKind::InvalidAudience => "audience",
+                ErrorKind::InvalidIssuer => "issuer",
+                ErrorKind::InvalidAlgorithm => "algorithm",
+                _ => "other",
+            };
+            // Log only a fixed category, never the token, claims or library error.
+            log::warn!("Apple exchange verification failed: category={reason}");
+            "invalid_apple_code"
+        })?;
+    if exchanged.claims.sub != original.sub {
+        log::warn!("Apple exchange verification failed: subject mismatch");
+        return Err("invalid_apple_code");
+    }
     Ok(())
 }
 #[utoipa::path(post,path="/me/apple-reauthorize",tag="users",request_body=OAuthPayload,
@@ -182,7 +224,7 @@ pub async fn reauthorize(
     if !matches.unwrap_or(false) {
         return HttpResponse::Unauthorized().json(json!({"error":"different_apple_account"}));
     }
-    match save_code(&state, user.id, &claims, &key, code, payload.android).await {
+    match save_code(&state, user.id, &claims, code, payload.android).await {
         Ok(()) => HttpResponse::Ok().json(json!({"status":"apple_reauthorized"})),
         Err(e) => HttpResponse::ServiceUnavailable().json(json!({"error":e})),
     }
@@ -261,4 +303,148 @@ pub async fn android_callback(
         .insert_header(("Cache-Control","no-store"))
         .insert_header(("Referrer-Policy","no-referrer"))
         .finish()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::validate_exchanged_identity_token;
+    use crate::{auth::now_ts, models::AppleClaims};
+    use actix_web::{App, HttpResponse, HttpServer, web};
+    use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
+    use jsonwebtoken::{Algorithm, DecodingKey, EncodingKey, Header, Validation};
+    use rsa::{
+        RsaPrivateKey, RsaPublicKey, pkcs1::EncodeRsaPrivateKey, rand_core::OsRng,
+        traits::PublicKeyParts,
+    };
+
+    struct SigningKey {
+        private_der: Vec<u8>,
+        modulus: String,
+        exponent: String,
+    }
+
+    impl SigningKey {
+        fn generate() -> Self {
+            let private = RsaPrivateKey::new(&mut OsRng, 2048).unwrap();
+            let public = RsaPublicKey::from(&private);
+            Self {
+                private_der: private.to_pkcs1_der().unwrap().as_bytes().to_vec(),
+                modulus: URL_SAFE_NO_PAD.encode(public.n().to_bytes_be()),
+                exponent: URL_SAFE_NO_PAD.encode(public.e().to_bytes_be()),
+            }
+        }
+
+        fn jwk(&self, kid: &str) -> serde_json::Value {
+            serde_json::json!({"kid":kid,"kty":"RSA","alg":"RS256","use":"sig",
+                "n":self.modulus,"e":self.exponent})
+        }
+
+        fn token(&self, kid: Option<&str>, claims: &AppleClaims) -> String {
+            let mut header = Header::new(Algorithm::RS256);
+            header.kid = kid.map(str::to_owned);
+            jsonwebtoken::encode(
+                &header,
+                &signed_claims(claims),
+                &EncodingKey::from_rsa_der(&self.private_der),
+            )
+            .unwrap()
+        }
+    }
+
+    fn signed_claims(claims: &AppleClaims) -> serde_json::Value {
+        serde_json::json!({"sub":claims.sub,"aud":claims.aud,"iss":claims.iss,"exp":claims.exp})
+    }
+
+    fn claims() -> AppleClaims {
+        AppleClaims {
+            sub: "synthetic-apple-subject".into(),
+            email: None,
+            email_verified: None,
+            exp: (now_ts() + 3600) as usize,
+            iss: "https://appleid.apple.com".into(),
+            aud: "com.fiestaaa.web".into(),
+        }
+    }
+
+    #[actix_web::test]
+    async fn exchanged_token_resolves_rotated_key_and_preserves_identity_checks() {
+        crate::install_rustls_crypto_provider();
+        let first = SigningKey::generate();
+        let second = SigningKey::generate();
+        let keys = serde_json::json!({"keys":[first.jwk("initial"),second.jwk("exchanged")]});
+        let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let url = format!("http://{}/keys", listener.local_addr().unwrap());
+        let server = HttpServer::new(move || {
+            let keys = web::Data::new(keys.clone());
+            App::new().app_data(keys).route(
+                "/keys",
+                web::get().to(|keys: web::Data<serde_json::Value>| async move {
+                    HttpResponse::Ok().json(keys.get_ref())
+                }),
+            )
+        })
+        .workers(1)
+        .listen(listener)
+        .unwrap()
+        .run();
+        let handle = server.handle();
+        let task = actix_web::rt::spawn(server);
+        let client = reqwest::Client::new();
+        let original = claims();
+        let token = second.token(Some("exchanged"), &original);
+        let old_key = DecodingKey::from_rsa_components(&first.modulus, &first.exponent).unwrap();
+        let mut old_validation = Validation::new(Algorithm::RS256);
+        old_validation.set_audience(&[&original.aud]);
+        // Reproduce the old failure when Apple's two responses use different keys.
+        assert!(jsonwebtoken::decode::<AppleClaims>(&token, &old_key, &old_validation).is_err());
+        assert_eq!(
+            validate_exchanged_identity_token(&client, &url, &original, &token).await,
+            Ok(())
+        );
+        // The same signing key continues to work as well.
+        let same_key_token = first.token(Some("initial"), &original);
+        assert_eq!(
+            validate_exchanged_identity_token(&client, &url, &original, &same_key_token).await,
+            Ok(())
+        );
+
+        let mut invalid = Vec::new();
+        let mut wrong = claims();
+        wrong.sub = "another-subject".into();
+        invalid.push(second.token(Some("exchanged"), &wrong));
+        wrong = claims();
+        wrong.aud = "another-service".into();
+        invalid.push(second.token(Some("exchanged"), &wrong));
+        wrong = claims();
+        wrong.iss = "https://untrusted.example.invalid".into();
+        invalid.push(second.token(Some("exchanged"), &wrong));
+        wrong = claims();
+        wrong.exp = (now_ts() - 300) as usize;
+        invalid.push(second.token(Some("exchanged"), &wrong));
+        invalid.push(second.token(None, &original));
+        invalid.push(first.token(Some("exchanged"), &original));
+        let mut header = Header::new(Algorithm::HS256);
+        header.kid = Some("exchanged".into());
+        invalid.push(
+            jsonwebtoken::encode(
+                &header,
+                &signed_claims(&original),
+                &EncodingKey::from_secret(b"test-only-secret"),
+            )
+            .unwrap(),
+        );
+        for token in invalid {
+            assert_eq!(
+                validate_exchanged_identity_token(&client, &url, &original, &token).await,
+                Err("invalid_apple_code")
+            );
+        }
+        let unknown = second.token(Some("unpublished-key"), &original);
+        assert_eq!(
+            validate_exchanged_identity_token(&client, &url, &original, &unknown).await,
+            Err("apple_exchange_failed")
+        );
+        handle.stop(true).await;
+        task.await.unwrap().unwrap();
+    }
 }
