@@ -1,4 +1,5 @@
 pub mod api_error;
+pub mod apple;
 pub mod auth;
 pub mod cleanup;
 pub mod config;
@@ -41,6 +42,17 @@ pub fn build_http_client(user_agent: &str) -> reqwest::Client {
         .timeout(Duration::from_secs(15))
         .build()
         .expect("http client")
+}
+
+/// Geocoding must not issue extra provider requests by following redirects.
+pub fn build_geocoding_http_client(user_agent: &str) -> reqwest::Client {
+    reqwest::Client::builder()
+        .user_agent(user_agent)
+        .redirect(reqwest::redirect::Policy::none())
+        .connect_timeout(Duration::from_secs(5))
+        .timeout(Duration::from_secs(10))
+        .build()
+        .expect("geocoding http client")
 }
 
 pub fn load_dotenv_from_repo() {

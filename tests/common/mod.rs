@@ -137,11 +137,13 @@ fn build_state_with_avatar_storage_and_oauth_config(
     let notifications = NotificationService::new(None, None, None, None, http_client.clone(), 300);
 
     web::Data::new(AppState {
+        apple_config: fiestaaa_back::apple::AppleConfig::default(),
         db: pool,
         jwt_secret: secret.to_string(),
         admin_emails: admins,
         trust_proxy_headers: false,
         http_client,
+        geocoding_http_client: fiestaaa_back::build_geocoding_http_client("Fiestaaa-tests"),
         geocoding_base_url: "https://nominatim.openstreetmap.org".into(),
         geocoding_country_codes: None,
         invitation_email_sender: None,

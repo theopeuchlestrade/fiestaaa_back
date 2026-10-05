@@ -87,6 +87,8 @@ pub struct RealtimeTicketQuery {
 
 #[derive(Debug, serde::Serialize, serde::Deserialize, Clone)]
 struct RealtimeTicketClaims {
+    #[serde(default)]
+    session_version: i64,
     sub: String,
     exp: usize,
     event_id: Option<i64>,
@@ -171,6 +173,7 @@ pub async fn issue_realtime_ticket(
     let expires_at =
         chrono::Utc::now() + chrono::Duration::seconds(REALTIME_TICKET_TTL_SECONDS as i64);
     let ticket_claims = RealtimeTicketClaims {
+        session_version: claims.session_version,
         sub: claims.sub.to_lowercase(),
         exp: (now_ts() + REALTIME_TICKET_TTL_SECONDS) as usize,
         event_id: query.event_id,
@@ -233,6 +236,10 @@ async fn resolve_ws_identity(
 
     let claims = decode_realtime_ticket(ticket, &state.jwt_secret)?;
     let email = claims.sub.to_lowercase();
+    let active=sqlx::query_scalar::<_,bool>("SELECT EXISTS(SELECT 1 FROM users WHERE fiestaaa_email_matches(email_lookup_hash,$1) AND session_version=$2 AND NOT suspended)").bind(&email).bind(claims.session_version).fetch_one(&state.db).await.unwrap_or(false);
+    if !active {
+        return Err(HttpResponse::Unauthorized().finish());
+    }
     if let Some(event_id) = claims.event_id {
         ensure_event_member_email(&state.db, event_id, &email).await?;
         return Ok((email, Some(event_id), claims.exp));

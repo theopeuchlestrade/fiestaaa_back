@@ -55,6 +55,8 @@ pub struct CompleteRegistrationPayload {
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct Claims {
+    #[serde(default)]
+    pub session_version: i64,
     pub sub: String,
     pub exp: usize,
     pub handle: String,
@@ -75,6 +77,10 @@ pub struct StatusResponse {
 
 #[derive(Deserialize, ToSchema)]
 pub struct OAuthPayload {
+    #[serde(default)]
+    pub android: bool,
+    #[serde(rename = "authorizationCode", alias = "authorization_code")]
+    pub authorization_code: Option<String>,
     #[serde(rename = "idToken", alias = "id_token")]
     pub id_token: Option<String>,
     #[serde(rename = "accessToken", alias = "access_token")]

@@ -6,11 +6,13 @@ use redis::Client as RedisClient;
 use sqlx::{Pool, Postgres};
 
 pub struct AppState {
+    pub apple_config: crate::apple::AppleConfig,
     pub db: Pool<Postgres>,
     pub jwt_secret: String,
     pub admin_emails: HashSet<String>,
     pub trust_proxy_headers: bool,
     pub http_client: reqwest::Client,
+    pub geocoding_http_client: reqwest::Client,
     pub geocoding_base_url: String,
     pub geocoding_country_codes: Option<String>,
     pub invitation_email_sender: Option<String>,

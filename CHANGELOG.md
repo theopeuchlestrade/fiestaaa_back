@@ -7,6 +7,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- Capture encrypted account, moderation and Apple revocation decisions transactionally for controlled recovery from older backups.
+
+- Require rustls 0.23.45 to address RUSTSEC-2026-0285 (TLS 1.3 encryption-level boundary validation).
+
+### Fixed
+
+- Bound and cache explicit address searches, with a shared Redis gate and cooldown to respect provider capacity across API workers.
+
+- Release reserved quantities and remove personal brings when deleting an account, preserving other participants’ contributions.
+
+- Return a clear forbidden response when a direct invitation is rejected by a contact block.
+
+- Install the current Debian PCRE2 runtime security update when building the container.
+
+- Allow recipients of active pending invitations to read event details before accepting, while keeping collaborative content restricted to accepted members.
+
+### Added
+
+- Added single-use password recovery and server-side session invalidation.
+- Added encrypted Apple deletion credentials, retryable revocation and Android callback.
+- Added private reports, bilateral contact blocking and administrative moderation, with additive migration 011.
+
+## [0.4.0] - 2026-09-07
+
+### Added
+- Added event name search, upcoming/invitation/owned/past filters and chronological pagination across accessible events.
+- Added versioned search-bound cursors while preserving legacy numeric pagination and API response formats.
+
+### Fixed
+- Reconnected realtime subscriptions after Redis interruptions.
+- Serialized concurrent poll vote replacements to preserve vote consistency.
+
 ## [0.3.1] - 2026-09-05
 
 ### Fixed

@@ -2,7 +2,45 @@ use actix_web::{Responder, delete, get, patch, post, put, web};
 use log::info;
 use sqlx::{AssertSqlSafe, Error};
 
+use super::listing::{EventListQuery, EventSearch};
 use super::*;
+
+// Match list_events visibility without granting access to collaborative content.
+async fn ensure_event_details_visible(
+    req: &HttpRequest,
+    state: &AppState,
+    event_id: i64,
+) -> Result<(), HttpResponse> {
+    let requester = claims_email(req, state).await?;
+    let requester_id = fetch_user_id(&state.db, &requester).await?;
+    let owner_id = fetch_event_owner_id(&state.db, event_id).await?;
+    if owner_id == requester_id {
+        return Ok(());
+    }
+    let visible = sqlx::query_scalar::<_, bool>(
+        "SELECT EXISTS (
+            SELECT 1 FROM invitations i JOIN events e ON e.event_id = i.event_id
+            WHERE i.event_id = $1 AND i.user_id = $2
+              AND (i.status = 'Accepted' OR (
+                i.status = 'Waiting' AND (e.invitation_deadline IS NULL
+                    OR CURRENT_DATE <= e.invitation_deadline)
+              ))
+        )",
+    )
+    .bind(event_id)
+    .bind(requester_id)
+    .fetch_one(&state.db)
+    .await
+    .map_err(|_| server_error())?;
+    if visible {
+        Ok(())
+    } else {
+        Err(HttpResponse::Forbidden().json(ErrorResponse {
+            error: "forbidden".into(),
+            details: Some("active invitation required".into()),
+        }))
+    }
+}
 
 #[utoipa::path(
     get,
@@ -25,7 +63,7 @@ pub async fn get_event(
     req: HttpRequest,
     event_id: web::Path<i64>,
 ) -> impl Responder {
-    if let Err(resp) = ensure_event_member(&req, state.get_ref(), *event_id).await {
+    if let Err(resp) = ensure_event_details_visible(&req, state.get_ref(), *event_id).await {
         return resp;
     }
 
@@ -54,6 +92,7 @@ pub async fn get_event(
     get,
     path = "/events",
     tag = "events",
+    params(EventListQuery),
     responses(
         (status = 200, description = "Event list", body = [Event]),
         (status = 401, description = "Authentication required", body = ErrorResponse),
@@ -64,7 +103,7 @@ pub async fn get_event(
 pub async fn list_events(
     state: web::Data<AppState>,
     req: HttpRequest,
-    query: web::Query<PaginationQuery>,
+    query: web::Query<EventListQuery>,
 ) -> impl Responder {
     let email = match claims_email(&req, state.get_ref()).await {
         Ok(e) => e,
@@ -74,7 +113,18 @@ pub async fn list_events(
         Ok(id) => id,
         Err(resp) => return resp,
     };
-    let pagination = match page_request(&query) {
+    let search = match EventSearch::parse(&query) {
+        Ok(value) => value,
+        Err(response) => return response,
+    };
+    let pagination = match page_request(&PaginationQuery {
+        limit: query.limit,
+        cursor: if search.is_some() {
+            None
+        } else {
+            query.cursor.clone()
+        },
+    }) {
         Ok(value) => value,
         Err(response) => return response,
     };
@@ -99,6 +149,9 @@ pub async fn list_events(
                   )
              )
            )";
+    if let Some(search) = search {
+        return search.fetch(state.get_ref(), user_id, from).await;
+    }
     let suffix = if pagination.is_some() {
         format!("{from} AND e.event_id > $2 ORDER BY e.event_id LIMIT $3")
     } else {

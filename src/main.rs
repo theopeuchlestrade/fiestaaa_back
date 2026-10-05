@@ -72,11 +72,15 @@ async fn main() -> std::io::Result<()> {
     );
     notifications::NotificationOutboxWorker::new(pool.clone(), notifications.clone()).start();
     let state = web::Data::new(state::AppState {
+        apple_config: fiestaaa_back::apple::AppleConfig::from_env(),
         db: pool,
         jwt_secret: cfg.jwt_secret.clone(),
         admin_emails,
         trust_proxy_headers: cfg.trust_proxy_headers,
         http_client,
+        geocoding_http_client: fiestaaa_back::build_geocoding_http_client(
+            &cfg.geocoding_user_agent,
+        ),
         geocoding_base_url: cfg.geocoding_base_url.clone(),
         geocoding_country_codes: cfg.geocoding_country_codes.clone(),
         invitation_email_sender: cfg.invitation_email_sender.clone(),
@@ -108,6 +112,8 @@ async fn main() -> std::io::Result<()> {
         ),
         metrics_bearer_token: cfg.metrics_bearer_token.clone(),
     });
+
+    fiestaaa_back::apple::start_worker(state.clone());
 
     // Server
     let enable_swagger_ui = cfg.enable_swagger_ui;

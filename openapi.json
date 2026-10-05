@@ -7,7 +7,7 @@
       "name": "AGPL-3.0-only",
       "identifier": "AGPL-3.0-only"
     },
-    "version": "0.3.1"
+    "version": "0.5.0"
   },
   "paths": {
     "/": {
@@ -26,6 +26,81 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "/admin/moderation": {
+      "post": {
+        "tags": [
+          "moderation"
+        ],
+        "operationId": "moderate",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ModerationAction"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Action applied"
+          },
+          "403": {
+            "description": "Administrator required"
+          }
+        }
+      }
+    },
+    "/admin/reports": {
+      "get": {
+        "tags": [
+          "moderation"
+        ],
+        "operationId": "reports",
+        "responses": {
+          "200": {
+            "description": "Private reports, administrators only"
+          },
+          "403": {
+            "description": "Administrator required"
+          }
+        }
+      }
+    },
+    "/auth/apple/android-callback": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Apple form callback: fixed application destination, never issues a session.",
+        "operationId": "android_callback",
+        "requestBody": {
+          "content": {
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "propertyNames": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "303": {
+            "description": "Return Apple credentials to Android"
+          },
+          "400": {
+            "description": "Invalid form"
           }
         }
       }
@@ -277,6 +352,61 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "/auth/password-reset/confirm": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "operationId": "confirm_reset",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResetConfirm"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Password changed, previous sessions invalidated"
+          },
+          "400": {
+            "description": "Invalid/expired token or password"
+          },
+          "429": {
+            "description": "Rate limited"
+          }
+        }
+      }
+    },
+    "/auth/password-reset/request": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "operationId": "request_reset",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResetRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "If eligible, recovery email will be sent"
+          },
+          "429": {
+            "description": "Rate limited"
           }
         }
       }
@@ -661,6 +791,67 @@
           "events"
         ],
         "operationId": "list_events",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "description": "Literal case-insensitive substring of the event name.",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "view",
+            "in": "query",
+            "description": "upcoming (includes ongoing), invitations, owned, past, or all.",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "sort",
+            "in": "query",
+            "description": "start_asc or start_desc. New criteria opt in to chronological cursors.",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "Event list",
@@ -3134,7 +3325,7 @@
             }
           },
           "400": {
-            "description": "Query too short",
+            "description": "Invalid query length",
             "content": {
               "application/json": {
                 "schema": {
@@ -3145,6 +3336,16 @@
           },
           "401": {
             "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Shared geocoding capacity busy",
             "content": {
               "application/json": {
                 "schema": {
@@ -3628,6 +3829,35 @@
         }
       }
     },
+    "/me/apple-reauthorize": {
+      "post": {
+        "tags": [
+          "users"
+        ],
+        "operationId": "reauthorize",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OAuthPayload"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Apple deletion credential refreshed"
+          },
+          "401": {
+            "description": "Different Apple account or invalid credential"
+          },
+          "503": {
+            "description": "Apple unavailable"
+          }
+        }
+      }
+    },
     "/me/avatar": {
       "post": {
         "tags": [
@@ -3674,6 +3904,68 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "/me/blocks": {
+      "get": {
+        "tags": [
+          "users"
+        ],
+        "operationId": "list_blocks",
+        "responses": {
+          "200": {
+            "description": "Own blocked users"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "users"
+        ],
+        "operationId": "block",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BlockPayload"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Contact blocked"
+          },
+          "400": {
+            "description": "Cannot block self"
+          }
+        }
+      }
+    },
+    "/me/blocks/{public_id}": {
+      "delete": {
+        "tags": [
+          "users"
+        ],
+        "operationId": "unblock",
+        "parameters": [
+          {
+            "name": "public_id",
+            "in": "path",
+            "description": "Blocked user",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Unblocked, friendship is not recreated"
           }
         }
       }
@@ -4390,6 +4682,62 @@
         }
       }
     },
+    "/reports": {
+      "post": {
+        "tags": [
+          "users"
+        ],
+        "operationId": "report",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReportPayload"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Private report recorded"
+          },
+          "403": {
+            "description": "Content inaccessible"
+          },
+          "429": {
+            "description": "Rate limited"
+          }
+        }
+      }
+    },
+    "/safety/user": {
+      "get": {
+        "tags": [
+          "users"
+        ],
+        "operationId": "resolve_user",
+        "parameters": [
+          {
+            "name": "handle",
+            "in": "query",
+            "description": "Exact public handle",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Public identity"
+          },
+          "404": {
+            "description": "Unknown handle"
+          }
+        }
+      }
+    },
     "/share/claim": {
       "post": {
         "tags": [
@@ -4553,6 +4901,18 @@
           "longitude": {
             "type": "number",
             "format": "double"
+          }
+        }
+      },
+      "BlockPayload": {
+        "type": "object",
+        "required": [
+          "public_id"
+        ],
+        "properties": {
+          "public_id": {
+            "type": "string",
+            "format": "uuid"
           }
         }
       },
@@ -6218,10 +6578,50 @@
           }
         }
       },
+      "ModerationAction": {
+        "type": "object",
+        "required": [
+          "action"
+        ],
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "event_id": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "public_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "term": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
       "OAuthPayload": {
         "type": "object",
         "properties": {
           "accessToken": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "android": {
+            "type": "boolean"
+          },
+          "authorizationCode": {
             "type": [
               "string",
               "null"
@@ -6593,6 +6993,61 @@
               "string",
               "null"
             ]
+          }
+        }
+      },
+      "ReportPayload": {
+        "type": "object",
+        "required": [
+          "reason",
+          "comment"
+        ],
+        "properties": {
+          "comment": {
+            "type": "string"
+          },
+          "event_id": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "public_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "reason": {
+            "type": "string"
+          }
+        }
+      },
+      "ResetConfirm": {
+        "type": "object",
+        "required": [
+          "token",
+          "password"
+        ],
+        "properties": {
+          "password": {
+            "type": "string"
+          },
+          "token": {
+            "type": "string"
+          }
+        }
+      },
+      "ResetRequest": {
+        "type": "object",
+        "required": [
+          "email"
+        ],
+        "properties": {
+          "email": {
+            "type": "string"
           }
         }
       },

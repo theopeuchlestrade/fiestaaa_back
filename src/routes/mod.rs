@@ -1,5 +1,6 @@
 use actix_web::web;
 
+pub mod account_recovery;
 pub mod auth;
 pub mod carpools;
 pub mod event_access;
@@ -13,10 +14,20 @@ pub mod payment_providers;
 pub mod qr_codes;
 pub mod realtime;
 pub mod root;
+pub mod safety;
 pub mod users;
 
 pub fn configure(cfg: &mut web::ServiceConfig) {
-    cfg.service(root::hello)
+    cfg.service(safety::resolve_user)
+        .service(safety::list_blocks)
+        .service(safety::block)
+        .service(safety::unblock)
+        .service(safety::report)
+        .service(safety::reports)
+        .service(safety::moderate)
+        .service(account_recovery::request_reset)
+        .service(account_recovery::confirm_reset)
+        .service(root::hello)
         .service(root::me)
         .service(health::health)
         .service(health::metrics)
@@ -26,6 +37,8 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(auth::login)
         .service(auth::oauth_login)
         .service(auth::logout)
+        .service(crate::apple::reauthorize)
+        .service(crate::apple::android_callback)
         .service(items::list_items)
         .service(items::create_item)
         .service(items::replace_item)

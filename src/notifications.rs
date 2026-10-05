@@ -134,6 +134,24 @@ impl NotificationOutboxWorker {
     }
 
     async fn deliver_row(&self, row: NotificationOutboxRow) {
+        // Recheck direct-contact permissions at delivery, including queued notifications.
+        let allowed = sqlx::query_scalar::<_, bool>("SELECT CASE
+          WHEN $2->>'type' IN ('friend_request','friend_response') THEN EXISTS(SELECT 1 FROM friend_requests f WHERE f.id=($2->>'request_id')::bigint AND NOT fiestaaa_contact_blocked(f.sender_id,f.receiver_id))
+          WHEN $2->>'type'='invite_received' THEN EXISTS(SELECT 1 FROM events e JOIN invitations i ON i.event_id=e.event_id WHERE e.event_id=($2->>'event_id')::bigint AND i.user_id=$1 AND i.status<>'Expired' AND NOT fiestaaa_contact_blocked(e.owner_user_id,$1))
+          ELSE TRUE END").bind(row.user_id).bind(&row.data).fetch_one(&self.db).await;
+        match allowed {
+            Ok(true) => {}
+            Ok(false) => {
+                let _=sqlx::query("UPDATE notification_outbox SET status='dead',last_error='contact_unavailable',locked_at=NULL WHERE id=$1").bind(row.id).execute(&self.db).await;
+                return;
+            }
+            Err(_) => {
+                self.retry_row(row.id, row.attempts, "contact_check_unavailable")
+                    .await;
+                return;
+            }
+        }
+
         let tokens = match tokens_by_user_ids(&self.db, &[row.user_id]).await {
             Ok(mut tokens) => tokens.remove(&row.user_id).unwrap_or_default(),
             Err(error) => {
