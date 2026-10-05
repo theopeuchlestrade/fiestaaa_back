@@ -1438,15 +1438,8 @@ async fn oauth_apple(
     };
 
     if let Some(code) = payload.authorization_code.as_deref()
-        && let Err(error) = crate::apple::save_code(
-            &state,
-            user.id,
-            &claims,
-            &decoding_key,
-            code,
-            payload.android,
-        )
-        .await
+        && let Err(error) =
+            crate::apple::save_code(&state, user.id, &claims, code, payload.android).await
     {
         return HttpResponse::ServiceUnavailable().json(json!({"error":error}));
     }
@@ -1494,11 +1487,20 @@ pub(crate) async fn fetch_apple_decoding_key(
     state: &web::Data<AppState>,
     kid: &str,
 ) -> Option<jsonwebtoken::DecodingKey> {
-    let resp = state
-        .http_client
-        .get(state.apple_jwks_url.as_str())
+    fetch_apple_decoding_key_from(&state.http_client, &state.apple_jwks_url, kid).await
+}
+
+pub(crate) async fn fetch_apple_decoding_key_from(
+    client: &reqwest::Client,
+    jwks_url: &str,
+    kid: &str,
+) -> Option<jsonwebtoken::DecodingKey> {
+    let resp = client
+        .get(jwks_url)
         .send()
         .await
+        .ok()?
+        .error_for_status()
         .ok()?;
     let jwks: AppleJwkSet = resp.json().await.ok()?;
     let key = jwks.keys.into_iter().find(|k| k.kid == kid)?;
