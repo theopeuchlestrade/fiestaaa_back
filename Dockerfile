@@ -1,5 +1,5 @@
 # Pinned Rust builder base. Rustup keeps the exact project toolchain selected.
-FROM rust:1.98.0-bookworm@sha256:e70e2eec3d495fd5c8e0be74adda86507dfac7f51a724fbf9813ff59b2b247c7 AS builder
+FROM rust:1.99.0-bookworm@sha256:59037199c44290f2befcdd58dcc540164763fc296950255aaefeef096a1866b0 AS builder
 
 ARG RUST_VERSION=1.96.0
 
