@@ -33,7 +33,7 @@ FROM debian:bookworm-slim@sha256:3783cc01769c7b2b1b83a5c5ad96c815348e28ed7da68e2
 LABEL org.opencontainers.image.source="https://github.com/theopeuchlestrade/fiestaaa_back"
 
 RUN apt-get update \
- && apt-get install -y --no-install-recommends ca-certificates curl libgnutls30 libpcre2-8-0=10.42-1+deb12u2 libssl3 \
+ && apt-get install -y --no-install-recommends ca-certificates curl libgnutls30 libpcre2-8-0=10.42-1+deb12u2 libssl3 perl-base=5.36.0-7+deb12u4 \
  && rm -rf /var/lib/apt/lists/* \
  && groupadd --system --gid 10001 fiestaaa \
  && useradd --system --uid 10001 --gid fiestaaa --home-dir /app --shell /usr/sbin/nologin fiestaaa
