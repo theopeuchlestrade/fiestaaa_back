@@ -7,7 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-10-09
+
 ### Security
+
+- Install the Debian Perl runtime security update rather than retaining the older package from the pinned base image.
 
 - Capture encrypted account, moderation and Apple revocation decisions transactionally for controlled recovery from older backups.
 
