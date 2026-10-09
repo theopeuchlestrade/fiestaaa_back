@@ -1996,7 +1996,7 @@ async fn event_updates_notify_other_members_but_never_the_actor() -> Result<(), 
             for (user_id, status) in [
                 (admin_id, "Accepted"),
                 (guest_id, "Accepted"),
-                (pending_id, "Pending"),
+                (pending_id, "Waiting"),
                 (declined_id, "Declined"),
                 (expired_id, "Expired"),
             ] {
