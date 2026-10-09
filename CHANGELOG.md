@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Exclude the author of an event update from its push notifications while preserving notifications to other members and realtime updates.
+
 ## [0.5.0] - 2026-10-09
 
 ### Security

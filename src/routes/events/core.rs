@@ -393,9 +393,10 @@ pub async fn replace_event(
     event_id: web::Path<i64>,
     payload: web::Json<EventPayload>,
 ) -> impl Responder {
-    if let Err(resp) = ensure_event_owner(&req, state.get_ref(), *event_id).await {
-        return resp;
-    }
+    let actor_user_id = match ensure_event_owner(&req, state.get_ref(), *event_id).await {
+        Ok(user_id) => user_id,
+        Err(resp) => return resp,
+    };
     if let Err(resp) = ensure_event_writable(&state.db, *event_id).await {
         return resp;
     }
@@ -543,7 +544,7 @@ pub async fn replace_event(
                         .unwrap_or_else(|| "none".into())
                 );
             }
-            notify_event_members(state.get_ref(), &event, &updated_fields).await;
+            notify_event_members(state.get_ref(), &event, &updated_fields, actor_user_id).await;
             publish_event(
                 &state.redis_client,
                 event.event_id,
@@ -593,9 +594,10 @@ pub async fn update_event(
     event_id: web::Path<i64>,
     payload: web::Json<EventPatchPayload>,
 ) -> impl Responder {
-    if let Err(resp) = ensure_event_owner(&req, state.get_ref(), *event_id).await {
-        return resp;
-    }
+    let actor_user_id = match ensure_event_owner(&req, state.get_ref(), *event_id).await {
+        Ok(user_id) => user_id,
+        Err(resp) => return resp,
+    };
     if let Err(resp) = ensure_event_writable(&state.db, *event_id).await {
         return resp;
     }
@@ -889,7 +891,7 @@ pub async fn update_event(
                         .unwrap_or_else(|| "none".into())
                 );
             }
-            notify_event_members(state.get_ref(), &event, &updated_fields).await;
+            notify_event_members(state.get_ref(), &event, &updated_fields, actor_user_id).await;
             publish_event(
                 &state.redis_client,
                 event.event_id,

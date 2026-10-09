@@ -1934,3 +1934,125 @@ async fn pending_invitation_can_read_details_but_not_member_content() -> Result<
     assert_eq!(response.status(), StatusCode::FORBIDDEN);
     Ok(())
 }
+
+#[tokio::test]
+async fn event_updates_notify_other_members_but_never_the_actor() -> Result<(), Box<dyn Error>> {
+    let Some(pool) = obtain_pool().await else {
+        eprintln!("Skipping events tests: FIESTAAA_SKIP_DB_TESTS=1");
+        return Ok(());
+    };
+    let _guard = DB_LOCK.lock().await;
+    reset_tables(&pool, &["events", "payment_providers", "users"]).await?;
+
+    let secret = "secret";
+    let owner_email = "owner@example.com";
+    let admin_email = "admin@example.com";
+    let owner_id = seed_user(&pool, owner_email).await?;
+    let admin_id = seed_user(&pool, admin_email).await?;
+    let guest_id = seed_user(&pool, "guest@example.com").await?;
+    let pending_id = seed_user(&pool, "pending@example.com").await?;
+    let declined_id = seed_user(&pool, "declined@example.com").await?;
+    let expired_id = seed_user(&pool, "expired@example.com").await?;
+    let mut state = build_state(pool.clone(), secret, &[admin_email]).into_inner();
+    // Enable enqueueing only. No delivery worker or real provider is started.
+    std::sync::Arc::get_mut(&mut state)
+        .expect("unshared test state")
+        .notifications
+        .server_key = Some("synthetic-test-key".into());
+    let app = test::init_service(
+        App::new()
+            .app_data(actix_web::web::Data::from(state))
+            .configure(routes::configure),
+    )
+    .await;
+    let payload = serde_json::json!({
+        "name_event": "Notification test",
+        "description": "Initial description",
+        "date_event": "2099-11-13",
+        "start_time": "19:00:00",
+        "address": "Paris, France",
+        "timezone": "Europe/Paris"
+    });
+    let created = test::call_service(
+        &app,
+        test::TestRequest::post()
+            .uri("/events")
+            .insert_header((
+                "Authorization",
+                format!(
+                    "Bearer {}",
+                    admin_token(secret, owner_email).expect("token")
+                ),
+            ))
+            .set_json(&payload)
+            .to_request(),
+    )
+    .await;
+    assert_eq!(created.status(), StatusCode::CREATED);
+    let event: Event = test::read_body_json(created).await;
+
+    for members_present in [false, true] {
+        if members_present {
+            for (user_id, status) in [
+                (admin_id, "Accepted"),
+                (guest_id, "Accepted"),
+                (pending_id, "Pending"),
+                (declined_id, "Declined"),
+                (expired_id, "Expired"),
+            ] {
+                seed_invitation(&pool, event.event_id, user_id, status).await?;
+            }
+        }
+        for method in [actix_web::http::Method::PATCH, actix_web::http::Method::PUT] {
+            for (actor_id, actor_email) in [(owner_id, owner_email), (admin_id, admin_email)] {
+                if !members_present && actor_id != owner_id {
+                    continue;
+                }
+                reset_tables(&pool, &["notification_outbox"]).await?;
+                let mut updated = payload.clone();
+                updated["description"] = serde_json::json!(format!(
+                    "Updated by {actor_id} using {method}, members present: {members_present}"
+                ));
+                let response = test::call_service(
+                    &app,
+                    test::TestRequest::default()
+                        .method(method.clone())
+                        .uri(&format!("/events/{}", event.event_id))
+                        .insert_header((
+                            "Authorization",
+                            format!(
+                                "Bearer {}",
+                                admin_token(secret, actor_email).expect("token")
+                            ),
+                        ))
+                        .set_json(&updated)
+                        .to_request(),
+                )
+                .await;
+                assert_eq!(response.status(), StatusCode::OK);
+                let saved: Event = test::read_body_json(response).await;
+                assert_eq!(saved.description, updated["description"].as_str().unwrap());
+
+                let recipients = sqlx::query_scalar::<_, i64>(
+                    "SELECT user_id FROM notification_outbox
+                     WHERE data->>'type' = 'event_updated'
+                       AND data->>'event_id' = $1
+                     ORDER BY user_id",
+                )
+                .bind(event.event_id.to_string())
+                .fetch_all(&pool)
+                .await?;
+                let mut expected = if !members_present {
+                    Vec::new()
+                } else if actor_id == owner_id {
+                    vec![admin_id, guest_id, pending_id]
+                } else {
+                    vec![owner_id, guest_id, pending_id]
+                };
+                expected.sort_unstable();
+                assert_eq!(recipients, expected, "{method}: actor {actor_id}");
+            }
+        }
+    }
+    Ok(())
+}

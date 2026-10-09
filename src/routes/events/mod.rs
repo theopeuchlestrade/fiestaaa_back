@@ -248,15 +248,15 @@ async fn ensure_event_owner(
     req: &HttpRequest,
     state: &AppState,
     event_id: i64,
-) -> Result<(), HttpResponse> {
+) -> Result<i64, HttpResponse> {
     let requester = claims_email(req, state).await?;
-    if state.admin_emails.contains(&requester) {
-        return Ok(());
-    }
     let requester_id = fetch_user_id(&state.db, &requester).await?;
+    if state.admin_emails.contains(&requester) {
+        return Ok(requester_id);
+    }
     let owner_id = fetch_event_owner_id(&state.db, event_id).await?;
     if owner_id == requester_id {
-        Ok(())
+        Ok(requester_id)
     } else {
         Err(HttpResponse::Forbidden().json(ErrorResponse {
             error: "forbidden".into(),
@@ -302,18 +302,26 @@ async fn ensure_event_member(
     }
 }
 
-async fn notify_event_members(state: &AppState, event: &Event, updated_fields: &[&str]) {
+async fn notify_event_members(
+    state: &AppState,
+    event: &Event,
+    updated_fields: &[&str],
+    actor_user_id: i64,
+) {
     if updated_fields.is_empty() || !state.notifications.is_enabled() {
         return;
     }
 
-    let members = match event_member_user_ids(&state.db, event.event_id).await {
+    let mut members = match event_member_user_ids(&state.db, event.event_id).await {
         Ok(list) => list,
         Err(err) => {
             warn!("failed to load event members for notifications: {err}");
             return;
         }
     };
+
+    // Push alerts concern other members; realtime updates still reach every client.
+    members.retain(|user_id| *user_id != actor_user_id);
 
     if members.is_empty() {
         return;
