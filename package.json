@@ -1,0 +1,14 @@
+{
+  "name": "fiestaaa-back-tooling",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "spec:validate": "openspec validate --all --strict"
+  },
+  "devDependencies": {
+    "@fission-ai/openspec": "1.14.1"
+  },
+  "engines": {
+    "node": "22.x"
+  }
+}
