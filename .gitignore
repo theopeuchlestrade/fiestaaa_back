@@ -19,3 +19,6 @@ service-account*.json
 *.crt
 infra/vps/ansible/inventory.yml
 infra/vps/ansible/*.retry
+
+# Repository development tooling
+node_modules/

@@ -8,7 +8,8 @@ root = Pathname.pwd
 ignored_prefixes = [
   ".docker-config/",
   ".git/",
-  "target/"
+  "target/",
+  "node_modules/"
 ]
 
 markdown_files = Dir.glob("**/*.md").reject do |path|

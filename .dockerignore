@@ -27,3 +27,8 @@ docker-compose.prod.yml
 # Local tooling / docs (not used in the image)
 scripts
 docs
+
+# Development-only specification tooling
+node_modules
+openspec
+.agents
