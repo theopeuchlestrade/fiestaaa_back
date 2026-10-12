@@ -38,6 +38,7 @@ export function parseLcov(input, root) {
     } else if (line === 'end_of_record') {
       if (!record || record.found === undefined || record.hit === undefined || record.hit > record.found) throw new Error('Missing or inconsistent LF/LH');
       if (records.some(r => r.path === record.path)) throw new Error('Duplicate LCOV source');
+      if (record.found > 0 && Object.keys(record.lines).length === 0) throw new Error('Missing DA mappings for measured source');
       if (Object.keys(record.lines).length > record.found) throw new Error('DA lines exceed LF');
       records.push(record); record = undefined;
     } else if (line.startsWith('DA:')) {
@@ -67,7 +68,7 @@ export const totals = files => {
 export function validatePolicy(policy) {
   if (policy.version !== 1 || !policy.label || !Array.isArray(policy.roots) || !policy.roots.length || !Array.isArray(policy.extensions) || !Array.isArray(policy.exclusions) || !Array.isArray(policy.unmeasured) || !Array.isArray(policy.groups)) throw new Error('Invalid coverage policy');
   const thresholds = [policy.floor, policy.target, policy.patchFloor, ...policy.groups.flatMap(g => [g.floor,g.target])];
-  if (thresholds.some(n => typeof n !== 'number' || n < 0 || n > 100)) throw new Error('Invalid threshold');
+  if (thresholds.some(n => typeof n !== 'number' || !Number.isFinite(n) || n < 0 || n > 100)) throw new Error('Invalid threshold');
   if (policy.floor > policy.target || policy.groups.some(g => !g.name || !g.paths?.length || g.floor > g.target)) throw new Error('Invalid target or group');
   if (new Set(policy.groups.map(g => g.name)).size !== policy.groups.length) throw new Error('Duplicate group');
   for (const rule of [...policy.exclusions,...policy.unmeasured]) if (!rule.paths?.length || !rule.reason) throw new Error('Undocumented exclusion');

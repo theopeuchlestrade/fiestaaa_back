@@ -94,3 +94,12 @@ test('malformed publication totals and failed reports fail closed',async()=>{
  const {api,calls}=fakeApi();const bad=report();bad.application.percent=100;
  await assert.rejects(publish(env,bad,api));await assert.rejects(publish(env,{...report(),status:'failed'},api));assert.equal(calls.length,0);
 });
+
+test('nonzero summaries without executable mappings cannot pass or make a patch N/A',()=>{
+ assert.throws(()=>parseLcov('SF:lib/a.dart\nLF:2\nLH:2\nend_of_record\n',root),/Missing DA/);
+ const empty=parseLcov('SF:lib/constants.dart\nLF:0\nLH:0\nend_of_record\n',root);
+ assert.equal(empty[0].found,0);
+});
+test('non-finite thresholds fail policy validation',()=>{
+ for(const floor of [NaN,Infinity,-Infinity])assert.throws(()=>validatePolicy({...policy,floor}),/Invalid threshold/);
+});
