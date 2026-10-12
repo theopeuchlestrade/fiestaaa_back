@@ -52,3 +52,9 @@ CI discovered five current RustSec advisories for the existing transitive `quinn
 The secret scanner flagged the public RFC 6455 handshake nonce in the WebSocket integration fixture. A narrow allowlist requires both that exact public value and that exact test path, preserving the default scan rules for all other content/history. A local scan verifies 289 commits and reports no leaks.
 
 A fresh full collection after the security update confirms 76.78% on 12,914 mapped lines; all critical groups still exceed 80%. Parser guards also reject nonzero summaries without line mappings and non-finite thresholds; the 28 tooling tests pass.
+
+## GitHub CI confirmation
+
+[Complete backend CI](https://github.com/theopeuchlestrade/fiestaaa_back/actions/runs/38292209892) passes on implementation commit `da68788` (tested merge source `75fb2b9e3151b406db88b9f7ac7d93c333e68053`). Ubuntu LLVM application source coverage is **76.79% (9,917/12,914)**; critical groups are 80.38%, 82.36%, 90.29% and 81.82%. Changed executable application lines are 93.10% (27/29). The report artifact is available from that run for seven days. All tests, exact OpenAPI comparison, Clippy, formatting, container build/security scan, dependency audit and secret scan pass.
+
+The coordinated changes are [backend PR #218](https://github.com/theopeuchlestrade/fiestaaa_back/pull/218) and [frontend PR #206](https://github.com/theopeuchlestrade/fiestaaa_front/pull/206). Final evidence edits affect documentation only. Temporary local PostgreSQL/Redis services have been stopped. No source code is merged, deployed or released by this preparation.
