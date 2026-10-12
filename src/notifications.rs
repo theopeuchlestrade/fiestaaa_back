@@ -24,6 +24,8 @@ struct ServiceAccountProject {
 #[derive(Clone)]
 pub struct NotificationService {
     pub server_key: Option<String>,
+    legacy_endpoint: String,
+    v1_endpoint_base: String,
     pub redis_client: Option<RedisClient>,
     pub http_client: reqwest::Client,
     pub default_dedup_ttl_seconds: u64,
@@ -87,7 +89,8 @@ impl NotificationOutboxWorker {
         });
     }
 
-    async fn process_batch(&self) -> Result<(), sqlx::Error> {
+    /// Process one bounded batch; the periodic worker and isolated tests share this path.
+    pub async fn process_batch(&self) -> Result<(), sqlx::Error> {
         let rows = sqlx::query_as::<_, NotificationOutboxRow>(
             "WITH purged AS (
                  DELETE FROM notification_outbox
@@ -264,6 +267,8 @@ impl NotificationService {
         };
 
         Self {
+            legacy_endpoint: FCM_ENDPOINT.to_string(),
+            v1_endpoint_base: FCM_V1_BASE.to_string(),
             server_key,
             redis_client,
             http_client,
@@ -271,6 +276,15 @@ impl NotificationService {
             fcm_project_id: derived_project_id,
             fcm_token_provider,
         }
+    }
+
+    /// Inject loopback transports for isolated protocol tests. Production callers
+    /// use `new`, which retains the official Firebase endpoints.
+    #[doc(hidden)]
+    pub fn with_test_endpoints(mut self, legacy: String, v1_base: String) -> Self {
+        self.legacy_endpoint = legacy;
+        self.v1_endpoint_base = v1_base;
+        self
     }
 
     pub fn is_enabled(&self) -> bool {
@@ -320,7 +334,7 @@ impl NotificationService {
         let auth_header = format!("key={}", self.server_key.as_ref().unwrap());
         let response = self
             .http_client
-            .post(FCM_ENDPOINT)
+            .post(&self.legacy_endpoint)
             .header("Authorization", auth_header)
             .json(&payload)
             .send()
@@ -381,7 +395,10 @@ impl NotificationService {
         token: &str,
         message: &NotificationMessage<'_>,
     ) -> bool {
-        let url = format!("{FCM_V1_BASE}/projects/{}/messages:send", ctx.project_id);
+        let url = format!(
+            "{}/projects/{}/messages:send",
+            self.v1_endpoint_base, ctx.project_id
+        );
         let access = match ctx.provider.token(&[FCM_SCOPE]).await {
             Ok(tok) => tok.as_str().to_string(),
             Err(err) => {

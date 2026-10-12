@@ -8,3 +8,10 @@ commits = ["56cd9b3ce44bd0900a4bc4c580d93ff2496d2591"]
 paths = ['''tests/auth\.rs''']
 regexTarget = "match"
 regexes = ['''BEGIN RSA PRIVATE KEY''']
+
+[[allowlists]]
+description = "Public RFC 6455 section 1.3 handshake nonce in the WebSocket integration fixture; not an authentication secret"
+condition = "AND"
+paths = ['''^tests/coverage_boundaries\.rs$''']
+regexTarget = "match"
+regexes = ['''dGhlIHNhbXBsZSBub25jZQ==''']

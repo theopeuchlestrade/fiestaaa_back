@@ -1,0 +1,58 @@
+{
+  "sourceSha": "281524f2765c99be2e38b4f013151ec2a257775b",
+  "rawCiPercent": 63.61,
+  "platform": "macOS arm64",
+  "rawLocal": {
+    "found": 12890,
+    "hit": 8199,
+    "percent": 63.60744763382467
+  },
+  "applicationLocal": {
+    "found": 12890,
+    "hit": 8199,
+    "percent": 63.60744763382467,
+    "floor": 0,
+    "target": 75
+  },
+  "groups": [
+    {
+      "name": "authentication-sessions",
+      "floor": 0,
+      "target": 80,
+      "found": 1981,
+      "hit": 1324,
+      "percent": 66.8349318525997
+    },
+    {
+      "name": "permissions-participation",
+      "floor": 0,
+      "target": 80,
+      "found": 1848,
+      "hit": 984,
+      "percent": 53.246753246753244
+    },
+    {
+      "name": "recovery-deletion",
+      "floor": 0,
+      "target": 80,
+      "found": 103,
+      "hit": 75,
+      "percent": 72.81553398058253
+    },
+    {
+      "name": "notifications-qr",
+      "floor": 0,
+      "target": 80,
+      "found": 1467,
+      "hit": 814,
+      "percent": 55.48738922972052
+    }
+  ],
+  "missing": [
+    "src/repositories/mod.rs",
+    "src/routes/realtime.rs",
+    "src/state.rs"
+  ],
+  "unmeasured": [],
+  "excluded": []
+}
