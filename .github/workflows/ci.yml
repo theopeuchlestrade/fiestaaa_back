@@ -182,6 +182,16 @@ jobs:
       TEST_DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/fiestaaa_test
     steps:
       - uses: actions/checkout@v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Setup coverage tooling
+        uses: actions/setup-node@v7.1.0
+        with:
+          node-version: '22'
+
+      - name: Test coverage report and publication guards
+        run: npm run coverage:test
 
       - name: Setup Rust toolchain
         uses: dtolnay/rust-toolchain@1.96.0
@@ -191,32 +201,31 @@ jobs:
       - name: Install cargo-llvm-cov
         uses: taiki-e/install-action@v2.87.22
         with:
-          tool: cargo-llvm-cov
+          tool: cargo-llvm-cov@0.9.1
 
       - name: Run coverage suite
         run: |
           mkdir -p coverage
           cargo llvm-cov --locked --all-targets --lcov --output-path coverage/lcov.info -- --test-threads=1
 
-      - name: Enforce 58% line coverage
+      - name: Enforce coverage policy and summarize
+        env:
+          COVERAGE_BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
-          awk -F: '
-            /^LF:/ { total += $2 }
-            /^LH:/ { hit += $2 }
-            END {
-              coverage = total == 0 ? 0 : (100 * hit / total)
-              printf "Rust line coverage: %.2f%% (%d/%d)\n", coverage, hit, total
-              if (coverage < 58) exit 1
-            }
-          ' coverage/lcov.info
+          if [ -n "$COVERAGE_BASE_SHA" ]; then
+            npm run coverage:report -- --base "$COVERAGE_BASE_SHA"
+          else
+            npm run coverage:report
+          fi
 
       - name: Upload coverage report
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: backend-coverage-lcov
-          path: coverage/lcov.info
+          name: backend-coverage-report
+          path: coverage/report
           if-no-files-found: error
+          retention-days: 7
 
   security:
     name: Dependency Audit

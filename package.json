@@ -3,7 +3,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "spec:validate": "openspec validate --all --strict"
+    "spec:validate": "openspec validate --all --strict",
+    "coverage:report": "node tool/coverage/report.mjs",
+    "coverage:test": "node --test tool/coverage/*.test.mjs"
   },
   "devDependencies": {
     "@fission-ai/openspec": "1.14.1"
