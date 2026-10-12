@@ -1,13 +1,13 @@
 # Rust lines coverage
 
-Commit: `d265604b0859dcf242b3e7a705b13d666f4178c4` · 2026-10-12T20:39:18.557Z
+Commit: `f0540087f97138fad60ab3b86c547cebe719d37d` · 2026-10-12T22:46:41.274Z
 
 | Measure | Covered / total | Coverage | Enforced / target |
 |---|---:|---:|---:|
-| Raw collector | 9917/12914 | 76.79% | — |
-| Application | 9917/12914 | 76.79% | 75% / 75% |
+| Raw collector | 9916/12914 | 76.78% | — |
+| Application | 9916/12914 | 76.78% | 75% / 75% |
 | authentication-sessions | 1606/1998 | 80.38% | 80% / 80% |
-| permissions-participation | 1522/1848 | 82.36% | 80% / 80% |
+| permissions-participation | 1521/1848 | 82.31% | 80% / 80% |
 | recovery-deletion | 93/103 | 90.29% | 80% / 80% |
 | notifications-qr | 1206/1474 | 81.82% | 80% / 80% |
 
@@ -50,4 +50,4 @@ None.
 
 Coverage does not certify native providers, physical devices or store delivery.
 
-[Source CI](https://github.com/theopeuchlestrade/fiestaaa_back/actions/runs/38304925935)
+[Source CI](https://github.com/theopeuchlestrade/fiestaaa_back/actions/runs/38317974185)
