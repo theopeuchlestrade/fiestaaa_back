@@ -17,10 +17,14 @@ pub struct AppleConfig {
     pub private_key: String,
     pub redirect_uri: String,
     pub android_redirect_uri: String,
+    test_token_url: Option<String>,
+    test_revoke_url: Option<String>,
 }
 impl AppleConfig {
     pub fn from_env() -> Self {
         Self {
+            test_token_url: None,
+            test_revoke_url: None,
             team_id: std::env::var("APPLE_TEAM_ID").unwrap_or_default(),
             key_id: std::env::var("APPLE_KEY_ID").unwrap_or_default(),
             private_key: std::env::var("APPLE_PRIVATE_KEY").unwrap_or_default(),
@@ -28,6 +32,23 @@ impl AppleConfig {
             android_redirect_uri: std::env::var("FIESTAAA_APPLE_ANDROID_REDIRECT_URI")
                 .unwrap_or_default(),
         }
+    }
+    /// Inject loopback transport URLs without changing runtime configuration.
+    #[doc(hidden)]
+    pub fn with_test_endpoints(mut self, token: String, revoke: String) -> Self {
+        self.test_token_url = Some(token);
+        self.test_revoke_url = Some(revoke);
+        self
+    }
+    fn token_endpoint(&self) -> &str {
+        self.test_token_url
+            .as_deref()
+            .unwrap_or("https://appleid.apple.com/auth/token")
+    }
+    fn revoke_endpoint(&self) -> &str {
+        self.test_revoke_url
+            .as_deref()
+            .unwrap_or("https://appleid.apple.com/auth/revoke")
     }
     fn client_secret(&self, client_id: &str) -> Result<String, &'static str> {
         if self.team_id.is_empty() || self.key_id.is_empty() {
@@ -89,7 +110,7 @@ pub async fn save_code(
     }
     let response = state
         .http_client
-        .post("https://appleid.apple.com/auth/token")
+        .post(state.apple_config.token_endpoint())
         .form(&form)
         .send()
         .await
@@ -251,7 +272,7 @@ pub async fn revoke_next(state: &AppState) -> Result<(), sqlx::Error> {
     let success = match state.apple_config.client_secret(&client) {
         Ok(secret) => state
             .http_client
-            .post("https://appleid.apple.com/auth/revoke")
+            .post(state.apple_config.revoke_endpoint())
             .form(&[
                 ("client_id", client.as_str()),
                 ("client_secret", secret.as_str()),
