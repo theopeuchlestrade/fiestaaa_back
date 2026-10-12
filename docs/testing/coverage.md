@@ -44,3 +44,9 @@ New integration tests exercise PostgreSQL/Redis on dedicated loopback services, 
 Only small internal transport injection helpers and the existing bounded outbox batch are exposed for testing; all runtime defaults, HTTP APIs and migrations remain unchanged. All new tests live outside application `src`. Historical inline Rust unit-test mappings and generic instantiations remain included in the collector's source LF/LH accounting, consistently with the baseline; they are not added to inflate coverage. This source-based metric is documented rather than presented as native-device certification.
 
 Strict Clippy, formatting, 26 reporting/publication guard tests and strict OpenSpec validation pass. Complete CI, OpenAPI generation and builds are verified separately on the PR. No production services, emails or notifications are contacted. Physical phone validation is not performed for this test-only change.
+
+Stability: all 195 tests pass in the fresh complete collection, followed by two consecutive successful runs of the 27 new targeted scenarios (account/permissions, provider protocols, isolated configuration and local operations). Added/modified executable application lines are 93.10% covered (27/29).
+
+CI discovered five current RustSec advisories for the existing transitive `quinn-proto` 0.11.15 dependency. The minimal lockfile update to 0.11.18 addresses them; no runtime APIs/features are changed. The full suite is rerun after this update. Local `cargo audit -D warnings --no-yanked` passes. See [RUSTSEC-2026-0340](https://github.com/RustSec/advisory-db/blob/main/crates/quinn-proto/RUSTSEC-2026-0340.md).
+
+The secret scanner flagged the public RFC 6455 handshake nonce in the WebSocket integration fixture. A narrow allowlist requires both that exact public value and that exact test path, preserving the default scan rules for all other content/history. A local scan verifies 289 commits and reports no leaks.

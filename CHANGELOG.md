@@ -13,6 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Update the transitive quinn-proto dependency to 0.11.18 to address current RustSec advisories.
+
 - Exclude the author of an event update from its push notifications while preserving notifications to other members and realtime updates.
 
 ## [0.5.0] - 2026-10-09
