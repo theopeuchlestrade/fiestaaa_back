@@ -3,6 +3,7 @@
 <img src=".github/assets/fiestaaa_logo.png" alt="Fiestaaa Logo" width="120">
 
 [![CI](https://github.com/theopeuchlestrade/fiestaaa_back/actions/workflows/ci.yml/badge.svg)](https://github.com/theopeuchlestrade/fiestaaa_back/actions/workflows/ci.yml)
+[![Backend coverage](https://raw.githubusercontent.com/theopeuchlestrade/fiestaaa_back/coverage-reports/badge.svg)](https://github.com/theopeuchlestrade/fiestaaa_back/tree/coverage-reports)
 [![Rust 1.96+](https://img.shields.io/badge/rust-1.96+-000000.svg?logo=rust)](https://www.rust-lang.org)
 [![AGPL-3.0 License](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](LICENSE)
 [![Docker](https://img.shields.io/badge/docker-ready-2496ED.svg?logo=docker)](https://www.docker.com)
@@ -157,8 +158,11 @@ TEST_DATABASE_URL=postgres://postgres:postgres@127.0.0.1:5433/fiestaaa_test \
   cargo llvm-cov --locked --all-targets --lcov --output-path coverage/lcov.info -- --test-threads=1
 ```
 
-CI uploads the generated `coverage/lcov.info` report as a workflow artifact.
-It also enforces a 58% line-coverage floor to prevent unintentional regressions.
+CI provides seven-day LCOV, HTML and JSON report artifacts plus a job summary.
+See [coverage policy and measurement limits](docs/testing/coverage.md).
+It enforces the versioned application and critical-group floors, with an 80%
+changed-executable-line requirement. The target is 75% application coverage and
+80% for each critical group.
 
 ### OpenAPI Documentation
 
