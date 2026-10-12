@@ -164,7 +164,9 @@ async fn block_cancels_friendship_and_denies_both_directions_and_private_reports
         .execute(&pool)
         .await
         .unwrap();
-    let event:i64=sqlx::query_scalar("INSERT INTO events(name_event,description,owner_user_id,date_event,start_time,address_ciphertext) VALUES('Shared','test',$1,CURRENT_DATE,'12:00',fiestaaa_encrypt_text('test')) RETURNING event_id").bind(a).fetch_one(&pool).await.unwrap();
+    // Keep the event upcoming so invitation validation reaches the contact block
+    // regardless of the time at which this test runs.
+    let event:i64=sqlx::query_scalar("INSERT INTO events(name_event,description,owner_user_id,date_event,start_time,address_ciphertext) VALUES('Shared','test',$1,CURRENT_DATE + 1,'12:00',fiestaaa_encrypt_text('test')) RETURNING event_id").bind(a).fetch_one(&pool).await.unwrap();
     sqlx::query("INSERT INTO invitations(event_id,user_id,status) VALUES($1,$2,'Accepted')")
         .bind(event)
         .bind(b)
