@@ -6,10 +6,10 @@ Source: `281524f2765c99be2e38b4f013151ec2a257775b`. Full isolated suite on macOS
 
 | Critical group | Baseline | Current floor | Final target |
 |---|---:|---:|---:|
-| authentication-sessions | 66.83% | 66.8% | 80% |
-| permissions-participation | 53.25% | 53.2% | 80% |
-| recovery-deletion | 72.82% | 72.8% | 80% |
-| notifications-qr | 55.49% | 55.4% | 80% |
+| authentication-sessions | 66.83% | 80% | 80% |
+| permissions-participation | 53.25% | 80% | 80% |
+| recovery-deletion | 72.82% | 80% | 80% |
+| notifications-qr | 55.49% | 80% | 80% |
 
 Final application target: **75%**. The versioned policy ratchets floors only after added tests are measured. Excluding generated sources is a denominator change, not an added-test gain.
 
@@ -34,3 +34,13 @@ After the complete main push CI succeeds, a separate guarded workflow downloads 
 ## Acceptance
 
 Global floor 75%, each critical group 80%, changed executable lines 80%. Targeted behavior suites must pass three consecutive times and the full existing CI must pass. All API/contracts remain unchanged. Physical-device and browser checks are recorded separately from instrumented line coverage; no release or production action is part of this change.
+
+## Behavior-test evidence
+
+The fresh full isolated LLVM collection reaches **76.80%**. Critical groups: authentication/sessions 80.38%, permissions/participation 82.36%, recovery/deletion 90.29%, notifications/QR 81.95%. The enforced policy now requires 75% globally and 80% per group.
+
+New integration tests exercise PostgreSQL/Redis on dedicated loopback services, independently generated provider signing keys, local Apple/FCM OAuth servers, refused CONNECT through a local proxy for email transport failures, database read-only failures, generic/throttled password recovery, JWT expiry and cookie/header precedence, Apple reauthorization and revocation retries, invitation deadlines and resource release on declining, report privacy and moderation, device rotation/outbox retries and QR expiry/duplicate denial. The local user command is verified in isolated subprocesses; configuration probes do not inherit developer credentials.
+
+Only small internal transport injection helpers and the existing bounded outbox batch are exposed for testing; all runtime defaults, HTTP APIs and migrations remain unchanged. All new tests live outside application `src`. Historical inline Rust unit-test mappings and generic instantiations remain included in the collector's source LF/LH accounting, consistently with the baseline; they are not added to inflate coverage. This source-based metric is documented rather than presented as native-device certification.
+
+Strict Clippy, formatting, 26 reporting/publication guard tests and strict OpenSpec validation pass. Complete CI, OpenAPI generation and builds are verified separately on the PR. No production services, emails or notifications are contacted. Physical phone validation is not performed for this test-only change.

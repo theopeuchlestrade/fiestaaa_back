@@ -17,7 +17,7 @@
         "src/routes/auth.rs",
         "src/apple.rs"
       ],
-      "floor": 66.8,
+      "floor": 80,
       "target": 80
     },
     {
@@ -28,7 +28,7 @@
         "src/routes/friends.rs",
         "src/routes/safety.rs"
       ],
-      "floor": 53.2,
+      "floor": 80,
       "target": 80
     },
     {
@@ -36,7 +36,7 @@
       "paths": [
         "src/routes/account_recovery.rs"
       ],
-      "floor": 72.8,
+      "floor": 80,
       "target": 80
     },
     {
@@ -49,14 +49,14 @@
         "src/realtime/**",
         "src/routes/realtime.rs"
       ],
-      "floor": 55.4,
+      "floor": 80,
       "target": 80
     }
   ],
   "version": 1,
-  "floor": 63.6,
+  "floor": 75,
   "patchFloor": 80,
-  "stage": "baseline",
+  "stage": "final",
   "baseline": {
     "sourceSha": "281524f2765c99be2e38b4f013151ec2a257775b",
     "rawCiPercent": 63.61,

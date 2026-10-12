@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Expand isolated behavioral coverage and enforce 75% application source coverage, 80% for critical groups and changed executable lines, with GitHub-native reports and guarded badge publication.
+
 ### Fixed
 
 - Exclude the author of an event update from its push notifications while preserving notifications to other members and realtime updates.
@@ -68,6 +72,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   email-based flow for one mobile compatibility window.
 
 ### Changed
+
+- Expand isolated behavioral coverage and enforce 75% application source coverage, 80% for critical groups and changed executable lines, with GitHub-native reports and guarded badge publication.
 - Bounded production pagination to 50 items by default and 100 maximum.
 - Made pending registrations idempotent until their verification token expires
   and strengthened production registration validation.
