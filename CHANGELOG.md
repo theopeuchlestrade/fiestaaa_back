@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-10-13
+
 ### Changed
 
 - Expand isolated behavioral coverage and enforce 75% application source coverage, 80% for critical groups and changed executable lines, with GitHub-native reports and guarded badge publication.
