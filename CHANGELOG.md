@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-10-13
+
+### Dependencies
+
+- Update Tokio, UUID, container base image digests and CI installation tooling.
+
 ### Changed
 
 - Expand isolated behavioral coverage and enforce 75% application source coverage, 80% for critical groups and changed executable lines, with GitHub-native reports and guarded badge publication.
