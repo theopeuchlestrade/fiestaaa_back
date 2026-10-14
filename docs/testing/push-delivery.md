@@ -30,3 +30,9 @@ For each trial, create a fresh event to avoid the existing ten-minute invitation
 After acceptance, create a short-lived poll: the guest receives its alert, the creator receives none and authorized realtime clients still refresh. Repeat the invitation trials with permissions denied to distinguish system suppression from provider failure. Preserve the existing app unless an explicit installation choice authorizes replacement.
 
 The unit/integration fixtures validate outbox behavior and Firebase requests, not iOS presentation. Keep this matrix unverified until the physical trials are actually observed.
+
+## Observed QA results — 14 October 2026
+
+A separately signed iOS QA app, version 0.7.0+9010, used the local isolated API, fictional creator and guest accounts, matching Firebase options and verified development APNs entitlements. The owner confirmed one notification and the correct invitation event with response actions in each state: foreground, background and force-closed/cold launch. Each corresponding server attempt reported one active device and `provider_accepted` on attempt 1. After accepting the invitation, the guest received one poll notification and could open the event and poll; the outbox contained only the accepted guest as recipient and no author row.
+
+These observations validate the development APNs path for this QA frontend and corrected backend. They do not establish the root cause of the earlier production incident, validate the distributed TestFlight build, or reconstruct the production device registration at the time of that invitation. No frontend behavior change was needed for the reproduced scenarios. Permission-disabled presentation is documented separately when physically confirmed; provider acceptance alone never proves display.
