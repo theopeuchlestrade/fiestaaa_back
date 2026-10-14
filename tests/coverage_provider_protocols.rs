@@ -6,7 +6,9 @@ use fiestaaa_back::{
     apple::{self, AppleConfig},
     auth::{hash_password, now_ts},
     models::AppleClaims,
-    notifications::{NotificationMessage, NotificationService, NotificationTarget},
+    notifications::{
+        DeliveryOutcome, NotificationMessage, NotificationService, NotificationTarget,
+    },
 };
 use jsonwebtoken::{Algorithm, EncodingKey, Header};
 use rsa::{
@@ -55,6 +57,10 @@ fn identity(pem: &str, sub: &str, aud: &str) -> String {
 #[actix_web::test]
 async fn legacy_push_preserves_http_acknowledgement_and_retires_rejected_tokens()
 -> Result<(), Box<dyn Error>> {
+    let _ = env_logger::Builder::new()
+        .filter_module("fiestaaa_back::notifications", log::LevelFilter::Info)
+        .is_test(true)
+        .try_init();
     let pool = common::obtain_pool()
         .await
         .expect("isolated database required");
@@ -99,6 +105,20 @@ async fn legacy_push_preserves_http_acknowledgement_and_retires_rejected_tokens(
             .await
     );
     assert!(server.requests().is_empty());
+    assert_eq!(
+        service
+            .send_to_tokens_diagnosed(
+                &pool,
+                NotificationTarget {
+                    tokens: vec![],
+                    dedup_key: None,
+                    dedup_ttl: None
+                },
+                &message
+            )
+            .await,
+        DeliveryOutcome::NoActiveDevice
+    );
     for (status, body) in [
         (
             200,
@@ -115,8 +135,17 @@ async fn legacy_push_preserves_http_acknowledgement_and_retires_rejected_tokens(
         ),
     ] {
         server.response("/legacy", status, body.clone());
-        let delivered = service.send_to_tokens(&pool, target(), &message).await;
-        assert_eq!(delivered, status == 200);
+        let outcome = service
+            .send_to_tokens_diagnosed(&pool, target(), &message)
+            .await;
+        let expected = if status != 200 {
+            DeliveryOutcome::ProviderRejected
+        } else if body["success"] == 1 {
+            DeliveryOutcome::ProviderAccepted
+        } else {
+            DeliveryOutcome::ProviderAcknowledged
+        };
+        assert_eq!(outcome, expected);
     }
     let disabled: bool =
         sqlx::query_scalar("SELECT disabled_at IS NOT NULL FROM user_devices WHERE user_id=$1")
@@ -144,6 +173,10 @@ async fn legacy_push_preserves_http_acknowledgement_and_retires_rejected_tokens(
 #[actix_web::test]
 async fn fcm_v1_uses_local_oauth_and_validates_provider_errors_and_token_retirement()
 -> Result<(), Box<dyn Error>> {
+    let _ = env_logger::Builder::new()
+        .filter_module("fiestaaa_back::notifications", log::LevelFilter::Info)
+        .is_test(true)
+        .try_init();
     let pool = common::obtain_pool()
         .await
         .expect("isolated database required");
@@ -195,22 +228,35 @@ async fn fcm_v1_uses_local_oauth_and_validates_provider_errors_and_token_retirem
         200,
         json!({"name":"projects/fixture-project/messages/fixture"}),
     );
-    assert!(service.send_to_tokens(&pool, target(), &message).await);
+    assert_eq!(
+        service
+            .send_to_tokens_diagnosed(&pool, target(), &message)
+            .await,
+        DeliveryOutcome::ProviderAccepted
+    );
     let calls = server.requests();
     assert!(calls.iter().any(|r| r.0 == "/oauth-token"));
     let body: Value = serde_json::from_slice(&calls.iter().find(|r| r.0 == url).unwrap().1)?;
     assert_eq!(body["message"]["token"], "fixture-v1-device");
     assert_eq!(body["message"]["data"]["event_id"], "7");
     server.response(url, 503, json!({"error":{"status":"UNAVAILABLE"}}));
-    assert!(!service.send_to_tokens(&pool, target(), &message).await);
+    assert_eq!(
+        service
+            .send_to_tokens_diagnosed(&pool, target(), &message)
+            .await,
+        DeliveryOutcome::ProviderRejected
+    );
     server.response(
         url,
         404,
         json!({"error":{"status":"NOT_FOUND","details":[{"errorCode":"UNREGISTERED"}]}}),
     );
-    assert!(
-        service.send_to_tokens(&pool, target(), &message).await,
-        "permanent retirement is handled without retry"
+    assert_eq!(
+        service
+            .send_to_tokens_diagnosed(&pool, target(), &message)
+            .await,
+        DeliveryOutcome::InvalidDevice,
+        "permanent retirement is distinct from provider acceptance"
     );
     let disabled: bool =
         sqlx::query_scalar("SELECT disabled_at IS NOT NULL FROM user_devices WHERE user_id=$1")
@@ -227,6 +273,12 @@ async fn fcm_v1_uses_local_oauth_and_validates_provider_errors_and_token_retirem
         30,
     );
     assert!(!invalid.is_enabled());
+    assert_eq!(
+        invalid
+            .send_to_tokens_diagnosed(&pool, target(), &message)
+            .await,
+        DeliveryOutcome::NotConfigured
+    );
     server.stop().await;
     Ok(())
 }
@@ -234,6 +286,10 @@ async fn fcm_v1_uses_local_oauth_and_validates_provider_errors_and_token_retirem
 #[actix_web::test]
 async fn apple_exchange_preserves_identity_and_stores_only_encrypted_refresh_credentials()
 -> Result<(), Box<dyn Error>> {
+    let _ = env_logger::Builder::new()
+        .filter_module("fiestaaa_back::notifications", log::LevelFilter::Info)
+        .is_test(true)
+        .try_init();
     let pool = common::obtain_pool()
         .await
         .expect("isolated database required");
@@ -390,6 +446,10 @@ async fn apple_exchange_preserves_identity_and_stores_only_encrypted_refresh_cre
 #[actix_web::test]
 async fn apple_revocation_is_retryable_and_never_requires_the_deleted_user()
 -> Result<(), Box<dyn Error>> {
+    let _ = env_logger::Builder::new()
+        .filter_module("fiestaaa_back::notifications", log::LevelFilter::Info)
+        .is_test(true)
+        .try_init();
     let pool = common::obtain_pool()
         .await
         .expect("isolated database required");

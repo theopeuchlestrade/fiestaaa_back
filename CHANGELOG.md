@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Restrict poll alerts to accepted guests other than the author, recheck queued participation, and add redacted push delivery diagnostics without claiming phone presentation.
+
 ## [0.5.1] - 2026-10-13
 
 ### Dependencies

@@ -1,4 +1,6 @@
 mod common;
+#[path = "common/coverage_http.rs"]
+mod coverage_http;
 
 use std::error::Error;
 
@@ -269,5 +271,160 @@ async fn outbox_deduplication_expires_and_reuses_the_key() -> Result<(), Box<dyn
         after_expiry,
         (1, "after-expiry".into(), "pending".into(), 0)
     );
+    Ok(())
+}
+
+struct DiagnosticLogger(std::sync::Mutex<Vec<String>>);
+impl log::Log for DiagnosticLogger {
+    fn enabled(&self, _: &log::Metadata<'_>) -> bool {
+        true
+    }
+    fn log(&self, record: &log::Record<'_>) {
+        if record.target().starts_with("fiestaaa_back::notifications") {
+            self.0.lock().unwrap().push(record.args().to_string());
+        }
+    }
+    fn flush(&self) {}
+}
+static DIAGNOSTICS: DiagnosticLogger = DiagnosticLogger(std::sync::Mutex::new(Vec::new()));
+
+#[actix_web::test]
+async fn invitation_delivery_diagnostics_distinguish_no_device_retry_and_provider_ack()
+-> Result<(), Box<dyn Error>> {
+    use fiestaaa_back::notifications::{NotificationOutboxWorker, NotificationService};
+    let pool = obtain_pool().await.expect("isolated database required");
+    let _guard = DB_LOCK.lock().await;
+    log::set_logger(&DIAGNOSTICS).expect("test logger");
+    log::set_max_level(log::LevelFilter::Info);
+    reset_tables(&pool, &["users", "events", "notification_outbox"]).await?;
+    let owner = seed_user(&pool, "diag-owner@example.invalid", "diagowner").await?;
+    let guest = seed_user(&pool, "diag-guest@example.invalid", "diagguest").await?;
+    let event: i64 = sqlx::query_scalar("INSERT INTO events(name_event,description,date_event,start_time,address_ciphertext,owner_user_id) VALUES('Fixture','Fictional',CURRENT_DATE+1,'20:00',fiestaaa_encrypt_text('Fixture'),$1) RETURNING event_id").bind(owner).fetch_one(&pool).await?;
+    sqlx::query("INSERT INTO invitations(event_id,user_id,status) VALUES($1,$2,'Waiting')")
+        .bind(event)
+        .bind(guest)
+        .execute(&pool)
+        .await?;
+    let server = coverage_http::MockServer::start();
+    let service = NotificationService::new(
+        Some("fixture-key".into()),
+        None,
+        None,
+        None,
+        fiestaaa_back::build_http_client("notification-fixture"),
+        300,
+    )
+    .with_test_endpoints(
+        format!("{}/legacy", server.base),
+        format!("{}/v1", server.base),
+    );
+    let worker = NotificationOutboxWorker::new(pool.clone(), service);
+    let request = || NotificationRequest {
+        title: "private-title-sentinel",
+        body: "private-body-sentinel",
+        data: json!({"type":"invite_received","event_id":event}),
+        dedup_base_key: None,
+        dedup_ttl: None,
+    };
+    notify_users(
+        &NotificationService::new(
+            None,
+            None,
+            None,
+            None,
+            fiestaaa_back::build_http_client("fixture"),
+            300,
+        ),
+        &pool,
+        &[guest],
+        request(),
+    )
+    .await;
+    worker.process_batch().await?;
+    assert!(server.requests().is_empty());
+    let initial: String =
+        sqlx::query_scalar("SELECT status FROM notification_outbox ORDER BY id LIMIT 1")
+            .fetch_one(&pool)
+            .await?;
+    assert_eq!(
+        initial, "sent",
+        "terminal status is retained but does not prove phone presentation"
+    );
+    sqlx::query("INSERT INTO user_devices(user_id,fcm_token_ciphertext,fcm_token_lookup_hash,platform) VALUES($1,fiestaaa_encrypt_text('private-token-sentinel'),fiestaaa_lookup_text('private-token-sentinel'),'ios')").bind(guest).execute(&pool).await?;
+    server.response(
+        "/legacy",
+        503,
+        json!({"error":"private-token-sentinel private-body-sentinel"}),
+    );
+    notify_users(
+        &NotificationService::new(
+            None,
+            None,
+            None,
+            None,
+            fiestaaa_back::build_http_client("fixture"),
+            300,
+        ),
+        &pool,
+        &[guest],
+        request(),
+    )
+    .await;
+    worker.process_batch().await?;
+    let retry:(String,i32,bool)=sqlx::query_as("SELECT status,attempts,available_at>NOW() FROM notification_outbox ORDER BY id DESC LIMIT 1").fetch_one(&pool).await?;
+    assert_eq!(retry, ("retry".into(), 1, true));
+    server.response(
+        "/legacy",
+        200,
+        json!({"success":1,"failure":0,"results":[{"message_id":"fixture-ack"}]}),
+    );
+    sqlx::query("UPDATE notification_outbox SET available_at=NOW() WHERE status='retry'")
+        .execute(&pool)
+        .await?;
+    worker.process_batch().await?;
+    let done: (String, i32) =
+        sqlx::query_as("SELECT status,attempts FROM notification_outbox ORDER BY id DESC LIMIT 1")
+            .fetch_one(&pool)
+            .await?;
+    assert_eq!(done, ("sent".into(), 2));
+    assert_eq!(server.requests().len(), 2);
+    // A malformed HTTP success is an acknowledgement, not evidence of display.
+    server.response("/legacy", 200, json!("private-body-sentinel"));
+    notify_users(
+        &NotificationService::new(
+            None,
+            None,
+            None,
+            None,
+            fiestaaa_back::build_http_client("fixture"),
+            300,
+        ),
+        &pool,
+        &[guest],
+        NotificationRequest {
+            data: json!({"type":"private-type-sentinel"}),
+            ..request()
+        },
+    )
+    .await;
+    worker.process_batch().await?;
+    let logs = DIAGNOSTICS.0.lock().unwrap().join("\n");
+    assert!(logs.contains("outcome=no_active_device"));
+    assert!(logs.contains("outcome=provider_http_acknowledged") && logs.contains("kind=other"));
+    assert!(!logs.contains("private-type-sentinel"));
+    assert!(logs.contains("outcome=provider_rejected"));
+    assert!(logs.contains("push_retry") && logs.contains("attempt=1"));
+    assert!(logs.contains("outcome=provider_accepted") && logs.contains("attempt=2"));
+    for secret in [
+        "private-token-sentinel",
+        "private-body-sentinel",
+        "private-title-sentinel",
+    ] {
+        assert!(
+            !logs.contains(secret),
+            "diagnostics must not expose tokens or message content"
+        );
+    }
+    server.stop().await;
     Ok(())
 }
