@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- Require rustls 0.23.46 to address newly published RUSTSEC-2026-0346, RUSTSEC-2026-0347, RUSTSEC-2026-0348 and RUSTSEC-2026-0349 advisories.
+
 ### Fixed
 
 - Restrict poll alerts to accepted guests other than the author, recheck queued participation, and add redacted push delivery diagnostics without claiming phone presentation.
