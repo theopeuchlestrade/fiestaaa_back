@@ -200,7 +200,9 @@ pub async fn create_event_poll(
     .await;
 
     if state.notifications.is_enabled()
-        && let Ok(members) = event_member_user_ids(&state.db, *event_id).await
+        && let Ok(members) = sqlx::query_scalar::<_, i64>(
+            "SELECT DISTINCT user_id FROM invitations WHERE event_id = $1 AND status = 'Accepted' AND user_id <> $2 ORDER BY user_id"
+        ).bind(*event_id).bind(creator_id).fetch_all(&state.db).await
     {
         let event_name =
             sqlx::query_scalar::<_, String>("SELECT name_event FROM events WHERE event_id = $1")

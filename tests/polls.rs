@@ -209,3 +209,88 @@ async fn votes_are_serialized_and_expiration_is_checked_after_waiting() -> Resul
     );
     Ok(())
 }
+
+#[actix_web::test]
+async fn poll_push_targets_only_accepted_guests_and_rechecks_participation()
+-> Result<(), Box<dyn Error>> {
+    use fiestaaa_back::notifications::{NotificationOutboxWorker, NotificationService};
+    let pool = obtain_pool().await.expect("isolated database required");
+    let _guard = DB_LOCK.lock().await;
+    reset_tables(&pool, &["users", "events", "notification_outbox"]).await?;
+    let owner_email = "poll-owner@example.invalid";
+    let event = seed_event(&pool, owner_email).await?;
+    let owner = ensure_user(&pool, owner_email).await?;
+    let mut accepted_id = 0;
+    for (handle, status) in [
+        ("accepted", "Accepted"),
+        ("pending", "Waiting"),
+        ("declined", "Declined"),
+        ("expired", "Expired"),
+    ] {
+        let id = seed_user(&pool, &format!("{handle}@example.invalid"), handle).await?;
+        sqlx::query("INSERT INTO invitations(event_id,user_id,status) VALUES($1,$2,$3)")
+            .bind(event)
+            .bind(id)
+            .bind(status)
+            .execute(&pool)
+            .await?;
+        if status == "Accepted" {
+            accepted_id = id;
+        }
+    }
+    let mut state = build_state(pool.clone(), "poll-notification-test", &[]).into_inner();
+    std::sync::Arc::get_mut(&mut state)
+        .expect("unique test state")
+        .notifications = NotificationService::new(
+        Some("fixture-key".into()),
+        None,
+        None,
+        None,
+        fiestaaa_back::build_http_client("poll-notification-fixture"),
+        300,
+    );
+    let app = test::init_service(
+        App::new()
+            .app_data(actix_web::web::Data::from(state))
+            .configure(routes::configure),
+    )
+    .await;
+    let token = make_token("poll-notification-test", owner_email, "poll-owner").unwrap();
+    let response = test::call_service(&app, test::TestRequest::post().uri(&format!("/events/{event}/polls")).insert_header(("Authorization",format!("Bearer {token}"))).set_json(json!({"question":"Fictional choice", "options":["A","B"],"duration_minutes":5,"allow_multiple":false})).to_request()).await;
+    assert_eq!(response.status(), StatusCode::CREATED);
+    let rows: Vec<(i64, serde_json::Value)> = sqlx::query_as(
+        "SELECT user_id,data FROM notification_outbox WHERE data->>'type'='poll_created'",
+    )
+    .fetch_all(&pool)
+    .await?;
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].0, accepted_id);
+    assert_ne!(rows[0].0, owner);
+    assert_eq!(rows[0].1["event_id"], event);
+    // A queued private poll must not reach a guest who has since declined.
+    sqlx::query("UPDATE invitations SET status='Declined' WHERE event_id=$1 AND user_id=$2")
+        .bind(event)
+        .bind(accepted_id)
+        .execute(&pool)
+        .await?;
+    NotificationOutboxWorker::new(
+        pool.clone(),
+        NotificationService::new(
+            None,
+            None,
+            None,
+            None,
+            fiestaaa_back::build_http_client("poll-notification-fixture"),
+            300,
+        ),
+    )
+    .process_batch()
+    .await?;
+    let status: String =
+        sqlx::query_scalar("SELECT status FROM notification_outbox WHERE user_id=$1")
+            .bind(accepted_id)
+            .fetch_one(&pool)
+            .await?;
+    assert_eq!(status, "dead");
+    Ok(())
+}

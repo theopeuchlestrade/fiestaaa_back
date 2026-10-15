@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use futures_util::{StreamExt, stream};
-use log::{debug, warn};
+use log::{debug, info, warn};
 use redis::Client as RedisClient;
 use serde::Deserialize;
 use serde_json::Value;
@@ -45,6 +45,48 @@ pub struct NotificationRequest<'a> {
     pub data: Value,
     pub dedup_base_key: Option<&'a str>,
     pub dedup_ttl: Option<u64>,
+}
+
+/// Provider acceptance is not proof of presentation on a phone.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DeliveryOutcome {
+    NoActiveDevice,
+    Throttled,
+    NotConfigured,
+    ProviderAccepted,
+    ProviderAcknowledged,
+    InvalidDevice,
+    ProviderRejected,
+}
+
+impl DeliveryOutcome {
+    fn completed(self) -> bool {
+        self != Self::ProviderRejected
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            Self::NoActiveDevice => "no_active_device",
+            Self::Throttled => "throttled",
+            Self::NotConfigured => "not_configured",
+            Self::ProviderAccepted => "provider_accepted",
+            Self::ProviderAcknowledged => "provider_http_acknowledged",
+            Self::InvalidDevice => "invalid_device",
+            Self::ProviderRejected => "provider_rejected",
+        }
+    }
+}
+
+fn notification_kind(data: &Value) -> &'static str {
+    match data.get("type").and_then(Value::as_str) {
+        Some("invite_received") => "invite_received",
+        Some("invite_response") => "invite_response",
+        Some("poll_created") => "poll_created",
+        Some("event_updated") => "event_updated",
+        Some("friend_request") => "friend_request",
+        Some("friend_response") => "friend_response",
+        _ => "other",
+    }
 }
 
 pub struct NotificationTarget {
@@ -141,6 +183,7 @@ impl NotificationOutboxWorker {
         let allowed = sqlx::query_scalar::<_, bool>("SELECT CASE
           WHEN $2->>'type' IN ('friend_request','friend_response') THEN EXISTS(SELECT 1 FROM friend_requests f WHERE f.id=($2->>'request_id')::bigint AND NOT fiestaaa_contact_blocked(f.sender_id,f.receiver_id))
           WHEN $2->>'type'='invite_received' THEN EXISTS(SELECT 1 FROM events e JOIN invitations i ON i.event_id=e.event_id WHERE e.event_id=($2->>'event_id')::bigint AND i.user_id=$1 AND i.status<>'Expired' AND NOT fiestaaa_contact_blocked(e.owner_user_id,$1))
+          WHEN $2->>'type'='poll_created' THEN EXISTS(SELECT 1 FROM event_polls p JOIN invitations i ON i.event_id=p.event_id WHERE p.poll_id=($2->>'poll_id')::bigint AND p.event_id=($2->>'event_id')::bigint AND i.user_id=$1 AND i.status='Accepted' AND p.created_by<>$1)
           ELSE TRUE END").bind(row.user_id).bind(&row.data).fetch_one(&self.db).await;
         match allowed {
             Ok(true) => {}
@@ -157,15 +200,17 @@ impl NotificationOutboxWorker {
 
         let tokens = match tokens_by_user_ids(&self.db, &[row.user_id]).await {
             Ok(mut tokens) => tokens.remove(&row.user_id).unwrap_or_default(),
-            Err(error) => {
-                self.retry_row(row.id, row.attempts, &error.to_string())
+            Err(_) => {
+                self.retry_row(row.id, row.attempts, "device_lookup_failed")
                     .await;
                 return;
             }
         };
+        let device_count = tokens.len();
+        let kind = notification_kind(&row.data);
         let delivered = self
             .service
-            .send_to_tokens(
+            .send_to_tokens_diagnosed(
                 &self.db,
                 NotificationTarget {
                     tokens,
@@ -179,7 +224,15 @@ impl NotificationOutboxWorker {
                 },
             )
             .await;
-        if delivered {
+        info!(
+            "push_attempt outbox_id={} kind={} attempt={} devices={} outcome={}",
+            row.id,
+            kind,
+            row.attempts,
+            device_count,
+            delivered.label()
+        );
+        if delivered.completed() {
             if let Err(error) = sqlx::query(
                 "UPDATE notification_outbox
                  SET status = 'sent', sent_at = NOW(), locked_at = NULL, last_error = NULL
@@ -199,6 +252,7 @@ impl NotificationOutboxWorker {
 
     async fn retry_row(&self, id: i64, attempts: i32, error: &str) {
         let status = if attempts >= 8 { "dead" } else { "retry" };
+        info!("push_retry outbox_id={id} attempt={attempts} status={status} reason={error}");
         let delay_seconds = 2_i64.pow(attempts.clamp(1, 10) as u32).min(3600);
         if let Err(update_error) = sqlx::query(
             "UPDATE notification_outbox
@@ -298,16 +352,26 @@ impl NotificationService {
         target: NotificationTarget,
         message: &NotificationMessage<'_>,
     ) -> bool {
+        self.send_to_tokens_diagnosed(db, target, message)
+            .await
+            .completed()
+    }
+
+    pub async fn send_to_tokens_diagnosed(
+        &self,
+        db: &Pool<Postgres>,
+        target: NotificationTarget,
+        message: &NotificationMessage<'_>,
+    ) -> DeliveryOutcome {
         if target.tokens.is_empty() {
-            return true;
+            return DeliveryOutcome::NoActiveDevice;
         }
 
         let ttl = target.dedup_ttl.unwrap_or(self.default_dedup_ttl_seconds);
         if let Some(key) = target.dedup_key.as_ref()
             && self.is_throttled(key, ttl).await
         {
-            debug!("notification skipped by throttle for key {key}");
-            return true;
+            return DeliveryOutcome::Throttled;
         }
 
         if let (Some(project_id), Some(provider)) =
@@ -318,15 +382,22 @@ impl NotificationService {
                 project_id,
                 provider: provider.clone(),
             };
-            let mut delivered = true;
+            let mut outcome = DeliveryOutcome::InvalidDevice;
             for tok in target.tokens {
-                delivered &= self.send_v1(&ctx, &tok, message).await;
+                let next = self.send_v1(&ctx, &tok, message).await;
+                if next == DeliveryOutcome::ProviderRejected
+                    || outcome == DeliveryOutcome::ProviderRejected
+                {
+                    outcome = DeliveryOutcome::ProviderRejected;
+                } else if next == DeliveryOutcome::ProviderAccepted {
+                    outcome = next;
+                }
             }
-            return delivered;
+            return outcome;
         }
 
         if self.server_key.is_none() {
-            return true;
+            return DeliveryOutcome::NotConfigured;
         }
 
         let payload = legacy_payload(&target.tokens, message);
@@ -342,14 +413,14 @@ impl NotificationService {
 
         let resp = match response {
             Ok(resp) => resp,
-            Err(err) => {
-                warn!("failed to send FCM request: {err}");
+            Err(_) => {
+                warn!("push_provider protocol=legacy outcome=transport_failure");
                 observability::record_push_error("legacy_transport_failure");
                 observability::capture_message(
                     sentry::Level::Error,
-                    &format!("failed to send FCM request: {err}"),
+                    "push legacy transport failure",
                 );
-                return false;
+                return DeliveryOutcome::ProviderRejected;
             }
         };
 
@@ -375,16 +446,31 @@ impl NotificationService {
                     warn!("failed to prune invalid FCM tokens: {err}");
                     observability::record_push_error("legacy_invalid_token_prune_failed");
                 }
-                status.is_success()
+                if status.is_success() {
+                    if body.failure == Some(0)
+                        && body.success.and_then(|count| usize::try_from(count).ok())
+                            == Some(target.tokens.len())
+                    {
+                        DeliveryOutcome::ProviderAccepted
+                    } else {
+                        DeliveryOutcome::ProviderAcknowledged
+                    }
+                } else {
+                    DeliveryOutcome::ProviderRejected
+                }
             }
             Err(err) => {
-                let snippet = &body_text.chars().take(200).collect::<String>();
+                let _ = err;
                 warn!(
-                    "failed to parse FCM response (status {}): {} body_snippet='{}'",
-                    status, err, snippet
+                    "push_provider protocol=legacy status={} outcome=response_parse_failure",
+                    status
                 );
                 observability::record_push_error("legacy_response_parse_failure");
-                status.is_success()
+                if status.is_success() {
+                    DeliveryOutcome::ProviderAcknowledged
+                } else {
+                    DeliveryOutcome::ProviderRejected
+                }
             }
         }
     }
@@ -394,21 +480,21 @@ impl NotificationService {
         ctx: &FcmV1Context<'_>,
         token: &str,
         message: &NotificationMessage<'_>,
-    ) -> bool {
+    ) -> DeliveryOutcome {
         let url = format!(
             "{}/projects/{}/messages:send",
             self.v1_endpoint_base, ctx.project_id
         );
         let access = match ctx.provider.token(&[FCM_SCOPE]).await {
             Ok(tok) => tok.as_str().to_string(),
-            Err(err) => {
-                warn!("fcm v1 auth token error: {err}");
+            Err(_) => {
+                warn!("push_provider protocol=v1 outcome=authentication_failure");
                 observability::record_push_error("v1_auth_token_failure");
                 observability::capture_message(
                     sentry::Level::Error,
-                    &format!("fcm v1 auth token error: {err}"),
+                    "push v1 authentication failure",
                 );
-                return false;
+                return DeliveryOutcome::ProviderRejected;
             }
         };
 
@@ -423,32 +509,27 @@ impl NotificationService {
             .await
         {
             Ok(r) => r,
-            Err(err) => {
-                warn!("failed to send FCM v1 request: {err}");
+            Err(_) => {
+                warn!("push_provider protocol=v1 outcome=transport_failure");
                 observability::record_push_error("v1_transport_failure");
-                observability::capture_message(
-                    sentry::Level::Error,
-                    &format!("failed to send FCM v1 request: {err}"),
-                );
-                return false;
+                observability::capture_message(sentry::Level::Error, "push v1 transport failure");
+                return DeliveryOutcome::ProviderRejected;
             }
         };
 
         let status = resp.status();
         let body_txt = resp.text().await.unwrap_or_default();
-        if status.is_client_error() || status.is_server_error() {
-            warn!(
-                "FCM v1 status {} body_snippet='{}'",
-                status,
-                body_txt.chars().take(200).collect::<String>()
-            );
+        info!(
+            "push_provider protocol=v1 status={} outcome={}",
+            status,
+            if status.is_success() {
+                "provider_accepted"
+            } else {
+                "provider_rejected"
+            }
+        );
+        if !status.is_success() {
             observability::record_push_error("v1_provider_failure");
-        } else {
-            debug!(
-                "FCM v1 status {} body_snippet='{}'",
-                status,
-                body_txt.chars().take(120).collect::<String>()
-            );
         }
 
         if status == reqwest::StatusCode::NOT_FOUND
@@ -463,9 +544,13 @@ impl NotificationService {
             .bind(token)
             .execute(ctx.db)
             .await;
-            return true;
+            return DeliveryOutcome::InvalidDevice;
         }
-        status.is_success()
+        if status.is_success() {
+            DeliveryOutcome::ProviderAccepted
+        } else {
+            DeliveryOutcome::ProviderRejected
+        }
     }
 
     async fn is_throttled(&self, key: &str, ttl_seconds: u64) -> bool {
