@@ -1,15 +1,15 @@
 # Rust lines coverage
 
-Commit: `80a923fce810032d2c8e64d912a3ed2d211ff49e` · 2026-10-13T18:38:47.120Z
+Commit: `ae3187cbce4587923b426f42858e1a32af09702e` · 2026-10-15T06:23:38.289Z
 
 | Measure | Covered / total | Coverage | Enforced / target |
 |---|---:|---:|---:|
-| Raw collector | 9916/12914 | 76.78% | — |
-| Application | 9916/12914 | 76.78% | 75% / 75% |
+| Raw collector | 10093/12967 | 77.84% | — |
+| Application | 10093/12967 | 77.84% | 75% / 75% |
 | authentication-sessions | 1606/1998 | 80.38% | 80% / 80% |
 | permissions-participation | 1521/1848 | 82.31% | 80% / 80% |
 | recovery-deletion | 93/103 | 90.29% | 80% / 80% |
-| notifications-qr | 1206/1474 | 81.82% | 80% / 80% |
+| notifications-qr | 1264/1526 | 82.83% | 80% / 80% |
 
 Patch: **not-requested**.
 
@@ -20,9 +20,9 @@ Result: **passed**.
 
 - `src/routes/events/items.rs`: 304 uncovered collector lines (41.76%)
 - `src/routes/auth.rs`: 297 uncovered collector lines (75.64%)
-- `src/routes/events/polls.rs`: 285 uncovered collector lines (44.23%)
 - `src/routes/carpools.rs`: 271 uncovered collector lines (70.70%)
 - `src/routes/invitations.rs`: 252 uncovered collector lines (78.20%)
+- `src/routes/events/polls.rs`: 167 uncovered collector lines (67.38%)
 - `src/routes/events/mod.rs`: 165 uncovered collector lines (78.20%)
 - `src/routes/events/core.rs`: 155 uncovered collector lines (81.70%)
 - `src/routes/items.rs`: 118 uncovered collector lines (61.06%)
@@ -31,7 +31,7 @@ Result: **passed**.
 - `src/routes/users.rs`: 94 uncovered collector lines (73.14%)
 - `src/routes/events/expenses.rs`: 88 uncovered collector lines (81.59%)
 - `src/routes/events/address.rs`: 72 uncovered collector lines (75.09%)
-- `src/notifications.rs`: 71 uncovered collector lines (87.88%)
+- `src/notifications.rs`: 65 uncovered collector lines (89.81%)
 - `src/routes/payment_providers.rs`: 61 uncovered collector lines (73.59%)
 
 ## Eligible sources absent from measurement
@@ -50,4 +50,4 @@ None.
 
 Coverage does not certify native providers, physical devices or store delivery.
 
-[Source CI](https://github.com/theopeuchlestrade/fiestaaa_back/actions/runs/38447589617)
+[Source CI](https://github.com/theopeuchlestrade/fiestaaa_back/actions/runs/38691616207)
