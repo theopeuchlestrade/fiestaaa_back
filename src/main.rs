@@ -18,6 +18,25 @@ use utoipa_swagger_ui::SwaggerUi;
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
+    if std::env::args().nth(1).as_deref() == Some("--migrate-only") {
+        let url = std::env::var("DATABASE_URL")
+            .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidInput, error))?;
+        let pool = sqlx::postgres::PgPoolOptions::new()
+            .max_connections(1)
+            .connect(&url)
+            .await
+            .map_err(std::io::Error::other)?;
+        sqlx::query("SET search_path = public, pg_catalog")
+            .execute(&pool)
+            .await
+            .map_err(std::io::Error::other)?;
+        sqlx::migrate!("./migrations")
+            .run(&pool)
+            .await
+            .map_err(std::io::Error::other)?;
+        pool.close().await;
+        return Ok(());
+    }
     fiestaaa_back::install_rustls_crypto_provider();
     fiestaaa_back::auth::warm_up_password_verifier();
 
