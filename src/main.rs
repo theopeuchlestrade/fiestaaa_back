@@ -30,6 +30,16 @@ async fn main() -> std::io::Result<()> {
             .execute(&pool)
             .await
             .map_err(std::io::Error::other)?;
+        let encryption_key = std::env::var("DATA_ENCRYPTION_KEY")
+            .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidInput, error))?;
+        let lookup_key = std::env::var("DATA_LOOKUP_KEY")
+            .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidInput, error))?;
+        sqlx::query("SELECT set_config('fiestaaa.data_encryption_key',$1,false), set_config('fiestaaa.data_lookup_key',$2,false)")
+            .bind(encryption_key)
+            .bind(lookup_key)
+            .execute(&pool)
+            .await
+            .map_err(std::io::Error::other)?;
         sqlx::migrate!("./migrations")
             .run(&pool)
             .await
