@@ -5,7 +5,7 @@ use sqlx::AssertSqlSafe;
 
 #[actix_web::test]
 async fn runtime_verification_needs_only_ledger_select_and_rejects_drift() {
-    let _guard = common::DB_LOCK.lock().unwrap();
+    let _guard = common::DB_LOCK.lock().await;
     let Some(pool) = common::obtain_pool().await else {
         return;
     };
