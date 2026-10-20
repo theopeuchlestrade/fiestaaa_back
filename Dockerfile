@@ -17,6 +17,7 @@ WORKDIR /app
 
 # Prime dependency compilation for faster rebuilds.
 COPY Cargo.toml Cargo.lock build.rs ./
+COPY vendor ./vendor
 COPY migrations ./migrations
 RUN mkdir -p src && echo "fn main(){}" > src/main.rs \
  && cargo build --release --locked || true \
