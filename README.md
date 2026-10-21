@@ -1,11 +1,11 @@
 # Rust lines coverage
 
-Commit: `dbddd686cb2bbe970aa148882ac495fc4289c9cc` · 2026-10-20T22:01:16.902Z
+Commit: `ced766ecd3ed466a5935a301f2de7c3c790f7c98` · 2026-10-21T13:22:16.582Z
 
 | Measure | Covered / total | Coverage | Enforced / target |
 |---|---:|---:|---:|
-| Raw collector | 10128/13011 | 77.84% | — |
-| Application | 10128/13011 | 77.84% | 75% / 75% |
+| Raw collector | 10134/13017 | 77.85% | — |
+| Application | 10134/13017 | 77.85% | 75% / 75% |
 | authentication-sessions | 1606/1998 | 80.38% | 80% / 80% |
 | permissions-participation | 1521/1848 | 82.31% | 80% / 80% |
 | recovery-deletion | 93/103 | 90.29% | 80% / 80% |
@@ -30,7 +30,7 @@ Result: **passed**.
 - `src/cleanup.rs`: 96 uncovered collector lines (17.95%)
 - `src/routes/users.rs`: 94 uncovered collector lines (73.14%)
 - `src/routes/events/expenses.rs`: 88 uncovered collector lines (81.59%)
-- `src/routes/events/address.rs`: 72 uncovered collector lines (75.09%)
+- `src/routes/events/address.rs`: 72 uncovered collector lines (75.59%)
 - `src/notifications.rs`: 65 uncovered collector lines (89.81%)
 - `src/main.rs`: 62 uncovered collector lines (0.00%)
 
@@ -50,4 +50,4 @@ None.
 
 Coverage does not certify native providers, physical devices or store delivery.
 
-[Source CI](https://github.com/theopeuchlestrade/fiestaaa_back/actions/runs/39504055782)
+[Source CI](https://github.com/theopeuchlestrade/fiestaaa_back/actions/runs/39606407438)
