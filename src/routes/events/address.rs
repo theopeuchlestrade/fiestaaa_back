@@ -373,18 +373,26 @@ mod tests {
         let (url, count, server) = fixture().await;
         let http = crate::build_geocoding_http_client("Fiestaaa-tests");
         assert_eq!(
-            fetch_address_suggestions(&http, &url, None, "redirect", 5)
-                .await
-                .unwrap_err()
-                .status(),
+            tokio::time::timeout(
+                Duration::from_secs(15),
+                fetch_address_suggestions(&http, &url, None, "redirect", 5),
+            )
+            .await
+            .expect("redirect fixture request must finish within fifteen seconds")
+            .unwrap_err()
+            .status(),
             502
         );
         assert_eq!(count.load(Ordering::SeqCst), 1);
         assert_eq!(
-            fetch_address_suggestions(&http, &url, None, "huge", 5)
-                .await
-                .unwrap_err()
-                .status(),
+            tokio::time::timeout(
+                Duration::from_secs(15),
+                fetch_address_suggestions(&http, &url, None, "huge", 5),
+            )
+            .await
+            .expect("oversized fixture request must finish within fifteen seconds")
+            .unwrap_err()
+            .status(),
             502
         );
         stop_fixture(server).await;
