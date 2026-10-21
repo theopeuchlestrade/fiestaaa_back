@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Build and check with Rust 1.99.1, retain Tokio on its maintained 1.53 LTS branch, and align local/CI database images with supported production versions.
 
+### Fixed
+
+- Bound HTTP fixture shutdown in geocoding tests that intentionally leave rejected response bodies unread.
+
 ## [0.5.2] - 2026-10-16
 
 ### Security
