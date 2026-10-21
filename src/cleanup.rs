@@ -77,6 +77,8 @@ impl CleanupService {
 
 async fn cleanup_auth_state(pool: &Pool<Postgres>) -> Result<(), sqlx::Error> {
     auth::cleanup_expired_revoked_tokens(pool).await?;
+    sqlx::query("DELETE FROM mobile_sessions WHERE expires_at <= NOW() OR created_at + INTERVAL '365 days' <= NOW()")
+        .execute(pool).await?;
     sqlx::query("DELETE FROM password_resets WHERE expires_at <= NOW()")
         .execute(pool)
         .await?;

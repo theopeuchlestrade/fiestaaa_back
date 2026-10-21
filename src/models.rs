@@ -65,6 +65,8 @@ pub struct Claims {
 #[derive(Serialize, ToSchema)]
 pub struct TokenResponse {
     pub token: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub refresh_token: Option<String>,
     pub public_id: String,
     pub email: String,
     pub handle: String,
@@ -768,4 +770,10 @@ mod tests {
         assert!(json.get("playlist_provider").is_none());
         assert!(json.get("end_time").is_none());
     }
+}
+
+/// Only native clients receive refresh credentials; browsers keep cookie sessions.
+#[derive(Deserialize, ToSchema)]
+pub struct RefreshSessionPayload {
+    pub refresh_token: Option<String>,
 }

@@ -115,7 +115,7 @@
           {
             "name": "X-Fiestaaa-Auth-Response",
             "in": "header",
-            "description": "Set to `bearer` to include the session token in the JSON body for native clients. Omit for cookie-only web sessions.",
+            "description": "Set to `bearer-refresh` for a renewable native session, or `bearer` for legacy access only. Omit for cookie-only web sessions.",
             "required": false,
             "schema": {
               "type": [
@@ -199,7 +199,7 @@
           {
             "name": "X-Fiestaaa-Auth-Response",
             "in": "header",
-            "description": "Set to `bearer` to include the session token in the JSON body for native clients. Omit for cookie-only web sessions.",
+            "description": "Set to `bearer-refresh` for a renewable native session, or `bearer` for legacy access only. Omit for cookie-only web sessions.",
             "required": false,
             "schema": {
               "type": [
@@ -259,6 +259,23 @@
           "auth"
         ],
         "operationId": "logout",
+        "requestBody": {
+          "description": "Native clients send refresh_token to revoke the device session; optional for legacy/cookie sessions.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/RefreshSessionPayload"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "description": "Session invalidated",
@@ -292,7 +309,7 @@
           {
             "name": "X-Fiestaaa-Auth-Response",
             "in": "header",
-            "description": "Set to `bearer` to include the session token in the JSON body for native clients. Omit for cookie-only web sessions.",
+            "description": "Set to `bearer-refresh` for a renewable native session, or `bearer` for legacy access only. Omit for cookie-only web sessions.",
             "required": false,
             "schema": {
               "type": [
@@ -407,6 +424,67 @@
           },
           "429": {
             "description": "Rate limited"
+          }
+        }
+      }
+    },
+    "/auth/refresh": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "operationId": "refresh_session",
+        "parameters": [
+          {
+            "name": "X-Fiestaaa-Auth-Response",
+            "in": "header",
+            "description": "Must be bearer-refresh; native clients only. With no refresh_token, a valid legacy Bearer session is upgraded.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RefreshSessionPayload"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Renewed native session",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Expired or revoked session",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Temporary server failure",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
           }
         }
       }
@@ -6973,6 +7051,18 @@
           }
         }
       },
+      "RefreshSessionPayload": {
+        "type": "object",
+        "description": "Only native clients receive refresh credentials; browsers keep cookie sessions.",
+        "properties": {
+          "refresh_token": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
       "RegisterPayload": {
         "type": "object",
         "required": [
@@ -7117,6 +7207,12 @@
           },
           "public_id": {
             "type": "string"
+          },
+          "refresh_token": {
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "token": {
             "type": "string"

@@ -37,6 +37,7 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(auth::login)
         .service(auth::oauth_login)
         .service(auth::logout)
+        .service(auth::refresh_session)
         .service(crate::apple::reauthorize)
         .service(crate::apple::android_callback)
         .service(items::list_items)
