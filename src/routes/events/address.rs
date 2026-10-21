@@ -341,6 +341,14 @@ mod tests {
         (url, count, handle)
     }
 
+    async fn stop_fixture(server: actix_web::dev::ServerHandle) {
+        // These tests intentionally reject responses before draining their bodies.
+        // Force-close fixture connections instead of waiting for keep-alive clients.
+        tokio::time::timeout(Duration::from_secs(5), server.stop(false))
+            .await
+            .expect("geocoding fixture server must stop within five seconds");
+    }
+
     async fn redis_fixture() -> Option<redis::Client> {
         let Ok(url) = std::env::var("TEST_REDIS_URL") else {
             assert!(
@@ -365,21 +373,29 @@ mod tests {
         let (url, count, server) = fixture().await;
         let http = crate::build_geocoding_http_client("Fiestaaa-tests");
         assert_eq!(
-            fetch_address_suggestions(&http, &url, None, "redirect", 5)
-                .await
-                .unwrap_err()
-                .status(),
+            tokio::time::timeout(
+                Duration::from_secs(15),
+                fetch_address_suggestions(&http, &url, None, "redirect", 5),
+            )
+            .await
+            .expect("redirect fixture request must finish within fifteen seconds")
+            .unwrap_err()
+            .status(),
             502
         );
         assert_eq!(count.load(Ordering::SeqCst), 1);
         assert_eq!(
-            fetch_address_suggestions(&http, &url, None, "huge", 5)
-                .await
-                .unwrap_err()
-                .status(),
+            tokio::time::timeout(
+                Duration::from_secs(15),
+                fetch_address_suggestions(&http, &url, None, "huge", 5),
+            )
+            .await
+            .expect("oversized fixture request must finish within fifteen seconds")
+            .unwrap_err()
+            .status(),
             502
         );
-        server.stop(true).await;
+        stop_fixture(server).await;
     }
 
     #[actix_web::test]
@@ -405,7 +421,7 @@ mod tests {
             502
         );
         assert_eq!(count.load(Ordering::SeqCst), 0);
-        server.stop(true).await;
+        stop_fixture(server).await;
     }
 
     #[actix_web::test]
@@ -465,7 +481,7 @@ mod tests {
             429
         );
         assert_eq!(count.load(Ordering::SeqCst), 2);
-        server.stop(true).await;
+        stop_fixture(server).await;
     }
 
     #[actix_web::test]

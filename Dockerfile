@@ -1,7 +1,7 @@
 # Pinned Rust builder base. Rustup keeps the exact project toolchain selected.
 FROM rust:1.99.1-bookworm@sha256:e12566d5abc17a0da741628782cdb504b68b8961f5bfcf677936bf3e8b32de29 AS builder
 
-ARG RUST_VERSION=1.96.0
+ARG RUST_VERSION=1.99.1
 
 LABEL org.opencontainers.image.source="https://github.com/theopeuchlestrade/fiestaaa_back"
 
