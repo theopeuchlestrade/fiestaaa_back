@@ -2,6 +2,10 @@ version: 2
 updates:
   - package-ecosystem: "cargo"
     directory: "/"
+    # Moving to a new Tokio LTS is a reviewed policy change; keep patch updates.
+    ignore:
+      - dependency-name: "tokio"
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
     schedule:
       interval: "weekly"
       day: "monday"
