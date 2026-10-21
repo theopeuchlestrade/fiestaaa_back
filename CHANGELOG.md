@@ -7,12 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-10-21
+
+### Added
+
+- Add renewable native sessions with one-hour access tokens, rotating refresh credentials, a 90-day inactivity limit and a one-year maximum lifetime. Existing valid native sessions can upgrade without another login.
+- Keep refresh credentials hashed for lookup and encrypted at rest, serialize concurrent renewal and support retries after a lost response. Add the mobile session database migration and expiry cleanup.
+
 ### Dependencies
 
 - Build and check with Rust 1.99.1, retain Tokio on its maintained 1.53 LTS branch, and align local/CI database images with supported production versions.
 
 ### Fixed
 
+- Allow mobile users to renew expired access without signing in every 24 hours, while enforcing logout, password-reset revocation and account suspension.
+- Give independently issued access tokens unique identifiers so revoking one session does not affect another device logged in during the same second.
+- Start production with its restricted database role without requiring schema creation privileges.
 - Bound HTTP fixture shutdown in geocoding tests that intentionally leave rejected response bodies unread.
 
 ## [0.5.2] - 2026-10-16
