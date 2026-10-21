@@ -77,6 +77,7 @@ fn token_response(
     handle: String,
     secure_cookie: bool,
     include_body_token: bool,
+    refresh_token: Option<String>,
 ) -> HttpResponse {
     HttpResponse::Ok()
         .insert_header((CONTENT_TYPE, "application/json"))
@@ -84,6 +85,7 @@ fn token_response(
         .insert_header((PRAGMA, "no-cache"))
         .cookie(build_session_cookie(&token, secure_cookie))
         .json(TokenResponse {
+            refresh_token,
             token: if include_body_token {
                 token
             } else {
@@ -99,7 +101,210 @@ fn auth_response_includes_body_token(req: &HttpRequest) -> bool {
     req.headers()
         .get(AUTH_RESPONSE_HEADER)
         .and_then(|value| value.to_str().ok())
-        .is_some_and(|value| value.eq_ignore_ascii_case("bearer"))
+        .is_some_and(|value| {
+            value.eq_ignore_ascii_case("bearer") || value.eq_ignore_ascii_case("bearer-refresh")
+        })
+}
+
+// The opt-in keeps older native releases and cookie-only web clients compatible.
+fn wants_refresh_session(req: &HttpRequest) -> bool {
+    req.headers()
+        .get(AUTH_RESPONSE_HEADER)
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|v| v.eq_ignore_ascii_case("bearer-refresh"))
+}
+
+fn session_db_error() -> HttpResponse {
+    HttpResponse::InternalServerError().json(ErrorResponse {
+        error: "db_error".into(),
+        details: None,
+    })
+}
+
+fn refresh_secret() -> String {
+    format!("{}{}", Uuid::new_v4().simple(), Uuid::new_v4().simple())
+}
+
+async fn issue_session(
+    req: &HttpRequest,
+    state: &AppState,
+    mut claims: Claims,
+    email: String,
+    handle: String,
+) -> HttpResponse {
+    let refresh_token = if wants_refresh_session(req) {
+        claims.exp = (now_ts() + 3600) as usize;
+        let token = refresh_secret();
+        let result = sqlx::query(
+            "INSERT INTO mobile_sessions (id, user_id, session_version, token_hash, token_ciphertext)
+             SELECT $1, id, $2, $3, fiestaaa_encrypt_text($4) FROM users WHERE public_id = $5")
+            .bind(Uuid::new_v4()).bind(claims.session_version).bind(sha256_hex(&token))
+            .bind(&token).bind(Uuid::parse_str(&claims.sub).expect("issued public ID"))
+            .execute(&state.db).await;
+        if !matches!(result, Ok(r) if r.rows_affected() == 1) {
+            return session_db_error();
+        }
+        Some(token)
+    } else {
+        None
+    };
+    session_response(req, state, &claims, email, handle, refresh_token)
+}
+
+fn session_response(
+    req: &HttpRequest,
+    state: &AppState,
+    claims: &Claims,
+    email: String,
+    handle: String,
+    refresh_token: Option<String>,
+) -> HttpResponse {
+    let token = if refresh_token.is_some() {
+        crate::auth::encode_mobile_jwt(claims, &state.jwt_secret)
+    } else {
+        encode_jwt(claims, &state.jwt_secret)
+    };
+    match token {
+        Ok(token) => token_response(
+            token,
+            claims.sub.clone(),
+            email,
+            handle,
+            should_secure_cookie(req, &state.app_base_url, state.trust_proxy_headers),
+            auth_response_includes_body_token(req),
+            refresh_token,
+        ),
+        Err(_) => HttpResponse::InternalServerError().json(ErrorResponse {
+            error: "token_creation_failed".into(),
+            details: None,
+        }),
+    }
+}
+
+#[derive(sqlx::FromRow)]
+struct MobileSession {
+    id: Uuid,
+    token_hash: String,
+    token: String,
+    previous_valid: bool,
+    valid: bool,
+    public_id: Uuid,
+    session_version: i64,
+    email: String,
+    handle: String,
+}
+
+#[utoipa::path(
+    post, path = "/auth/refresh", tag = "auth",
+    request_body = crate::models::RefreshSessionPayload,
+    params(("X-Fiestaaa-Auth-Response" = String, Header, description = "Must be bearer-refresh; native clients only. With no refresh_token, a valid legacy Bearer session is upgraded.")),
+    responses(
+        (status = 200, description = "Renewed native session", body = TokenResponse),
+        (status = 401, description = "Expired or revoked session", body = ErrorResponse),
+        (status = 500, description = "Temporary server failure", body = ErrorResponse)
+    )
+)]
+#[post("/auth/refresh")]
+pub async fn refresh_session(
+    state: web::Data<AppState>,
+    req: HttpRequest,
+    payload: web::Json<crate::models::RefreshSessionPayload>,
+) -> HttpResponse {
+    // Requiring a custom native header also prevents ambient-cookie CSRF.
+    if !wants_refresh_session(&req) {
+        return HttpResponse::Unauthorized().json(ErrorResponse {
+            error: "native_session_required".into(),
+            details: None,
+        });
+    }
+    let Some(token) = payload.refresh_token.as_deref() else {
+        if !crate::auth::is_legacy_bearer(&req, &state.jwt_secret) {
+            return invalid_refresh();
+        }
+        return match crate::auth::extract_authenticated_user(&req, &state.db, &state.jwt_secret)
+            .await
+        {
+            Ok(user) => {
+                issue_session(
+                    &req,
+                    &state,
+                    Claims {
+                        sub: user.public_id.to_string(),
+                        session_version: user.session_version,
+                        handle: user.handle.clone(),
+                        exp: user.exp,
+                    },
+                    user.email,
+                    user.handle,
+                )
+                .await
+            }
+            Err(response) => response,
+        };
+    };
+    let hash = sha256_hex(token);
+    let mut tx = match state.db.begin().await {
+        Ok(tx) => tx,
+        Err(_) => return session_db_error(),
+    };
+    let row = sqlx::query_as::<_, MobileSession>(
+        "SELECT s.id, s.token_hash, fiestaaa_decrypt_text(s.token_ciphertext) AS token,
+                COALESCE(s.previous_valid_until > NOW(), FALSE) AS previous_valid,
+                (s.expires_at > NOW() AND s.created_at + INTERVAL '365 days' > NOW()
+                 AND s.session_version = u.session_version AND NOT u.suspended) AS valid,
+                u.public_id, u.session_version, fiestaaa_decrypt_text(u.email_ciphertext) AS email, u.handle
+         FROM mobile_sessions s JOIN users u ON u.id = s.user_id
+         WHERE s.token_hash = $1 OR s.previous_token_hash = $1 FOR UPDATE OF s")
+        .bind(&hash).fetch_optional(&mut *tx).await;
+    let row = match row {
+        Ok(Some(row)) => row,
+        Ok(None) => return invalid_refresh(),
+        Err(_) => return session_db_error(),
+    };
+    if !row.valid || (hash != row.token_hash && !row.previous_valid) {
+        return invalid_refresh();
+    }
+    // Retry of a lost response returns the same secret for five minutes. The
+    // row lock serializes concurrent renewals across requests/devices.
+    let next = if hash == row.token_hash {
+        let next = refresh_secret();
+        if sqlx::query(
+            "UPDATE mobile_sessions SET previous_token_hash = token_hash,
+             previous_valid_until = NOW() + INTERVAL '5 minutes', token_hash = $2,
+             token_ciphertext = fiestaaa_encrypt_text($3),
+             expires_at = LEAST(NOW() + INTERVAL '90 days', created_at + INTERVAL '365 days')
+             WHERE id = $1",
+        )
+        .bind(row.id)
+        .bind(sha256_hex(&next))
+        .bind(&next)
+        .execute(&mut *tx)
+        .await
+        .is_err()
+        {
+            return session_db_error();
+        }
+        next
+    } else {
+        row.token
+    };
+    if tx.commit().await.is_err() {
+        return session_db_error();
+    }
+    let claims = Claims {
+        sub: row.public_id.to_string(),
+        session_version: row.session_version,
+        handle: row.handle.clone(),
+        exp: (now_ts() + 3600) as usize,
+    };
+    session_response(&req, &state, &claims, row.email, row.handle, Some(next))
+}
+
+fn invalid_refresh() -> HttpResponse {
+    HttpResponse::Unauthorized().json(ErrorResponse {
+        error: "invalid_refresh_token".into(),
+        details: None,
+    })
 }
 
 async fn cleanup_expired_pending_registrations(db: &PgPool) -> Result<(), HttpResponse> {
@@ -682,7 +887,7 @@ pub async fn verify_email(
     path = "/auth/complete-registration",
     tag = "auth",
     params(
-        ("X-Fiestaaa-Auth-Response" = Option<String>, Header, description = "Set to `bearer` to include the session token in the JSON body for native clients. Omit for cookie-only web sessions.")
+        ("X-Fiestaaa-Auth-Response" = Option<String>, Header, description = "Set to `bearer-refresh` for a renewable native session, or `bearer` for legacy access only. Omit for cookie-only web sessions.")
     ),
     request_body = CompleteRegistrationPayload,
     responses(
@@ -890,22 +1095,7 @@ pub async fn complete_registration(
         handle: final_handle.clone(),
         exp,
     };
-    let secure_cookie = should_secure_cookie(&req, &state.app_base_url, state.trust_proxy_headers);
-
-    match encode_jwt(&claims, &state.jwt_secret) {
-        Ok(token) => token_response(
-            token,
-            claims.sub.clone(),
-            pending.email,
-            final_handle,
-            secure_cookie,
-            auth_response_includes_body_token(&req),
-        ),
-        Err(_) => HttpResponse::InternalServerError().json(ErrorResponse {
-            error: "token_creation_failed".into(),
-            details: None,
-        }),
-    }
+    issue_session(&req, &state, claims, pending.email, final_handle).await
 }
 
 #[utoipa::path(
@@ -914,7 +1104,7 @@ pub async fn complete_registration(
     tag = "auth",
     params(
         ("provider" = String, Path, description = "oauth provider (google)"),
-        ("X-Fiestaaa-Auth-Response" = Option<String>, Header, description = "Set to `bearer` to include the session token in the JSON body for native clients. Omit for cookie-only web sessions.")
+        ("X-Fiestaaa-Auth-Response" = Option<String>, Header, description = "Set to `bearer-refresh` for a renewable native session, or `bearer` for legacy access only. Omit for cookie-only web sessions.")
     ),
     request_body = OAuthPayload,
     responses(
@@ -1332,22 +1522,7 @@ async fn oauth_google(
         handle: user.handle.clone(),
         exp,
     };
-    let secure_cookie = should_secure_cookie(&req, &state.app_base_url, state.trust_proxy_headers);
-
-    match encode_jwt(&claims, &state.jwt_secret) {
-        Ok(token) => token_response(
-            token,
-            user.public_id.to_string(),
-            user.email,
-            user.handle,
-            secure_cookie,
-            auth_response_includes_body_token(&req),
-        ),
-        Err(_) => HttpResponse::InternalServerError().json(ErrorResponse {
-            error: "token_creation_failed".into(),
-            details: None,
-        }),
-    }
+    issue_session(&req, &state, claims, user.email, user.handle).await
 }
 
 async fn oauth_apple(
@@ -1453,22 +1628,7 @@ async fn oauth_apple(
         handle: user.handle.clone(),
         exp,
     };
-    let secure_cookie = should_secure_cookie(&req, &state.app_base_url, state.trust_proxy_headers);
-
-    match encode_jwt(&claims, &state.jwt_secret) {
-        Ok(token) => token_response(
-            token,
-            user.public_id.to_string(),
-            user.email,
-            user.handle,
-            secure_cookie,
-            auth_response_includes_body_token(&req),
-        ),
-        Err(_) => HttpResponse::InternalServerError().json(ErrorResponse {
-            error: "token_creation_failed".into(),
-            details: None,
-        }),
-    }
+    issue_session(&req, &state, claims, user.email, user.handle).await
 }
 
 #[derive(serde::Deserialize)]
@@ -1511,12 +1671,28 @@ pub(crate) async fn fetch_apple_decoding_key_from(
     post,
     path = "/auth/logout",
     tag = "auth",
+    request_body(content = Option<crate::models::RefreshSessionPayload>, description = "Native clients send refresh_token to revoke the device session; optional for legacy/cookie sessions."),
     responses(
         (status = 200, description = "Session invalidated", body = StatusResponse)
     )
 )]
 #[post("/auth/logout")]
-pub async fn logout(state: web::Data<AppState>, req: HttpRequest) -> impl Responder {
+pub async fn logout(
+    state: web::Data<AppState>,
+    req: HttpRequest,
+    payload: Option<web::Json<crate::models::RefreshSessionPayload>>,
+) -> impl Responder {
+    if let Some(token) = payload.as_ref().and_then(|p| p.refresh_token.as_deref())
+        && sqlx::query(
+            "DELETE FROM mobile_sessions WHERE token_hash = $1 OR previous_token_hash = $1",
+        )
+        .bind(sha256_hex(token))
+        .execute(&state.db)
+        .await
+        .is_err()
+    {
+        return session_db_error();
+    }
     if let Err(resp) = revoke_auth_token_from_request(&req, &state.db, &state.jwt_secret).await {
         return resp;
     }
@@ -1533,7 +1709,7 @@ pub async fn logout(state: web::Data<AppState>, req: HttpRequest) -> impl Respon
     path = "/auth/login",
     tag = "auth",
     params(
-        ("X-Fiestaaa-Auth-Response" = Option<String>, Header, description = "Set to `bearer` to include the session token in the JSON body for native clients. Omit for cookie-only web sessions.")
+        ("X-Fiestaaa-Auth-Response" = Option<String>, Header, description = "Set to `bearer-refresh` for a renewable native session, or `bearer` for legacy access only. Omit for cookie-only web sessions.")
     ),
     request_body = LoginPayload,
     responses(
@@ -1595,25 +1771,7 @@ pub async fn login(
         handle: auth_row.handle.clone(),
         exp,
     };
-    let secure_cookie = should_secure_cookie(&req, &state.app_base_url, state.trust_proxy_headers);
-
-    match encode_jwt(&claims, &state.jwt_secret) {
-        Ok(token) => token_response(
-            token,
-            auth_row.public_id.to_string(),
-            auth_row.email,
-            auth_row.handle,
-            secure_cookie,
-            auth_response_includes_body_token(&req),
-        ),
-        Err(_) => {
-            observability::record_auth_error("token_creation_failed");
-            HttpResponse::InternalServerError().json(ErrorResponse {
-                error: "token_creation_failed".into(),
-                details: None,
-            })
-        }
-    }
+    issue_session(&req, &state, claims, auth_row.email, auth_row.handle).await
 }
 
 #[cfg(test)]

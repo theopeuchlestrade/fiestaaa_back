@@ -41,6 +41,7 @@ use crate::models::{
         crate::routes::auth::login,
         crate::routes::auth::oauth_login,
         crate::routes::auth::logout,
+        crate::routes::auth::refresh_session,
         crate::routes::health::health,
         crate::routes::events::core::get_event,
         crate::routes::items::list_items,
@@ -114,6 +115,7 @@ use crate::models::{
             CompleteRegistrationPayload,
             StatusResponse,
             TokenResponse,
+            crate::models::RefreshSessionPayload,
             ErrorResponse,
             MeResponse,
             HealthResponse,
@@ -200,7 +202,7 @@ mod tests {
         let document = serde_json::to_string_pretty(&ApiDoc::openapi()).expect("OpenAPI JSON");
         assert_eq!(
             sha256_hex(&document),
-            "2ea78df99c9f86342bf16c14a3d86741fc3d20d06db3f5d3e4ff316c2399c943",
+            "554cac0e34f293d55ec8d237ab661d2dcb3551a97fd0d0b1a23e41a6ab8efe14",
             "OpenAPI changed: review the generated contract, then update this hash"
         );
     }

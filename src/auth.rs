@@ -246,12 +246,57 @@ pub async fn fetch_user_auth(
 }
 
 pub fn encode_jwt(claims: &Claims, secret: &str) -> Result<String, AuthError> {
+    encode_session_jwt(claims, secret, None)
+}
+
+pub fn encode_mobile_jwt(claims: &Claims, secret: &str) -> Result<String, AuthError> {
+    encode_session_jwt(claims, secret, Some("mobile"))
+}
+
+fn encode_session_jwt(
+    claims: &Claims,
+    secret: &str,
+    session_kind: Option<&str>,
+) -> Result<String, AuthError> {
+    // Independent logins/renewals in the same second must not share a token:
+    // otherwise revoking one token can also revoke another device's session.
+    #[derive(serde::Serialize)]
+    struct UniqueClaims<'a> {
+        #[serde(flatten)]
+        claims: &'a Claims,
+        jti: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        session_kind: Option<&'a str>,
+    }
     encode(
         &Header::new(Algorithm::HS256),
-        claims,
+        &UniqueClaims {
+            claims,
+            jti: Uuid::new_v4().to_string(),
+            session_kind,
+        },
         &EncodingKey::from_secret(secret.as_bytes()),
     )
     .map_err(|_| AuthError::JwtFailed)
+}
+
+/// Only legacy Bearer credentials can be exchanged without a refresh secret.
+/// A short-lived mobile JWT must never mint another long-lived device session.
+pub fn is_legacy_bearer(req: &HttpRequest, secret: &str) -> bool {
+    let Some(token) = req
+        .headers()
+        .get(AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.strip_prefix("Bearer "))
+    else {
+        return false;
+    };
+    decode::<serde_json::Value>(
+        token,
+        &DecodingKey::from_secret(secret.as_bytes()),
+        &Validation::new(Algorithm::HS256),
+    )
+    .is_ok_and(|data| data.claims.get("session_kind").is_none())
 }
 
 pub fn decode_jwt(token: &str, secret: &str) -> Result<Claims, HttpResponse> {
@@ -596,5 +641,22 @@ mod tests {
         assert_eq!(cleared.http_only(), Some(true));
         assert_eq!(cleared.secure(), Some(false));
         assert!(cleared.max_age().is_some());
+    }
+}
+
+#[cfg(test)]
+mod session_uniqueness_tests {
+    #[test]
+    fn independent_sessions_with_identical_claims_have_distinct_tokens() {
+        let claims = crate::models::Claims {
+            session_version: 0,
+            sub: "user".into(),
+            exp: (super::now_ts() + 3600) as usize,
+            handle: "handle".into(),
+        };
+        let first = super::encode_jwt(&claims, "secret").unwrap();
+        let second = super::encode_jwt(&claims, "secret").unwrap();
+        assert_ne!(first, second);
+        assert_eq!(super::decode_jwt(&first, "secret").unwrap().sub, "user");
     }
 }
