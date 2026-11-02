@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.2] - 2026-11-02
+
+### Dependencies
+
+- Update Actix Web to 4.18.1, Redis to 1.8.0, Sentry to 0.49.5 and UUID to 1.29.0 while preserving the existing API and database schema.
+- Update the CI tool installer to 2.88.1.
+
 ## [0.6.1] - 2026-10-28
 
 ### Security
