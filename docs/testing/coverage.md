@@ -43,7 +43,7 @@ New integration tests exercise PostgreSQL/Redis on dedicated loopback services, 
 
 Only small internal transport injection helpers and the existing bounded outbox batch are exposed for testing; all runtime defaults, HTTP APIs and migrations remain unchanged. All new tests live outside application `src`. Historical inline Rust unit-test mappings and generic instantiations remain included in the collector's source LF/LH accounting, consistently with the baseline; they are not added to inflate coverage. This source-based metric is documented rather than presented as native-device certification.
 
-Strict Clippy, formatting, 28 reporting/publication guard tests and strict OpenSpec validation pass. Complete CI, OpenAPI generation and builds are verified separately on the PR. No production services, emails or notifications are contacted. Physical phone validation is not performed for this test-only change.
+Strict Clippy, formatting, and 28 reporting/publication guard tests pass. Complete CI, OpenAPI generation and builds are verified separately on the PR. No production services, emails or notifications are contacted. Physical phone validation is not performed for this test-only change.
 
 Stability: all 195 tests pass in the fresh complete collection, followed by two consecutive successful runs of the 27 new targeted scenarios (account/permissions, provider protocols, isolated configuration and local operations). Added/modified executable application lines are 93.10% covered (27/29).
 

@@ -30,5 +30,4 @@ docs
 
 # Development-only specification tooling
 node_modules
-openspec
 .agents

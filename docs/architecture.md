@@ -35,6 +35,10 @@ production deployment, backups, observability, secret rotation, incident
 response, and rollback runbooks are maintained outside this public source
 repository.
 
+## Event access
+
+The API enforces the [event access rules](event-access.md) used by the frontend.
+
 ## Realtime Recovery
 
 The WebSocket sends `{"type":"realtime.ready"}` after all Redis subscriptions
