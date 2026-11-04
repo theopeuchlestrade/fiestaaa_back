@@ -15,6 +15,13 @@
 
 Never record tokens, notification contents, provider response snippets or account credentials when collecting diagnostic evidence. Mixed device outcomes can require retry under the existing policy; individual provider acceptance is not a display receipt.
 
+## Poll notification access
+
+Poll creation queues push alerts only for guests with accepted invitations,
+excluding the author. The outbox worker rechecks access before sending. If a
+guest declines after the alert is queued, the worker does not send that guest
+private poll content. Realtime updates continue to use their own authorization.
+
 ## Isolated iPhone reproduction
 
 Use an isolated database/API, two fictional accounts and a separately provisioned QA app. Do not replay production notifications. Enable the QA app's APNs capability, install its matching Firebase client configuration and use authorized test push credentials. The existing email-only QA build with empty entitlements cannot validate real APNs presentation.

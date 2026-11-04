@@ -235,6 +235,7 @@ We welcome contributions! Please see:
 - **Governance**: [`GOVERNANCE.md`](GOVERNANCE.md)
 - **Brand & Assets**: [`TRADEMARKS.md`](TRADEMARKS.md)
 - **Architecture**: [`docs/architecture.md`](docs/architecture.md)
+- **Event access**: [`docs/event-access.md`](docs/event-access.md)
 - **First contribution**: [`docs/first-contribution.md`](docs/first-contribution.md)
 - **Roadmap**: [`ROADMAP.md`](ROADMAP.md)
 - **Third-party notices**: [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md)
