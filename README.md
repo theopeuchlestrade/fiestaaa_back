@@ -1,15 +1,15 @@
 # Rust lines coverage
 
-Commit: `0f37c5f347a3d84e0a6ce33f817cc2cbb4d2025b` · 2026-11-04T09:34:49.989Z
+Commit: `d8192973f1aad7a2d20b8f28a4e156c006464a4e` · 2026-11-18T15:26:53.159Z
 
 | Measure | Covered / total | Coverage | Enforced / target |
 |---|---:|---:|---:|
-| Raw collector | 10306/13179 | 78.20% | — |
-| Application | 10306/13179 | 78.20% | 75% / 75% |
-| authentication-sessions | 1777/2157 | 82.38% | 80% / 80% |
-| permissions-participation | 1521/1848 | 82.31% | 80% / 80% |
+| Raw collector | 10472/13351 | 78.44% | — |
+| Application | 10472/13351 | 78.44% | 75% / 75% |
+| authentication-sessions | 1781/2161 | 82.42% | 80% / 80% |
+| permissions-participation | 1530/1860 | 82.26% | 80% / 80% |
 | recovery-deletion | 93/103 | 90.29% | 80% / 80% |
-| notifications-qr | 1264/1526 | 82.83% | 80% / 80% |
+| notifications-qr | 1285/1547 | 83.06% | 80% / 80% |
 
 Patch: **not-requested**.
 
@@ -19,19 +19,19 @@ Result: **passed**.
 ## Largest uncovered areas
 
 - `src/routes/events/items.rs`: 304 uncovered collector lines (41.76%)
-- `src/routes/auth.rs`: 297 uncovered collector lines (77.77%)
+- `src/routes/auth.rs`: 297 uncovered collector lines (77.79%)
 - `src/routes/carpools.rs`: 271 uncovered collector lines (70.70%)
-- `src/routes/invitations.rs`: 252 uncovered collector lines (78.20%)
+- `src/routes/invitations.rs`: 251 uncovered collector lines (78.44%)
 - `src/routes/events/polls.rs`: 167 uncovered collector lines (67.38%)
-- `src/routes/events/mod.rs`: 165 uncovered collector lines (78.20%)
+- `src/routes/events/mod.rs`: 165 uncovered collector lines (78.79%)
 - `src/routes/events/core.rs`: 155 uncovered collector lines (81.70%)
 - `src/routes/items.rs`: 118 uncovered collector lines (61.06%)
-- `src/routes/qr_codes.rs`: 111 uncovered collector lines (71.54%)
+- `src/routes/qr_codes.rs`: 111 uncovered collector lines (71.39%)
 - `src/cleanup.rs`: 98 uncovered collector lines (17.65%)
 - `src/routes/users.rs`: 94 uncovered collector lines (73.14%)
-- `src/routes/events/expenses.rs`: 88 uncovered collector lines (81.59%)
+- `src/routes/events/expenses.rs`: 88 uncovered collector lines (81.67%)
 - `src/routes/events/address.rs`: 72 uncovered collector lines (75.59%)
-- `src/notifications.rs`: 65 uncovered collector lines (89.81%)
+- `src/notifications.rs`: 65 uncovered collector lines (90.17%)
 - `src/main.rs`: 62 uncovered collector lines (0.00%)
 
 ## Eligible sources absent from measurement
@@ -50,4 +50,4 @@ None.
 
 Coverage does not certify native providers, physical devices or store delivery.
 
-[Source CI](https://github.com/theopeuchlestrade/fiestaaa_back/actions/runs/41807821069)
+[Source CI](https://github.com/theopeuchlestrade/fiestaaa_back/actions/runs/44334474935)
