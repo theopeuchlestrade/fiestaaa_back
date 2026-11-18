@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 use std::fs;
-use std::path::PathBuf;
 use std::sync::Arc;
 
 use futures_util::{StreamExt, stream};
@@ -9,7 +8,12 @@ use redis::Client as RedisClient;
 use serde::Deserialize;
 use serde_json::Value;
 use sqlx::{FromRow, Pool, Postgres, Row};
+use tokio::sync::OnceCell;
 use tokio::time::{Duration, interval};
+use yup_oauth2::{
+    DefaultHyperClientBuilder, HyperClientBuilder, ServiceAccountAuthenticator, ServiceAccountKey,
+    authenticator::Authenticator,
+};
 
 use crate::observability;
 
@@ -30,7 +34,7 @@ pub struct NotificationService {
     pub http_client: reqwest::Client,
     pub default_dedup_ttl_seconds: u64,
     pub fcm_project_id: Option<String>,
-    pub fcm_token_provider: Option<Arc<dyn gcp_auth::TokenProvider + Send + Sync>>,
+    fcm_token_provider: Option<Arc<FcmTokenProvider>>,
 }
 
 pub struct NotificationMessage<'a> {
@@ -279,10 +283,34 @@ impl NotificationOutboxWorker {
     }
 }
 
+type FcmAuthenticator = Authenticator<<DefaultHyperClientBuilder as HyperClientBuilder>::Connector>;
+
+struct FcmTokenProvider {
+    key: ServiceAccountKey,
+    authenticator: OnceCell<FcmAuthenticator>,
+}
+
+impl FcmTokenProvider {
+    async fn access_token(&self) -> Option<String> {
+        let authenticator = self
+            .authenticator
+            .get_or_try_init(|| async {
+                ServiceAccountAuthenticator::builder(self.key.clone())
+                    .with_timeout(Duration::from_secs(10))
+                    .build()
+                    .await
+            })
+            .await
+            .ok()?;
+        let token = authenticator.token(&[FCM_SCOPE]).await.ok()?;
+        token.token().map(str::to_owned)
+    }
+}
+
 struct FcmV1Context<'a> {
     db: &'a Pool<Postgres>,
     project_id: &'a str,
-    provider: Arc<dyn gcp_auth::TokenProvider + Send + Sync>,
+    provider: Arc<FcmTokenProvider>,
 }
 
 impl NotificationService {
@@ -295,9 +323,14 @@ impl NotificationService {
         default_dedup_ttl_seconds: u64,
     ) -> Self {
         let fcm_token_provider = service_account_path.as_ref().and_then(|path| {
-            let pb = PathBuf::from(path);
-            match gcp_auth::CustomServiceAccount::from_file(pb) {
-                Ok(sa) => Some(Arc::new(sa) as Arc<dyn gcp_auth::TokenProvider + Send + Sync>),
+            let load_key = || -> Result<ServiceAccountKey, Box<dyn std::error::Error>> {
+                Ok(serde_json::from_reader(fs::File::open(path)?)?)
+            };
+            match load_key() {
+                Ok(key) => Some(Arc::new(FcmTokenProvider {
+                    key,
+                    authenticator: OnceCell::new(),
+                })),
                 Err(err) => {
                     warn!("failed to load FCM service account: {err}");
                     observability::record_push_error("service_account_load_failed");
@@ -485,9 +518,9 @@ impl NotificationService {
             "{}/projects/{}/messages:send",
             self.v1_endpoint_base, ctx.project_id
         );
-        let access = match ctx.provider.token(&[FCM_SCOPE]).await {
-            Ok(tok) => tok.as_str().to_string(),
-            Err(_) => {
+        let access = match ctx.provider.access_token().await {
+            Some(token) => token,
+            None => {
                 warn!("push_provider protocol=v1 outcome=authentication_failure");
                 observability::record_push_error("v1_auth_token_failure");
                 observability::capture_message(

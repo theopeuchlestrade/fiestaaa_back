@@ -1,5 +1,6 @@
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use sqlx::FromRow;
+use time::{Date, OffsetDateTime, Time};
 use utoipa::ToSchema;
 
 fn serialize_optional_patch_field<S, T>(
@@ -25,6 +26,35 @@ where
 {
     Ok(Some(Option::<T>::deserialize(deserializer)?))
 }
+
+// Preserve the difference between an omitted field and an explicit null.
+macro_rules! date_time_patch {
+    ($module:ident, $type:ty, $format:literal) => {
+        mod $module {
+            use super::*;
+
+            #[derive(Deserialize, Serialize)]
+            struct Formatted(#[serde(with = $format)] $type);
+
+            pub(super) fn serialize<S: Serializer>(
+                value: &Option<Option<$type>>,
+                serializer: S,
+            ) -> Result<S::Ok, S::Error> {
+                serialize_optional_patch_field(&value.map(|inner| inner.map(Formatted)), serializer)
+            }
+
+            pub(super) fn deserialize<'de, D: Deserializer<'de>>(
+                deserializer: D,
+            ) -> Result<Option<Option<$type>>, D::Error> {
+                deserialize_optional_patch_field::<_, Formatted>(deserializer)
+                    .map(|value| value.map(|inner| inner.map(|formatted| formatted.0)))
+            }
+        }
+    };
+}
+
+date_time_patch!(date_patch, Date, "crate::datetime::calendar_date");
+date_time_patch!(time_patch, Time, "crate::datetime::wall_time");
 
 #[derive(Serialize, Deserialize, ToSchema)]
 pub struct LoginPayload {
@@ -119,7 +149,8 @@ pub struct MeResponse {
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct RealtimeTicketResponse {
     pub ticket: String,
-    pub expires_at: chrono::DateTime<chrono::Utc>,
+    #[serde(with = "crate::datetime::utc_timestamp")]
+    pub expires_at: OffsetDateTime,
     pub event_id: Option<i64>,
 }
 
@@ -163,18 +194,29 @@ pub struct Event {
     pub event_id: i64,
     pub name_event: String,
     pub description: String,
-    pub date_event: chrono::NaiveDate,
-    pub start_time: chrono::NaiveTime,
-    pub end_date: Option<chrono::NaiveDate>,
-    pub end_time: Option<chrono::NaiveTime>,
+    #[serde(with = "crate::datetime::calendar_date")]
+    pub date_event: Date,
+    #[serde(with = "crate::datetime::wall_time")]
+    #[schema(value_type = String)]
+    pub start_time: Time,
+    #[serde(default, with = "crate::datetime::calendar_date::option")]
+    pub end_date: Option<Date>,
+    #[serde(default, with = "crate::datetime::wall_time::option")]
+    #[schema(value_type = Option<String>)]
+    pub end_time: Option<Time>,
     pub timezone: String,
-    pub start_at: chrono::DateTime<chrono::Utc>,
-    pub effective_end_at: chrono::DateTime<chrono::Utc>,
+    #[serde(with = "crate::datetime::utc_timestamp")]
+    pub start_at: OffsetDateTime,
+    #[serde(with = "crate::datetime::utc_timestamp")]
+    pub effective_end_at: OffsetDateTime,
     pub lifecycle_status: String,
-    pub deleted_at: Option<chrono::DateTime<chrono::Utc>>,
-    pub purge_at: Option<chrono::DateTime<chrono::Utc>>,
+    #[serde(default, with = "crate::datetime::utc_timestamp::option")]
+    pub deleted_at: Option<OffsetDateTime>,
+    #[serde(default, with = "crate::datetime::utc_timestamp::option")]
+    pub purge_at: Option<OffsetDateTime>,
     pub deletion_reason: Option<String>,
-    pub invitation_deadline: Option<chrono::NaiveDate>,
+    #[serde(default, with = "crate::datetime::calendar_date::option")]
+    pub invitation_deadline: Option<Date>,
     pub address: String,
     pub latitude: Option<f64>,
     pub longitude: Option<f64>,
@@ -194,13 +236,20 @@ pub struct Event {
 pub struct EventPayload {
     pub name_event: String,
     pub description: String,
-    pub date_event: chrono::NaiveDate,
-    pub start_time: chrono::NaiveTime,
-    pub end_date: Option<chrono::NaiveDate>,
-    pub end_time: Option<chrono::NaiveTime>,
+    #[serde(with = "crate::datetime::calendar_date")]
+    pub date_event: Date,
+    #[serde(with = "crate::datetime::wall_time")]
+    #[schema(value_type = String)]
+    pub start_time: Time,
+    #[serde(default, with = "crate::datetime::calendar_date::option")]
+    pub end_date: Option<Date>,
+    #[serde(default, with = "crate::datetime::wall_time::option")]
+    #[schema(value_type = Option<String>)]
+    pub end_time: Option<Time>,
     #[serde(default)]
     pub timezone: Option<String>,
-    pub invitation_deadline: Option<chrono::NaiveDate>,
+    #[serde(default, with = "crate::datetime::calendar_date::option")]
+    pub invitation_deadline: Option<Date>,
     pub address: String,
     pub latitude: Option<f64>,
     pub longitude: Option<f64>,
@@ -217,30 +266,19 @@ pub struct EventPayload {
 pub struct EventPatchPayload {
     pub name_event: Option<String>,
     pub description: Option<String>,
-    pub date_event: Option<chrono::NaiveDate>,
-    pub start_time: Option<chrono::NaiveTime>,
+    #[serde(default, with = "crate::datetime::calendar_date::option")]
+    pub date_event: Option<Date>,
+    #[serde(default, with = "crate::datetime::wall_time::option")]
+    #[schema(value_type = Option<String>)]
+    pub start_time: Option<Time>,
     pub timezone: Option<String>,
-    #[serde(
-        default,
-        deserialize_with = "deserialize_optional_patch_field",
-        serialize_with = "serialize_optional_patch_field",
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub end_date: Option<Option<chrono::NaiveDate>>,
-    #[serde(
-        default,
-        deserialize_with = "deserialize_optional_patch_field",
-        serialize_with = "serialize_optional_patch_field",
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub end_time: Option<Option<chrono::NaiveTime>>,
-    #[serde(
-        default,
-        deserialize_with = "deserialize_optional_patch_field",
-        serialize_with = "serialize_optional_patch_field",
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub invitation_deadline: Option<Option<chrono::NaiveDate>>,
+    #[serde(default, with = "date_patch", skip_serializing_if = "Option::is_none")]
+    pub end_date: Option<Option<Date>>,
+    #[serde(default, with = "time_patch", skip_serializing_if = "Option::is_none")]
+    #[schema(value_type = Option<Option<String>>)]
+    pub end_time: Option<Option<Time>>,
+    #[serde(default, with = "date_patch", skip_serializing_if = "Option::is_none")]
+    pub invitation_deadline: Option<Option<Date>>,
     pub address: Option<String>,
     pub latitude: Option<f64>,
     pub longitude: Option<f64>,
@@ -287,7 +325,8 @@ pub struct EventExpensePayload {
     pub amount_cents: i64,
     pub paid_by_user_id: Option<i64>,
     pub note: Option<String>,
-    pub expense_date: Option<chrono::DateTime<chrono::Utc>>,
+    #[serde(default, with = "crate::datetime::utc_timestamp::option")]
+    pub expense_date: Option<OffsetDateTime>,
     pub participant_user_ids: Vec<i64>,
 }
 
@@ -308,8 +347,10 @@ pub struct EventExpenseView {
     pub title: String,
     pub amount_cents: i64,
     pub note: Option<String>,
-    pub expense_date: chrono::DateTime<chrono::Utc>,
-    pub created_at: chrono::DateTime<chrono::Utc>,
+    #[serde(with = "crate::datetime::utc_timestamp")]
+    pub expense_date: OffsetDateTime,
+    #[serde(with = "crate::datetime::utc_timestamp")]
+    pub created_at: OffsetDateTime,
     pub participants: Vec<EventExpenseParticipantView>,
 }
 
@@ -368,7 +409,8 @@ pub struct Invitation {
     pub handle: Option<String>,
     pub avatar_url: Option<String>,
     pub status: String,
-    pub date_invi: chrono::DateTime<chrono::Utc>,
+    #[serde(with = "crate::datetime::utc_timestamp")]
+    pub date_invi: OffsetDateTime,
     pub event_name: Option<String>,
 }
 
@@ -389,7 +431,8 @@ pub struct Friend {
     pub email: String,
     pub handle: String,
     pub avatar_url: Option<String>,
-    pub since: chrono::DateTime<chrono::Utc>,
+    #[serde(with = "crate::datetime::utc_timestamp")]
+    pub since: OffsetDateTime,
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema, FromRow)]
@@ -420,7 +463,8 @@ pub struct FriendRequest {
     pub receiver_handle: String,
     pub receiver_avatar_url: Option<String>,
     pub status: String,
-    pub created_at: chrono::DateTime<chrono::Utc>,
+    #[serde(with = "crate::datetime::utc_timestamp")]
+    pub created_at: OffsetDateTime,
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema, FromRow)]
@@ -466,8 +510,10 @@ pub struct PollView {
     pub event_id: i64,
     pub question: String,
     pub allow_multiple: bool,
-    pub expires_at: chrono::DateTime<chrono::Utc>,
-    pub created_at: chrono::DateTime<chrono::Utc>,
+    #[serde(with = "crate::datetime::utc_timestamp")]
+    pub expires_at: OffsetDateTime,
+    #[serde(with = "crate::datetime::utc_timestamp")]
+    pub created_at: OffsetDateTime,
     pub created_by_email: Option<String>,
     pub options: Vec<PollOptionView>,
     pub my_votes: Vec<i64>,
@@ -563,8 +609,10 @@ pub struct HandleUpdatePayload {
 pub struct QRCodeGenerateResponse {
     pub qr_token: String,
     pub event_id: i64,
-    pub generated_at: chrono::DateTime<chrono::Utc>,
-    pub expires_at: chrono::DateTime<chrono::Utc>,
+    #[serde(with = "crate::datetime::utc_timestamp")]
+    pub generated_at: OffsetDateTime,
+    #[serde(with = "crate::datetime::utc_timestamp")]
+    pub expires_at: OffsetDateTime,
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
@@ -579,7 +627,8 @@ pub struct QRCodeScanResponse {
     pub user_email: Option<String>,
     pub user_handle: Option<String>,
     pub user_avatar_url: Option<String>,
-    pub scanned_at: Option<chrono::DateTime<chrono::Utc>>,
+    #[serde(default, with = "crate::datetime::utc_timestamp::option")]
+    pub scanned_at: Option<OffsetDateTime>,
     pub message: String,
 }
 
@@ -595,7 +644,8 @@ pub struct CarpoolPayload {
     pub origin: String,
     pub origin_latitude: Option<f64>,
     pub origin_longitude: Option<f64>,
-    pub depart_at: chrono::DateTime<chrono::Utc>,
+    #[serde(with = "crate::datetime::utc_timestamp")]
+    pub depart_at: OffsetDateTime,
     pub seats_total: i32,
     pub notes: Option<String>,
 }
@@ -605,7 +655,8 @@ pub struct CarpoolPatchPayload {
     pub origin: Option<String>,
     pub origin_latitude: Option<f64>,
     pub origin_longitude: Option<f64>,
-    pub depart_at: Option<chrono::DateTime<chrono::Utc>>,
+    #[serde(default, with = "crate::datetime::utc_timestamp::option")]
+    pub depart_at: Option<OffsetDateTime>,
     pub seats_total: Option<i32>,
     pub notes: Option<String>,
 }
@@ -618,12 +669,15 @@ pub struct Carpool {
     pub origin: String,
     pub origin_latitude: Option<f64>,
     pub origin_longitude: Option<f64>,
-    pub depart_at: chrono::DateTime<chrono::Utc>,
+    #[serde(with = "crate::datetime::utc_timestamp")]
+    pub depart_at: OffsetDateTime,
     pub seats_total: i32,
     pub seats_taken: i32,
     pub notes: Option<String>,
-    pub created_at: chrono::DateTime<chrono::Utc>,
-    pub updated_at: chrono::DateTime<chrono::Utc>,
+    #[serde(with = "crate::datetime::utc_timestamp")]
+    pub created_at: OffsetDateTime,
+    #[serde(with = "crate::datetime::utc_timestamp")]
+    pub updated_at: OffsetDateTime,
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema, FromRow)]
@@ -631,7 +685,8 @@ pub struct CarpoolPassenger {
     pub user_id: i64,
     pub handle: Option<String>,
     pub avatar_url: Option<String>,
-    pub joined_at: chrono::DateTime<chrono::Utc>,
+    #[serde(with = "crate::datetime::utc_timestamp")]
+    pub joined_at: OffsetDateTime,
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema, FromRow)]
@@ -644,12 +699,15 @@ pub struct CarpoolView {
     pub origin: String,
     pub origin_latitude: Option<f64>,
     pub origin_longitude: Option<f64>,
-    pub depart_at: chrono::DateTime<chrono::Utc>,
+    #[serde(with = "crate::datetime::utc_timestamp")]
+    pub depart_at: OffsetDateTime,
     pub seats_total: i32,
     pub seats_taken: i32,
     pub notes: Option<String>,
-    pub created_at: chrono::DateTime<chrono::Utc>,
-    pub updated_at: chrono::DateTime<chrono::Utc>,
+    #[serde(with = "crate::datetime::utc_timestamp")]
+    pub created_at: OffsetDateTime,
+    #[serde(with = "crate::datetime::utc_timestamp")]
+    pub updated_at: OffsetDateTime,
     pub passengers: Vec<CarpoolPassenger>,
 }
 
@@ -671,7 +729,9 @@ pub struct CarpoolLeaveResponse {
 
 #[cfg(test)]
 mod tests {
-    use super::{EventPatchPayload, InvitationPayload, LoginPayload, OAuthPayload};
+    use super::{
+        CarpoolPatchPayload, EventPatchPayload, InvitationPayload, LoginPayload, OAuthPayload,
+    };
 
     #[test]
     fn login_payload_accepts_email_and_handle_aliases() {
@@ -739,6 +799,44 @@ mod tests {
         assert_eq!(clear.playlist_url, Some(None));
         assert_eq!(clear.playlist_provider, Some(None));
         assert_eq!(clear.end_date, Some(None));
+    }
+
+    #[test]
+    fn event_patch_round_trips_calendar_dates_and_fractional_times() {
+        let json = serde_json::json!({
+            "date_event": "2028-02-29",
+            "start_time": "08:09:10",
+            "end_date": "2028-03-01",
+            "end_time": "11:12:13.120",
+            "invitation_deadline": null,
+        });
+        let payload: EventPatchPayload = serde_json::from_value(json.clone()).unwrap();
+        let actual = serde_json::to_value(payload).unwrap();
+        for field in [
+            "date_event",
+            "start_time",
+            "end_date",
+            "end_time",
+            "invitation_deadline",
+        ] {
+            assert_eq!(actual[field], json[field]);
+        }
+        assert!(
+            serde_json::from_value::<EventPatchPayload>(
+                serde_json::json!({"date_event": "2027-02-29"})
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn carpool_timestamp_normalizes_supplied_offset_to_utc() {
+        let payload: CarpoolPatchPayload = serde_json::from_value(serde_json::json!({
+            "depart_at": "2026-10-25T02:30:00+02:00",
+        }))
+        .unwrap();
+        let json = serde_json::to_value(payload).unwrap();
+        assert_eq!(json["depart_at"], "2026-10-25T00:30:00Z");
     }
 
     #[test]

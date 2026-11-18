@@ -1,7 +1,7 @@
 use actix_web::HttpResponse;
-use chrono::Utc;
 use serde::Serialize;
 use sqlx::PgPool;
+use time::OffsetDateTime;
 
 use crate::{
     api_error::ApiError,
@@ -18,7 +18,7 @@ pub enum EventLifecycleStatus {
 }
 
 pub fn status_from_timing(timing: &EventTiming) -> EventLifecycleStatus {
-    let now = Utc::now();
+    let now = OffsetDateTime::now_utc();
     if now < timing.starts_at {
         EventLifecycleStatus::Upcoming
     } else if now <= timing.effective_ends_at {

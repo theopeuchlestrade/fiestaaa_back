@@ -7,13 +7,13 @@ use argon2::{
     Argon2,
     password_hash::{PasswordHasher, PasswordVerifier, phc::PasswordHash},
 };
-use chrono::{DateTime, Utc};
 use jsonwebtoken::{
     Algorithm, DecodingKey, EncodingKey, Header, Validation, decode, encode, errors::ErrorKind,
 };
 use once_cell::sync::Lazy;
 use sqlx::{Pool, Postgres};
 use std::{future::Future, pin::Pin};
+use time::OffsetDateTime;
 use uuid::Uuid;
 
 use crate::{
@@ -418,8 +418,10 @@ async fn find_active_user_by_subject_and_token(
     .await
 }
 
-fn expiration_timestamp_to_datetime(exp: usize) -> Option<DateTime<Utc>> {
-    DateTime::<Utc>::from_timestamp(exp as i64, 0)
+fn expiration_timestamp_to_datetime(exp: usize) -> Option<OffsetDateTime> {
+    i64::try_from(exp)
+        .ok()
+        .and_then(|seconds| OffsetDateTime::from_unix_timestamp(seconds).ok())
 }
 
 pub async fn revoke_auth_token(

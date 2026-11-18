@@ -1,5 +1,4 @@
 use actix_web::{HttpRequest, HttpResponse, Responder, delete, get, patch, post, web};
-use chrono::Utc;
 use log::{info, warn};
 use serde::Deserialize;
 use serde_json::json;
@@ -8,6 +7,7 @@ use std::{
     cmp::Reverse,
     collections::{HashMap, HashSet},
 };
+use time::OffsetDateTime;
 
 use crate::{
     auth::extract_active_claims_from_auth,
@@ -527,7 +527,7 @@ pub async fn create_carpool(
         });
     }
 
-    let now = Utc::now();
+    let now = OffsetDateTime::now_utc();
     if payload.depart_at < now {
         warn!("Departure time is in past for event {}", *event_id);
         return HttpResponse::BadRequest().json(ErrorResponse {
@@ -733,7 +733,7 @@ pub async fn update_carpool(
     }
 
     let depart_at = payload.depart_at.unwrap_or(current.depart_at);
-    if depart_at < Utc::now() {
+    if depart_at < OffsetDateTime::now_utc() {
         return HttpResponse::BadRequest().json(ErrorResponse {
             error: "invalid_payload".into(),
             details: Some("La date de départ doit être dans le futur".into()),

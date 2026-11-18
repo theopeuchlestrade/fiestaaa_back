@@ -17,8 +17,7 @@ use crate::{
     state::AppState,
 };
 use actix_web::{HttpRequest, HttpResponse};
-use chrono::{LocalResult, NaiveDate, TimeZone};
-use chrono_tz::Tz;
+use jiff::tz::{self, AmbiguousOffset};
 use log::warn;
 use regex::Regex;
 use serde::Deserialize;
@@ -26,6 +25,7 @@ use serde_json::json;
 use sqlx::{PgPool, Row};
 use std::collections::HashSet;
 use std::net::IpAddr;
+use time::{Date, OffsetDateTime, Time};
 
 pub(crate) mod address;
 pub(crate) mod core;
@@ -95,14 +95,13 @@ fn event_projection(event_alias: &str, owner_alias: &str) -> String {
 #[cfg(test)]
 mod timezone_tests {
     use super::*;
-    use chrono::NaiveTime;
 
     #[test]
     fn rejects_nonexistent_and_ambiguous_paris_times() {
         let nonexistent = validate_event_local_times(
             "Europe/Paris",
-            NaiveDate::from_ymd_opt(2026, 3, 29).unwrap(),
-            NaiveTime::from_hms_opt(2, 30, 0).unwrap(),
+            time::macros::date!(2026 - 03 - 29),
+            time::macros::time!(02:30:00),
             None,
             None,
         );
@@ -110,8 +109,8 @@ mod timezone_tests {
 
         let ambiguous = validate_event_local_times(
             "Europe/Paris",
-            NaiveDate::from_ymd_opt(2026, 10, 25).unwrap(),
-            NaiveTime::from_hms_opt(2, 30, 0).unwrap(),
+            time::macros::date!(2026 - 10 - 25),
+            time::macros::time!(02:30:00),
             None,
             None,
         );
@@ -119,12 +118,21 @@ mod timezone_tests {
     }
 
     #[test]
+    fn recognizes_named_zones_and_iana_aliases() {
+        for name in ["UTC", "Europe/Paris", "Asia/Kathmandu", "US/Eastern"] {
+            assert_eq!(normalize_event_timezone(Some(name)).unwrap(), name);
+        }
+        assert!(normalize_event_timezone(Some("Europe/DoesNotExist")).is_err());
+        assert!(normalize_event_timezone(Some("europe/paris")).is_err());
+    }
+
+    #[test]
     fn accepts_unambiguous_local_time() {
         assert!(
             validate_event_local_times(
                 "Europe/Paris",
-                NaiveDate::from_ymd_opt(2026, 7, 1).unwrap(),
-                NaiveTime::from_hms_opt(20, 0, 0).unwrap(),
+                time::macros::date!(2026 - 07 - 01),
+                time::macros::time!(20:00:00),
                 None,
                 None,
             )
@@ -351,11 +359,11 @@ async fn notify_event_members(
 }
 
 fn validate_invitation_deadline(
-    deadline: Option<NaiveDate>,
-    event_date: NaiveDate,
+    deadline: Option<Date>,
+    event_date: Date,
 ) -> Result<(), HttpResponse> {
     if let Some(limit) = deadline {
-        let today = chrono::Utc::now().date_naive();
+        let today = OffsetDateTime::now_utc().date();
         if limit < today {
             return Err(HttpResponse::BadRequest().json(ErrorResponse {
                 error: "invalid_invitation_deadline".into(),
@@ -376,10 +384,10 @@ fn validate_invitation_deadline(
 }
 
 fn validate_event_schedule(
-    start_date: NaiveDate,
-    start_time: chrono::NaiveTime,
-    end_date: Option<NaiveDate>,
-    end_time: Option<chrono::NaiveTime>,
+    start_date: Date,
+    start_time: Time,
+    end_date: Option<Date>,
+    end_time: Option<Time>,
 ) -> Result<(), HttpResponse> {
     match (end_date, end_time) {
         (None, None) => Ok(()),
@@ -407,40 +415,57 @@ fn normalize_event_timezone(value: Option<&str>) -> Result<String, HttpResponse>
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .unwrap_or("Europe/Paris");
-    timezone.parse::<Tz>().map_err(|_| {
-        HttpResponse::BadRequest().json(ErrorResponse {
-            error: "invalid_timezone".into(),
-            details: None,
-        })
-    })?;
+    tz::db()
+        .get(timezone)
+        .ok()
+        .filter(|zone| zone.iana_name() == Some(timezone))
+        .ok_or_else(|| {
+            HttpResponse::BadRequest().json(ErrorResponse {
+                error: "invalid_timezone".into(),
+                details: None,
+            })
+        })?;
     Ok(timezone.to_string())
 }
 
 fn validate_event_local_times(
     timezone: &str,
-    start_date: NaiveDate,
-    start_time: chrono::NaiveTime,
-    end_date: Option<NaiveDate>,
-    end_time: Option<chrono::NaiveTime>,
+    start_date: Date,
+    start_time: Time,
+    end_date: Option<Date>,
+    end_time: Option<Time>,
 ) -> Result<(), HttpResponse> {
-    let timezone = timezone.parse::<Tz>().map_err(|_| {
+    let timezone = tz::db().get(timezone).map_err(|_| {
         HttpResponse::BadRequest().json(ErrorResponse {
             error: "invalid_timezone".into(),
             details: None,
         })
     })?;
-    let validate = |date: NaiveDate, time: chrono::NaiveTime| match timezone
-        .from_local_datetime(&date.and_time(time))
-    {
-        LocalResult::Single(_) => Ok(()),
-        LocalResult::Ambiguous(_, _) => Err(HttpResponse::BadRequest().json(ErrorResponse {
-            error: "ambiguous_local_time".into(),
+    let validate = |date: Date, time: Time| {
+        let local = jiff::civil::DateTime::new(
+            date.year() as i16,
+            u8::from(date.month()) as i8,
+            date.day() as i8,
+            time.hour() as i8,
+            time.minute() as i8,
+            time.second() as i8,
+            time.nanosecond() as i32,
+        )
+        .map_err(|_| {
+            HttpResponse::BadRequest().json(ErrorResponse {
+                error: "nonexistent_local_time".into(),
+                details: None,
+            })
+        })?;
+        let error = match timezone.to_ambiguous_timestamp(local).offset() {
+            AmbiguousOffset::Unambiguous { .. } => return Ok(()),
+            AmbiguousOffset::Fold { .. } => "ambiguous_local_time",
+            AmbiguousOffset::Gap { .. } => "nonexistent_local_time",
+        };
+        Err(HttpResponse::BadRequest().json(ErrorResponse {
+            error: error.into(),
             details: None,
-        })),
-        LocalResult::None => Err(HttpResponse::BadRequest().json(ErrorResponse {
-            error: "nonexistent_local_time".into(),
-            details: None,
-        })),
+        }))
     };
     validate(start_date, start_time)?;
     if let (Some(date), Some(time)) = (end_date, end_time) {
@@ -835,11 +860,11 @@ async fn fetch_event_payment_info(
         Option<i32>,
         Option<String>,
         bool,
-        NaiveDate,
-        chrono::NaiveTime,
-        Option<NaiveDate>,
-        Option<chrono::NaiveTime>,
-        Option<NaiveDate>,
+        Date,
+        Time,
+        Option<Date>,
+        Option<Time>,
+        Option<Date>,
         Option<String>,
         Option<String>,
         Vec<String>,
@@ -853,11 +878,11 @@ async fn fetch_event_payment_info(
             Option<i32>,
             Option<String>,
             bool,
-            NaiveDate,
-            chrono::NaiveTime,
-            Option<NaiveDate>,
-            Option<chrono::NaiveTime>,
-            Option<NaiveDate>,
+            Date,
+            Time,
+            Option<Date>,
+            Option<Time>,
+            Option<Date>,
             Option<String>,
             Option<String>,
             Vec<String>,

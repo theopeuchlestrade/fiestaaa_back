@@ -1,6 +1,6 @@
 use actix_web::{Responder, delete, get, post, web};
-use chrono::{Duration, Utc};
 use std::collections::{HashMap, HashSet};
+use time::{Duration, OffsetDateTime};
 
 use super::*;
 
@@ -129,7 +129,7 @@ pub async fn create_event_poll(
     }
 
     let duration_minutes = payload.duration_minutes.min(60 * 24 * 7);
-    let expires_at = Utc::now() + Duration::minutes(duration_minutes);
+    let expires_at = OffsetDateTime::now_utc() + Duration::minutes(duration_minutes);
     let allow_multiple = payload.allow_multiple.unwrap_or(true);
 
     let mut tx = match state.db.begin().await {
@@ -321,11 +321,11 @@ pub async fn vote_event_poll(
         });
     }
 
-    let expires_at: chrono::DateTime<chrono::Utc> = match poll_row.try_get("expires_at") {
+    let expires_at: OffsetDateTime = match poll_row.try_get("expires_at") {
         Ok(dt) => dt,
         Err(_) => return server_error(),
     };
-    if expires_at < Utc::now() {
+    if expires_at < OffsetDateTime::now_utc() {
         return HttpResponse::Gone().json(ErrorResponse {
             error: "poll_expired".into(),
             details: Some("Ce sondage est expiré.".into()),
@@ -594,8 +594,8 @@ async fn fetch_poll_views(
     let mut polls: Vec<PollView> = poll_rows
         .into_iter()
         .filter_map(|row| {
-            let expires_at: chrono::DateTime<chrono::Utc> = row.try_get("expires_at").ok()?;
-            let created_at: chrono::DateTime<chrono::Utc> = row.try_get("created_at").ok()?;
+            let expires_at: OffsetDateTime = row.try_get("expires_at").ok()?;
+            let created_at: OffsetDateTime = row.try_get("created_at").ok()?;
             let poll_id: i64 = row.try_get("poll_id").ok()?;
             let question: String = row.try_get("question").ok()?;
             let allow_multiple: bool = row.try_get("allow_multiple").ok()?;
@@ -611,7 +611,7 @@ async fn fetch_poll_views(
                 options: Vec::new(),
                 my_votes: Vec::new(),
                 total_votes: 0,
-                has_expired: expires_at < Utc::now(),
+                has_expired: expires_at < OffsetDateTime::now_utc(),
             })
         })
         .collect();

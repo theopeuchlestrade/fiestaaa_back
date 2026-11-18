@@ -1,5 +1,6 @@
 use actix_web::{HttpRequest, HttpResponse, Responder, get, post, web};
 use log::error;
+use time::{Duration, OffsetDateTime};
 use uuid::Uuid;
 
 use crate::{
@@ -17,14 +18,14 @@ const QR_CODE_TTL_SECONDS: i64 = 300;
 
 #[derive(sqlx::FromRow)]
 struct GeneratedQrRow {
-    generated_at: chrono::DateTime<chrono::Utc>,
+    generated_at: OffsetDateTime,
 }
 
 #[derive(sqlx::FromRow)]
 struct QrScanDetailsRow {
     event_id: i64,
-    generated_at: chrono::DateTime<chrono::Utc>,
-    scanned_at: Option<chrono::DateTime<chrono::Utc>>,
+    generated_at: OffsetDateTime,
+    scanned_at: Option<OffsetDateTime>,
     is_valid: bool,
     email: String,
     handle: String,
@@ -37,10 +38,8 @@ async fn claims_email(req: &HttpRequest, state: &AppState) -> Result<String, Htt
     Ok(claims.sub.to_lowercase())
 }
 
-fn qr_code_expires_at(
-    generated_at: chrono::DateTime<chrono::Utc>,
-) -> chrono::DateTime<chrono::Utc> {
-    generated_at + chrono::Duration::seconds(QR_CODE_TTL_SECONDS)
+fn qr_code_expires_at(generated_at: OffsetDateTime) -> OffsetDateTime {
+    generated_at + Duration::seconds(QR_CODE_TTL_SECONDS)
 }
 
 fn hash_qr_token(token: &Uuid) -> String {
@@ -380,7 +379,7 @@ pub async fn scan_qr_code(
         });
     }
 
-    if qr_code_expires_at(details.generated_at) < chrono::Utc::now() {
+    if qr_code_expires_at(details.generated_at) < OffsetDateTime::now_utc() {
         let _ = tx.rollback().await;
         return HttpResponse::Forbidden().json(QRCodeScanResponse {
             success: false,
@@ -436,7 +435,7 @@ pub async fn scan_qr_code(
     }
 
     // Mark as scanned
-    let now = chrono::Utc::now();
+    let now = OffsetDateTime::now_utc();
     let update_result = sqlx::query(
         "UPDATE event_checkins
          SET scanned_at = $1, scanned_by_user_id = $2

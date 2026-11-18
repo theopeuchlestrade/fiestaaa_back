@@ -1,9 +1,9 @@
+use time::Date;
 mod common;
 
 use std::error::Error;
 
 use actix_web::{App, http::StatusCode, test};
-use chrono::{NaiveDate, NaiveTime};
 use common::{DB_LOCK, build_state, obtain_pool, reset_tables};
 use fiestaaa_back::{
     auth::{encode_jwt, hash_password, now_ts},
@@ -59,7 +59,7 @@ async fn ensure_user(pool: &PgPool, email: &str) -> sqlx::Result<i64> {
     seed_user(pool, email, handle).await
 }
 
-async fn seed_event(pool: &PgPool, owner_email: &str, date: NaiveDate) -> sqlx::Result<i64> {
+async fn seed_event(pool: &PgPool, owner_email: &str, date: Date) -> sqlx::Result<i64> {
     let owner_user_id = ensure_user(pool, owner_email).await?;
 
     sqlx::query_scalar::<_, i64>(
@@ -77,7 +77,7 @@ async fn seed_event(pool: &PgPool, owner_email: &str, date: NaiveDate) -> sqlx::
     .bind("Test Event")
     .bind("A shared expenses event")
     .bind(date)
-    .bind(NaiveTime::from_hms_opt(20, 0, 0).unwrap())
+    .bind(time::macros::time!(20:00:00))
     .bind("123 Test Street")
     .bind(owner_user_id)
     .fetch_one(pool)
@@ -133,7 +133,7 @@ async fn create_event_expense_supports_explicit_payer_and_summary() -> Result<()
     let event_id = seed_event(
         &pool,
         "owner@example.com",
-        NaiveDate::from_ymd_opt(2099, 1, 1).unwrap(),
+        time::macros::date!(2099 - 01 - 01),
     )
     .await?;
     accept_invitation(&pool, event_id, alice_id).await?;
@@ -222,7 +222,7 @@ async fn expense_creator_can_delete_even_if_someone_else_paid() -> Result<(), Bo
     let event_id = seed_event(
         &pool,
         "owner@example.com",
-        NaiveDate::from_ymd_opt(2099, 6, 1).unwrap(),
+        time::macros::date!(2099 - 06 - 01),
     )
     .await?;
     accept_invitation(&pool, event_id, alice_id).await?;
@@ -303,7 +303,7 @@ async fn finished_event_blocks_new_shared_expenses() -> Result<(), Box<dyn Error
     let event_id = seed_event(
         &pool,
         "owner@example.com",
-        NaiveDate::from_ymd_opt(2020, 1, 1).unwrap(),
+        time::macros::date!(2020 - 01 - 01),
     )
     .await?;
     accept_invitation(&pool, event_id, guest_id).await?;

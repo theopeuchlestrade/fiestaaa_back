@@ -1,7 +1,7 @@
 use super::*;
-use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::AssertSqlSafe;
+use time::OffsetDateTime;
 
 #[derive(Debug, Default, Deserialize, utoipa::IntoParams)]
 pub struct EventListQuery {
@@ -18,7 +18,8 @@ pub struct EventListQuery {
 #[derive(Debug, Serialize, Deserialize)]
 struct EventCursor {
     version: u8,
-    start: DateTime<Utc>,
+    #[serde(with = "crate::datetime::utc_timestamp")]
+    start: OffsetDateTime,
     id: i64,
     criteria: String,
 }
@@ -163,7 +164,7 @@ mod tests {
         query.cursor = Some(
             serde_json::to_string(&EventCursor {
                 version: 1,
-                start: Utc::now(),
+                start: OffsetDateTime::now_utc(),
                 id: 3,
                 criteria: search.criteria(),
             })

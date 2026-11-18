@@ -10,6 +10,7 @@ RUN rustup toolchain install "$RUST_VERSION" --profile minimal \
 
 # Build deps for sqlx/postgres and native-tls consumers such as reqwest.
 RUN apt-get update \
+ && apt-get -o Acquire::Retries=0 install -y --no-install-recommends --only-upgrade apt \
  && apt-get install -y --no-install-recommends build-essential pkg-config libssl-dev ca-certificates \
  && rm -rf /var/lib/apt/lists/*
 
@@ -34,6 +35,7 @@ FROM debian:bookworm-slim@sha256:7ff6ba31527b9e336162fa061746c366c4b2032f4d2cff2
 LABEL org.opencontainers.image.source="https://github.com/theopeuchlestrade/fiestaaa_back"
 
 RUN apt-get update \
+ && apt-get -o Acquire::Retries=0 install -y --no-install-recommends --only-upgrade apt \
  && apt-get install -y --no-install-recommends ca-certificates curl libgnutls30 libpcre2-8-0=10.42-1+deb12u2 libssl3 perl-base=5.36.0-7+deb12u4 \
  && rm -rf /var/lib/apt/lists/* \
  && groupadd --system --gid 10001 fiestaaa \

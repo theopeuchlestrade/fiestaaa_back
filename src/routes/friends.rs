@@ -250,7 +250,11 @@ pub async fn list_friends(
     match statement.fetch_all(&state.db).await {
         Ok(list) => match pagination {
             Some(page) => json_page(list, page.limit, |friend| {
-                friend.since.timestamp_millis().to_string()
+                friend
+                    .since
+                    .unix_timestamp_nanos()
+                    .div_euclid(1_000_000)
+                    .to_string()
             }),
             None => HttpResponse::Ok().json(list),
         },
