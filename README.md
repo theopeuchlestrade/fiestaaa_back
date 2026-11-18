@@ -1,6 +1,6 @@
 # Rust lines coverage
 
-Commit: `d8192973f1aad7a2d20b8f28a4e156c006464a4e` · 2026-11-18T15:26:53.159Z
+Commit: `5154f4e63966f27fbc855ccda4ce7bdf4f5b470b` · 2026-11-18T15:39:20.991Z
 
 | Measure | Covered / total | Coverage | Enforced / target |
 |---|---:|---:|---:|
@@ -50,4 +50,4 @@ None.
 
 Coverage does not certify native providers, physical devices or store delivery.
 
-[Source CI](https://github.com/theopeuchlestrade/fiestaaa_back/actions/runs/44334474935)
+[Source CI](https://github.com/theopeuchlestrade/fiestaaa_back/actions/runs/44337185542)
