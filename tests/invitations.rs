@@ -1,9 +1,9 @@
+use time::{Duration, OffsetDateTime};
 mod common;
 
 use std::error::Error;
 
 use actix_web::{App, http::StatusCode, test};
-use chrono::{Duration, NaiveTime, Utc};
 use common::{DB_LOCK, build_state, obtain_pool, reset_tables};
 use fiestaaa_back::{
     auth::{encode_jwt, hash_password, now_ts},
@@ -71,7 +71,7 @@ async fn ensure_user(pool: &PgPool, email: &str) -> sqlx::Result<i64> {
 }
 
 async fn seed_event(pool: &PgPool, owner_email: &str) -> sqlx::Result<i64> {
-    let future_date = Utc::now().date_naive() + Duration::days(30);
+    let future_date = OffsetDateTime::now_utc().date() + Duration::days(30);
     let owner_user_id = ensure_user(pool, owner_email).await?;
 
     sqlx::query_scalar::<_, i64>(
@@ -89,7 +89,7 @@ async fn seed_event(pool: &PgPool, owner_email: &str) -> sqlx::Result<i64> {
     .bind("Party")
     .bind("Description")
     .bind(future_date)
-    .bind(NaiveTime::from_hms_opt(20, 0, 0).unwrap())
+    .bind(time::macros::time!(20:00:00))
     .bind("123 Street")
     .bind(owner_user_id)
     .fetch_one(pool)

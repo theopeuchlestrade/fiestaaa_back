@@ -52,6 +52,8 @@ async fn main() -> std::io::Result<()> {
 
     // Logging
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("actix_web=info"))
+        // The OAuth client logs credential-bearing requests and tokens at debug level.
+        .filter_module("yup_oauth2", log::LevelFilter::Warn)
         .init();
 
     // Config + DB

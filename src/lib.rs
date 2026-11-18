@@ -3,6 +3,7 @@ pub mod apple;
 pub mod auth;
 pub mod cleanup;
 pub mod config;
+mod datetime;
 pub mod db;
 pub mod docs;
 pub mod handles;
@@ -23,7 +24,7 @@ use std::path::Path;
 use std::sync::OnceLock;
 use std::time::Duration;
 
-// reqwest and gcp_auth currently compile rustls with different crypto backends.
+// Dependencies can enable different rustls crypto backends.
 // Install one provider explicitly so runtime startup is deterministic.
 pub fn install_rustls_crypto_provider() {
     static INIT: OnceLock<()> = OnceLock::new();

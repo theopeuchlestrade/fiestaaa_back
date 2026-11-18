@@ -7,6 +7,7 @@ use jsonwebtoken::{Algorithm, DecodingKey, EncodingKey, Header, Validation, deco
 use redis::Client as RedisClient;
 use serde::Serialize;
 use serde_json::json;
+use time::{Duration, OffsetDateTime};
 use uuid::Uuid;
 
 use crate::{
@@ -171,7 +172,7 @@ pub async fn issue_realtime_ticket(
     }
 
     let expires_at =
-        chrono::Utc::now() + chrono::Duration::seconds(REALTIME_TICKET_TTL_SECONDS as i64);
+        OffsetDateTime::now_utc() + Duration::seconds(REALTIME_TICKET_TTL_SECONDS as i64);
     let ticket_claims = RealtimeTicketClaims {
         session_version: claims.session_version,
         sub: claims.sub.to_lowercase(),

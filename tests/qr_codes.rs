@@ -3,7 +3,6 @@ mod common;
 use std::error::Error;
 
 use actix_web::{App, http::StatusCode, test};
-use chrono::{NaiveDate, NaiveTime};
 use common::{DB_LOCK, build_state, obtain_pool, reset_tables};
 use fiestaaa_back::{
     auth::{encode_jwt, hash_password, now_ts},
@@ -71,8 +70,8 @@ async fn seed_event(pool: &PgPool, owner_email: &str) -> sqlx::Result<i64> {
     )
     .bind("Test Event")
     .bind("A test event")
-    .bind(NaiveDate::from_ymd_opt(2030, 1, 1).unwrap())
-    .bind(NaiveTime::from_hms_opt(20, 0, 0).unwrap())
+    .bind(time::macros::date!(2030 - 01 - 01))
+    .bind(time::macros::time!(20:00:00))
     .bind("123 Test Street")
     .bind(owner_user_id)
     .fetch_one(pool)

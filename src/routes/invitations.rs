@@ -1,8 +1,8 @@
 use actix_web::{HttpRequest, HttpResponse, Responder, delete, get, patch, post, web};
-use chrono::{Duration, NaiveDate, NaiveTime, Utc};
 use log::{error, warn};
 use serde_json::json;
 use sqlx::{FromRow, Row};
+use time::{Date, Duration, OffsetDateTime, Time};
 use uuid::Uuid;
 
 use crate::{
@@ -297,8 +297,8 @@ async fn find_user_by_handle(
 
 struct EventEmailMetadata {
     name: String,
-    date: NaiveDate,
-    start_time: NaiveTime,
+    date: Date,
+    start_time: Time,
 }
 
 async fn fetch_event_email_metadata(
@@ -324,10 +324,10 @@ async fn fetch_event_email_metadata(
                 .unwrap_or_else(|_| "Événement".to_string()),
             date: row
                 .try_get("date_event")
-                .unwrap_or_else(|_| chrono::Utc::now().date_naive()),
+                .unwrap_or_else(|_| OffsetDateTime::now_utc().date()),
             start_time: row
                 .try_get("start_time")
-                .unwrap_or_else(|_| chrono::NaiveTime::from_hms_opt(19, 0, 0).unwrap()),
+                .unwrap_or(time::macros::time!(19:00:00)),
         }),
         None => Err(HttpResponse::NotFound().json(ErrorResponse {
             error: "event_not_found".into(),
@@ -392,8 +392,17 @@ async fn send_invitation_email(
         }
     };
 
-    let date_label = event.date.format("%d/%m/%Y").to_string();
-    let time_label = event.start_time.format("%H:%M").to_string();
+    let date_label = format!(
+        "{:02}/{:02}/{:04}",
+        event.date.day(),
+        u8::from(event.date.month()),
+        event.date.year()
+    );
+    let time_label = format!(
+        "{:02}:{:02}",
+        event.start_time.hour(),
+        event.start_time.minute()
+    );
     let subject = format!("{owner_email} t'invite à \"{}\" sur Fiestaaa", event.name);
     let body = format!(
         "Salut !\n\n{owner_email} t'invite à rejoindre \"{event_name}\" sur Fiestaaa.\nFiestaaa rassemble tes invités, les infos pratiques et le suivi des réponses en un seul endroit.\n\nÉvénement : {event_name}\nDate : {date_label}\nHeure : {time_label}\nLien unique : {share_link}\n\nCe lien te permet de créer un compte si besoin et de confirmer ta présence.\n\nÀ très vite,\nL'équipe Fiestaaa",
@@ -591,7 +600,7 @@ async fn invite_email_target(
 
     let token = Uuid::new_v4();
     let token_hash = sha256_hex(&token.to_string());
-    let expires_at = Utc::now() + Duration::days(7);
+    let expires_at = OffsetDateTime::now_utc() + Duration::days(7);
     let owner_user_id = fetch_user_by_email(&state.db, owner_email).await?.id;
 
     if (sqlx::query(
@@ -802,7 +811,11 @@ pub async fn list_event_invitations(
             }
             match pagination {
                 Some(page) => json_page(list, page.limit, |invitation| {
-                    invitation.date_invi.timestamp_millis().to_string()
+                    invitation
+                        .date_invi
+                        .unix_timestamp_nanos()
+                        .div_euclid(1_000_000)
+                        .to_string()
                 }),
                 None => HttpResponse::Ok().json(list),
             }
@@ -843,7 +856,7 @@ pub async fn create_invitation(
     if let Err(resp) = ensure_event_writable(&state.db, *event_id).await {
         return resp;
     }
-    let invitation_deadline = sqlx::query_scalar::<_, Option<NaiveDate>>(
+    let invitation_deadline = sqlx::query_scalar::<_, Option<Date>>(
         "SELECT invitation_deadline FROM events WHERE event_id = $1",
     )
     .bind(*event_id)
@@ -861,7 +874,7 @@ pub async fn create_invitation(
     };
 
     if let Some(Some(limit)) = invitation_deadline
-        && chrono::Utc::now().date_naive() > limit
+        && OffsetDateTime::now_utc().date() > limit
     {
         return HttpResponse::Gone().json(ErrorResponse {
             error: "invitation_expired".into(),

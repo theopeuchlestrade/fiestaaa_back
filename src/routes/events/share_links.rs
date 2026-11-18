@@ -1,6 +1,6 @@
 use actix_web::{Responder, post, web};
-use chrono::{Duration, Utc};
 use sqlx::AssertSqlSafe;
+use time::{Duration, OffsetDateTime};
 use uuid::Uuid;
 
 use super::*;
@@ -48,7 +48,7 @@ pub async fn create_share_link(
 
     let token = Uuid::new_v4();
     let token_hash = sha256_hex(&token.to_string());
-    let expires_at = Utc::now() + Duration::hours(OWNER_SHARE_TOKEN_TTL_HOURS);
+    let expires_at = OffsetDateTime::now_utc() + Duration::hours(OWNER_SHARE_TOKEN_TTL_HOURS);
 
     let res = sqlx::query(
         "INSERT INTO event_share_tokens (token_hash, event_id, created_by_user_id, expires_at)
@@ -145,7 +145,7 @@ pub async fn claim_share_link(
         Err(_) => return server_error(),
     };
 
-    let used_at: Option<chrono::DateTime<chrono::Utc>> = match token_row.try_get("used_at") {
+    let used_at: Option<OffsetDateTime> = match token_row.try_get("used_at") {
         Ok(v) => v,
         Err(_) => return server_error(),
     };
@@ -155,11 +155,11 @@ pub async fn claim_share_link(
             details: Some("Ce lien a déjà été utilisé".into()),
         });
     }
-    let expires_at: chrono::DateTime<chrono::Utc> = match token_row.try_get("expires_at") {
+    let expires_at: OffsetDateTime = match token_row.try_get("expires_at") {
         Ok(v) => v,
         Err(_) => return server_error(),
     };
-    if expires_at < chrono::Utc::now() {
+    if expires_at < OffsetDateTime::now_utc() {
         return HttpResponse::Gone().json(ErrorResponse {
             error: "token_expired".into(),
             details: Some("Ce lien a expiré".into()),
@@ -207,7 +207,7 @@ pub async fn claim_share_link(
     };
 
     if let Some(limit) = event.invitation_deadline
-        && chrono::Utc::now().date_naive() > limit
+        && OffsetDateTime::now_utc().date() > limit
     {
         return HttpResponse::Gone().json(ErrorResponse {
             error: "invitation_expired".into(),

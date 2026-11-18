@@ -1,9 +1,9 @@
+use time::{Duration, OffsetDateTime};
 mod common;
 
 use std::error::Error;
 
 use actix_web::{App, http::StatusCode, test};
-use chrono::{Duration, Utc};
 use common::{DB_LOCK, build_state, obtain_pool, reset_tables};
 use fiestaaa_back::{
     auth::{encode_jwt, hash_password, now_ts},
@@ -114,8 +114,8 @@ async fn accept_invitation(pool: &PgPool, event_id: i64, user_id: i64) -> sqlx::
     Ok(())
 }
 
-fn future_departure() -> chrono::DateTime<Utc> {
-    Utc::now() + Duration::hours(24)
+fn future_departure() -> OffsetDateTime {
+    OffsetDateTime::now_utc() + Duration::hours(24)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -350,7 +350,7 @@ async fn create_carpool_validates_payload() -> Result<(), Box<dyn Error>> {
                 origin: "Paris".to_string(),
                 origin_latitude: None,
                 origin_longitude: None,
-                depart_at: Utc::now() - Duration::hours(1),
+                depart_at: OffsetDateTime::now_utc() - Duration::hours(1),
                 seats_total: 3,
                 notes: None,
             })

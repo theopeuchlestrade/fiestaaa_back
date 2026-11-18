@@ -1,5 +1,4 @@
 use actix_web::{Responder, delete, get, post, web};
-use chrono::Utc;
 use std::collections::{HashMap, HashSet};
 
 use super::*;
@@ -132,7 +131,9 @@ pub async fn create_event_expense(
         .note
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty());
-    let expense_date = payload.expense_date.unwrap_or_else(Utc::now);
+    let expense_date = payload
+        .expense_date
+        .unwrap_or_else(time::OffsetDateTime::now_utc);
 
     let mut tx = match state.db.begin().await {
         Ok(tx) => tx,

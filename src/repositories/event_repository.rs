@@ -1,16 +1,16 @@
-use chrono::{DateTime, Utc};
 use sqlx::PgPool;
+use time::OffsetDateTime;
 
 use crate::api_error::{ApiError, ApiResult};
 
 #[derive(Debug, Clone)]
 pub struct EventTiming {
-    pub starts_at: DateTime<Utc>,
-    pub effective_ends_at: DateTime<Utc>,
+    pub starts_at: OffsetDateTime,
+    pub effective_ends_at: OffsetDateTime,
 }
 
 pub async fn fetch_event_timing(db: &PgPool, event_id: i64) -> ApiResult<EventTiming> {
-    let row = sqlx::query_as::<_, (DateTime<Utc>, DateTime<Utc>)>(
+    let row = sqlx::query_as::<_, (OffsetDateTime, OffsetDateTime)>(
         "SELECT starts_at, effective_ends_at
          FROM events
          WHERE event_id = $1 AND deleted_at IS NULL",

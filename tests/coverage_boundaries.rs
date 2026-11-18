@@ -1,7 +1,7 @@
+use time::{Duration, OffsetDateTime};
 mod common;
 
 use actix_web::{App, cookie::Cookie, http::StatusCode, test};
-use chrono::Utc;
 use fiestaaa_back::{
     auth::{self, encode_jwt, hash_password, now_ts},
     models::Claims,
@@ -397,7 +397,7 @@ async fn deadline_expiry_is_enforced_for_invitations_and_keeps_event_visible()
         .await?;
     sqlx::query("UPDATE events SET invitation_deadline=$2 WHERE event_id=$1")
         .bind(id)
-        .bind(Utc::now().date_naive() - chrono::Duration::days(1))
+        .bind(OffsetDateTime::now_utc().date() - Duration::days(1))
         .execute(&pool)
         .await?;
     let app = test::init_service(
@@ -930,7 +930,7 @@ async fn private_moderation_actions_enforce_roles_and_record_their_effects()
         .status(),
         StatusCode::OK
     );
-    let (hidden, reason, purge): (bool, String, Option<chrono::DateTime<Utc>>) = sqlx::query_as(
+    let (hidden, reason, purge): (bool, String, Option<OffsetDateTime>) = sqlx::query_as(
         "SELECT moderation_hidden,deletion_reason,purge_at FROM events WHERE event_id=$1",
     )
     .bind(event_id)
@@ -1455,7 +1455,7 @@ async fn registration_verification_expiry_collision_and_delivery_failure_preserv
     );
     for mode in ["expired", "registered", "complete-conflict"] {
         let token = Uuid::new_v4().to_string();
-        sqlx::query("INSERT INTO pending_registrations(email_ciphertext,email_lookup_hash,password_hash,handle,verification_token_hash,verification_expires_at) VALUES(fiestaaa_encrypt_text($1),fiestaaa_email_lookup($1),$2,$3,$4,$5)").bind(&existing.email).bind(&*PASSWORD_HASH).bind(format!("pending-{mode}")).bind(sha256_hex(&token)).bind(if mode=="expired" {Utc::now()-chrono::Duration::hours(1)}else{Utc::now()+chrono::Duration::hours(1)}).execute(&pool).await?;
+        sqlx::query("INSERT INTO pending_registrations(email_ciphertext,email_lookup_hash,password_hash,handle,verification_token_hash,verification_expires_at) VALUES(fiestaaa_encrypt_text($1),fiestaaa_email_lookup($1),$2,$3,$4,$5)").bind(&existing.email).bind(&*PASSWORD_HASH).bind(format!("pending-{mode}")).bind(sha256_hex(&token)).bind(if mode=="expired" {OffsetDateTime::now_utc()-Duration::hours(1)}else{OffsetDateTime::now_utc()+Duration::hours(1)}).execute(&pool).await?;
         let uri = if mode == "complete-conflict" {
             "/auth/complete-registration"
         } else {

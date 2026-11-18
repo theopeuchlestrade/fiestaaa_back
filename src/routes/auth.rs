@@ -1,10 +1,10 @@
 use actix_web::http::header::{CACHE_CONTROL, CONTENT_TYPE, PRAGMA};
 use actix_web::{HttpRequest, HttpResponse, Responder, post, web};
-use chrono::{DateTime, Duration as ChronoDuration, Utc};
 use log::{error, warn};
 use serde::Deserialize;
 use serde_json::json;
 use sqlx::{Error, PgPool, Row};
+use time::{Duration, OffsetDateTime};
 use uuid::Uuid;
 
 use crate::{
@@ -30,7 +30,7 @@ const AUTH_RESPONSE_HEADER: &str = "X-Fiestaaa-Auth-Response";
 #[derive(Debug, Clone, sqlx::FromRow)]
 struct PendingRegistrationRow {
     email: String,
-    verification_expires_at: DateTime<Utc>,
+    verification_expires_at: OffsetDateTime,
 }
 
 #[derive(Deserialize)]
@@ -598,7 +598,8 @@ pub async fn register(
 
     let verification_token = Uuid::new_v4().to_string();
     let verification_token_hash = sha256_hex(&verification_token);
-    let verification_expires_at = Utc::now() + ChronoDuration::hours(EMAIL_VERIFICATION_TTL_HOURS);
+    let verification_expires_at =
+        OffsetDateTime::now_utc() + Duration::hours(EMAIL_VERIFICATION_TTL_HOURS);
 
     let mut tx = match state.db.begin().await {
         Ok(value) => value,
@@ -828,7 +829,7 @@ pub async fn verify_email(
         });
     };
 
-    if pending.verification_expires_at < Utc::now() {
+    if pending.verification_expires_at < OffsetDateTime::now_utc() {
         let _ = sqlx::query(
             "DELETE FROM pending_registrations WHERE fiestaaa_email_matches(email_lookup_hash, $1)",
         )
@@ -967,7 +968,7 @@ pub async fn complete_registration(
         });
     };
 
-    if pending.verification_expires_at < Utc::now() {
+    if pending.verification_expires_at < OffsetDateTime::now_utc() {
         let _ = sqlx::query(
             "DELETE FROM pending_registrations WHERE fiestaaa_email_matches(email_lookup_hash, $1)",
         )
